@@ -386,9 +386,10 @@ local RT_API_GROUPS = {
         "C_Spell.GetSpellCharges", "C_Spell.GetSpellSubtext", "C_Spell.PickupSpell",
         "C_SpellBook.GetSpellBookItemInfo", "C_SpellBook.GetNumSpellBookSkillLines", "C_SpellBook.GetSpellBookSkillLineInfo",
         "C_SpellBook.IsSpellKnown" } },
-    { "Spells (old globals, fallbacks)", {
+    { "Spells (other versions, fallbacks)", {
         "GetSpellInfo", "GetSpellTexture", "GetSpellCooldown", "IsUsableSpell", "IsSpellInRange", "GetSpellSubtext",
-        "IsSpellKnown", "IsPlayerSpell", "GetSpellBookItemName", "PickupSpell" }, legacy = true },
+        "IsSpellKnown", "IsPlayerSpell", "GetSpellBookItemName", "PickupSpell",
+        "C_SpellActivationOverlay.IsSpellOverlayed", "IsSpellOverlayed" }, legacy = true },
     { "Items (C_ versions)", {
         "C_Item.GetItemInfo", "C_Item.GetItemInfoInstant", "C_Item.GetItemNameByID", "C_Item.GetItemIconByID",
         "C_Item.GetItemCount", "C_Item.GetItemCooldown", "C_Item.IsUsableItem", "C_Item.IsItemInRange",
@@ -425,6 +426,27 @@ local RT_API_GROUPS = {
         "Settings.KEYBINDINGS_CATEGORY_ID", "InterfaceOptions_AddCategory", "C_AddOns.GetAddOnMetadata", "GetAddOnMetadata",
         "C_AddOns.GetAddOnCPUUsage", "C_AddOns.GetAddOnMemoryUsage", "C_AddOnProfiler.GetAddOnMetric", "C_CVar.GetCVar",
         "C_Texture.GetAtlasInfo", "C_Texture.GetAtlasExists", "C_Texture.GetFilePathFromFileID" } },
+}
+
+-- APIs that may be missing on one client because the code has its own way round: the names that can stand in
+-- (one present is enough), or a note when the code simply does without. Only these are not flagged.
+local RT_COVERED = {
+    ["C_Spell.IsSpellOverlayed"] = { alt = { "C_SpellActivationOverlay.IsSpellOverlayed", "IsSpellOverlayed" } },
+    ["ActionButton_ShowOverlayGlow"] = { note = "the SpellPad draws its own gold glow" },
+    ["ActionButton_HideOverlayGlow"] = { note = "the SpellPad draws its own gold glow" },
+    ["HandleModifiedSpellClick"] = { alt = { "ChatFrameUtil.InsertLink", "ChatEdit_InsertLink" } },
+    ["C_ActionBar.PickupAction"] = { alt = { "PickupAction" } },
+    ["C_ActionBar.PlaceAction"] = { alt = { "PlaceAction" } },
+    ["C_UIDropDownMenu.CreateInfo"] = { alt = { "UIDropDownMenu_CreateInfo" } },
+    ["C_UIDropDownMenu.AddButton"] = { alt = { "UIDropDownMenu_AddButton" } },
+    ["C_EquipmentSet.GetEquipmentSetIDByName"] = { alt = { "C_EquipmentSet.GetEquipmentSetIDs" } },
+    ["GetNumEquipmentSets"] = { alt = { "C_EquipmentSet.GetEquipmentSetIDs" } },
+    ["GetEquipmentSetInfo"] = { alt = { "C_EquipmentSet.GetEquipmentSetInfo" } },
+    ["C_AddOns.GetAddOnCPUUsage"] = { alt = { "C_AddOnProfiler.GetAddOnMetric" } },
+    ["C_AddOns.GetAddOnMemoryUsage"] = { note = "/sps perf leaves the memory line out" },
+    ["InterfaceOptions_AddCategory"] = { alt = { "Settings.RegisterCanvasLayoutCategory" } },
+    ["GetAddOnMetadata"] = { alt = { "C_AddOns.GetAddOnMetadata" } },
+    ["C_Texture.GetFilePathFromFileID"] = { note = "icon names can't be searched (also true on Forever)" },
 }
 
 -- methods the addon calls on frames and textures; one throw-away object of each kind
@@ -846,9 +868,27 @@ function D.Retail(emit, arg)
             end
             E(string.format("%s: %d of %d present", g[1], total - #missing, total))
             if #missing > 0 then
-                RTWrapped(E, g.legacy and "    missing (fine if the C_ version exists): " or "    MISSING: ", missing)
-                if not g.legacy then
-                    attention[#attention + 1] = "API missing (" .. g[1] .. "): " .. table.concat(missing, ", ")
+                local open, covered = {}, {}
+                for _, name in ipairs(missing) do
+                    local c = RT_COVERED[name]
+                    local by
+                    if c and c.alt then
+                        for _, a in ipairs(c.alt) do
+                            if RTWalk(a) ~= nil then by = a break end
+                        end
+                    elseif c then
+                        by = c.note
+                    end
+                    if by then covered[#covered + 1] = name .. " (" .. by .. ")" else open[#open + 1] = name end
+                end
+                if #open > 0 then
+                    RTWrapped(E, g.legacy and "    missing (fine if the C_ version exists): " or "    MISSING: ", open)
+                    if not g.legacy then
+                        attention[#attention + 1] = "API missing (" .. g[1] .. "): " .. table.concat(open, ", ")
+                    end
+                end
+                if #covered > 0 then
+                    RTWrapped(E, "    missing, but the add-on has a way round it: ", covered)
                 end
             end
         end
@@ -1214,6 +1254,379 @@ function D.RetailSlash(arg)
     if SDB.CopyWindow and SDB.CopyWindow.Show then
         SDB.CopyWindow.Show("Retail Audit Report", table.concat(lines, "\n"))
         print("|cFFFFFF00[SpellPad Studio]|r Retail audit report ready (" .. #lines .. " lines). Press Ctrl+C in the window and paste it.")
+    else
+        for _, l in ipairs(lines) do print(l) end
+    end
+end
+
+-- ---------------------------------------------------------------
+-- /sps combat: what the game hides in a fight, and whether keys, SpellPad and page switching still work
+-- ---------------------------------------------------------------
+-- Run it while in combat (a training dummy is enough), or after a fight for the event log. Read-only.
+-- The report probes spells with C_Spell calls, tries every C_Secrets function, and lists the key
+-- bindings, protection state and the event log kept since login. `/sps combat reset` empties the log.
+
+D.combatLog = {}
+local CL_MAX = 80
+
+local function CLog(text)
+    local l = D.combatLog
+    l[#l + 1] = string.format("%7.1f s  %s", GetTime() - loadedAt, RTClean(text))
+    if #l > CL_MAX then table.remove(l, 1) end
+end
+
+local function CLState()
+    return string.format("lockdown=%s, SDB.inCombat=%s, page %s (manual %s)",
+        tostring(InCombatLockdown() and true or false), tostring(SDB.inCombat == true),
+        tostring(SDB.db and SDB.db.activePage), tostring(SDB.manualPage))
+end
+
+do
+    local f = CreateFrame("Frame")
+    for _, ev in ipairs({ "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED" }) do pcall(f.RegisterEvent, f, ev) end
+    pcall(f.RegisterUnitEvent, f, "UNIT_SPELLCAST_SUCCEEDED", "player")
+    f:SetScript("OnEvent", function(_, event, ...)
+        pcall(function(...)
+            if event == "PLAYER_REGEN_DISABLED" then
+                CLog("combat starts: " .. CLState())
+            elseif event == "PLAYER_REGEN_ENABLED" then
+                CLog("combat ends: " .. CLState())
+            else
+                local _, _, spellID = ...
+                if issecretvalue and issecretvalue(spellID) then
+                    CLog("your cast went through: spell id is secret")
+                else
+                    CLog("your cast went through: " .. tostring(RTSpellName(spellID) or "?") .. " (" .. tostring(spellID) .. ")")
+                end
+            end
+        end, ...)
+    end)
+end
+
+-- a card key was pressed (the key buttons' PostClick) and every ApplyBindings call that goes through SDB
+if SDB.KeyTest and SDB.KeyTest.Flash then
+    hooksecurefunc(SDB.KeyTest, "Flash", function(page, slot)
+        pcall(function()
+            local d = SDB.db and SDB.db.pages and SDB.db.pages[page] and SDB.db.pages[page][slot]
+            CLog(string.format("card key fired: page %s card %s, key %s, macro '%s', lockdown=%s", tostring(page), tostring(slot),
+                tostring(d and d.key), string.sub(strtrim(tostring(d and d.macro or "")), 1, 30),
+                tostring(InCombatLockdown() and true or false)))
+        end)
+    end)
+end
+if SDB.ApplyBindings then
+    hooksecurefunc(SDB, "ApplyBindings", function(opts)
+        pcall(function()
+            CLog("ApplyBindings called (keepPending=" .. tostring(type(opts) == "table" and opts.keepPending or false)
+                .. ", lockdown=" .. tostring(InCombatLockdown() and true or false) .. ")")
+        end)
+    end)
+end
+
+-- true when a value, or any field of a table, is a secret value
+local function CPAnySecret(v)
+    if issecretvalue and issecretvalue(v) then return true end
+    if type(v) == "table" then
+        if issecrettable and issecrettable(v) then return true end
+        for _, x in pairs(v) do
+            if issecretvalue and issecretvalue(x) then return true end
+        end
+    end
+    return false
+end
+
+-- calls fn and prints its results; returns ok, any secret, first result, second result
+local function CPCall(E, label, fn, ...)
+    if type(fn) ~= "function" then
+        E(string.format("  %-36s not available", label))
+        return false
+    end
+    local n, r = RTPack(pcall(fn, ...))
+    if not r[1] then
+        E(string.format("  %-36s ERROR: %s", label, RTFirstLine(r[2])))
+        return false
+    end
+    local out, secret = {}, false
+    for i = 2, n do
+        out[#out + 1] = RTDesc(r[i])
+        if CPAnySecret(r[i]) then secret = true end
+    end
+    if #out == 0 then out[1] = "(no value)" end
+    E(string.format("  %-36s %s", label, table.concat(out, " | ")))
+    return true, secret, r[2], r[3]
+end
+
+-- spells worth probing when the SpellPad has none of them: { id, label }
+local CP_EXTRA = {
+    { 5143, "Arcane Missiles" }, { 1953, "Blink" }, { 2139, "Counterspell" }, { 55342, "Mirror Image" },
+    { 30451, "Arcane Blast" }, { 44425, "Arcane Barrage" }, { 80353, "Time Warp" }, { 45438, "Ice Block" },
+    { 12051, "Evocation" }, { 122, "Frost Nova" }, { 116, "Frostbolt" }, { 133, "Fireball" },
+}
+
+local function CPSpells()
+    local list, seen = {}, {}
+    local function add(id, label)
+        if type(id) == "number" and not seen[id] and #list < 16 then
+            seen[id] = true
+            list[#list + 1] = { id = id, label = label }
+        end
+    end
+    add(61304, "global cooldown")
+    local mat = _G.GalleonBridgeMatrixFrame
+    if mat and mat.matrixButtons then
+        for i, btn in ipairs(mat.matrixButtons) do
+            if btn:IsShown() and btn.spellID then add(btn.spellID, "SpellPad button " .. i) end
+        end
+    end
+    for _, x in ipairs(CP_EXTRA) do
+        if RTSpellKnown(x[1]) then add(x[1], x[2]) end
+    end
+    return list
+end
+
+-- calls every function of C_Secrets (the game's own answers to "will this be hidden")
+local function CPSecretFunctions(E, spellID)
+    local sec = _G.C_Secrets
+    if type(sec) ~= "table" then
+        E("C_Secrets does not exist on this client.")
+        return
+    end
+    local names = {}
+    for k, v in pairs(sec) do
+        if type(k) == "string" and type(v) == "function" then names[#names + 1] = k end
+    end
+    table.sort(names)
+    E("")
+    E(#names .. " functions in C_Secrets. Each is called with a spell id, a unit or no argument, depending on its name.")
+    for _, name in ipairs(names) do
+        local fn = sec[name]
+        local variants
+        if string.find(name, "Spell") or string.find(name, "Cooldown") or string.find(name, "Aura") then
+            variants = { { spellID }, {} }
+        elseif string.find(name, "Unit") then
+            variants = { { "player" }, { "target" }, {} }
+        else
+            variants = { {} }
+        end
+        local printed, lastErr = 0, nil
+        for _, args in ipairs(variants) do
+            local n, r = RTPack(pcall(fn, unpack(args)))
+            if r[1] then
+                local out = {}
+                for i = 2, n do out[#out + 1] = RTDesc(r[i]) end
+                if #out == 0 then out[1] = "(no value)" end
+                E(string.format("  C_Secrets.%s(%s) -> %s", name, args[1] ~= nil and tostring(args[1]) or "", table.concat(out, " | ")))
+                printed = printed + 1
+                if not string.find(name, "Unit") then break end
+            else
+                lastErr = RTFirstLine(r[2])
+            end
+        end
+        if printed == 0 then E("  C_Secrets." .. name .. " ERROR: " .. tostring(lastErr)) end
+    end
+end
+
+function D.Combat(emit, arg)
+    local attention = {}
+    local function E(s) emit(RTClean(s)) end
+    local function Section(title, fn)
+        E("")
+        E("== " .. title .. " ==")
+        local ok, err = pcall(fn)
+        if not ok then
+            E("This section failed: " .. RTFirstLine(err))
+            attention[#attention + 1] = "Section '" .. title .. "' failed: " .. RTFirstLine(err)
+        end
+    end
+    local inCombat = InCombatLockdown() and true or false
+
+    E("Combat probe for SpellPad Studio. Nothing was changed.")
+    E("State now: " .. (inCombat and "IN COMBAT" or "out of combat") .. " (" .. CLState() .. ")")
+    if not inCombat then
+        E("You are not in combat, so the answers below are the out-of-combat ones. Run this again in a fight.")
+        attention[#attention + 1] = "Not in combat: run /sps combat again during a fight to see what the game hides."
+    end
+
+    Section("What the game hides (C_Spell answers per spell)", function()
+        E("A value named <secret ...> is hidden by the game; the SpellPad must never compare it or do maths on it.")
+        local csp = C_Spell or {}
+        local hasTarget = UnitExists and UnitExists("target")
+        E("Target: " .. (hasTarget and "yes" or "NO (range answers are empty without one)")
+            .. ", can attack: " .. RTDesc(UnitCanAttack and UnitCanAttack("player", "target")))
+        D.combatCD = D.combatCD or CreateFrame("Cooldown", "SDBCombatProbeCD", UIParent, "CooldownFrameTemplate")
+        D.combatCD:Hide()
+        D.combatTex = D.combatTex or UIParent:CreateTexture()
+        D.combatTex:Hide()
+        local cd, tex = D.combatCD, D.combatTex
+        local white = CreateColor and CreateColor(1, 1, 1) or nil
+        local red = CreateColor and CreateColor(1, 0.2, 0.2) or nil
+        local sum = { n = 0, cd = 0, dur = 0, range = 0, usable = 0, charges = 0, proc = 0 }
+        local list = CPSpells()
+        for _, s in ipairs(list) do
+            local id = s.id
+            sum.n = sum.n + 1
+            E(string.format("%s (spell %d, %s)", tostring(RTSpellName(id) or "?"), id, s.label))
+            local ok, sec = CPCall(E, "GetSpellCooldown", csp.GetSpellCooldown, id)
+            if ok and sec then sum.cd = sum.cd + 1 end
+            local okd, secd, dobj = CPCall(E, "GetSpellCooldownDuration", csp.GetSpellCooldownDuration, id)
+            if okd and secd then sum.dur = sum.dur + 1 end
+            if okd and dobj ~= nil and type(cd.SetCooldownFromDurationObject) == "function" then
+                local ok2, err2 = pcall(cd.SetCooldownFromDurationObject, cd, dobj, true)
+                E(string.format("  %-36s %s", "frame takes the duration object", ok2 and "yes" or ("ERROR: " .. RTFirstLine(err2))))
+                if not ok2 then attention[#attention + 1] = "A Cooldown frame refused the duration object of spell " .. id .. "." end
+            end
+            local oku, secu = CPCall(E, "IsSpellUsable", csp.IsSpellUsable, id)
+            if oku and secu then sum.usable = sum.usable + 1 end
+            local okr, secr, rv = CPCall(E, "IsSpellInRange(target)", csp.IsSpellInRange, id, "target")
+            if okr and secr then sum.range = sum.range + 1 end
+            if okr and white and type(tex.SetVertexColorFromBoolean) == "function" then
+                local okn, notNil = pcall(function() return rv ~= nil end)
+                if okn and notNil then
+                    local ok2, err2 = pcall(tex.SetVertexColorFromBoolean, tex, rv, white, red)
+                    E(string.format("  %-36s %s", "texture takes that range answer", ok2 and "yes" or ("ERROR: " .. RTFirstLine(err2))))
+                    if not ok2 then attention[#attention + 1] = "SetVertexColorFromBoolean refused the range answer of spell " .. id .. "." end
+                end
+            end
+            local okc, secc = CPCall(E, "GetSpellCharges", csp.GetSpellCharges, id)
+            if okc and secc then sum.charges = sum.charges + 1 end
+            local ovl = csp.IsSpellOverlayed or (C_SpellActivationOverlay and C_SpellActivationOverlay.IsSpellOverlayed)
+            local okp, secp = CPCall(E, "IsSpellOverlayed (proc glow)", ovl, id)
+            if okp and secp then sum.proc = sum.proc + 1 end
+        end
+        E("")
+        E(string.format("Summary, %s: of %d spells the game hid the cooldown info for %d, the duration object for %d, usability for %d, range for %d, charges for %d, the proc state for %d.",
+            inCombat and "in combat" or "out of combat", sum.n, sum.cd, sum.dur, sum.usable, sum.range, sum.charges, sum.proc))
+        CPSecretFunctions(E, list[1] and list[1].id or 61304)
+        E("")
+        if type(_G.C_Secrets) == "table" then
+            CPCall(E, "C_Secrets.HasSecretRestrictions()", _G.C_Secrets.HasSecretRestrictions)
+        end
+        if type(_G.C_RestrictedActions) == "table" and type(_G.C_RestrictedActions.GetAddOnRestrictionState) == "function"
+            and type(Enum) == "table" and type(Enum.AddOnRestrictionType) == "table" then
+            local names = {}
+            for k, v in pairs(Enum.AddOnRestrictionType) do names[#names + 1] = { k, v } end
+            table.sort(names, function(a, b) return tostring(a[2]) < tostring(b[2]) end)
+            for _, kv in ipairs(names) do
+                CPCall(E, "restriction state: " .. tostring(kv[1]), _G.C_RestrictedActions.GetAddOnRestrictionState, kv[2])
+            end
+        end
+    end)
+
+    Section("What the SpellPad drew (same as /sps pad)", function()
+        if SDB.MatrixState and SDB.MatrixState.Report then
+            SDB.MatrixState.Report(function(s) E(s) end)
+            if (SDB.MatrixState.errors or 0) > 0 then
+                attention[#attention + 1] = "The SpellPad updater has recorded " .. SDB.MatrixState.errors .. " error(s); last: " .. tostring(SDB.MatrixState.lastError)
+            end
+        else
+            E("MatrixState is not loaded.")
+        end
+    end)
+
+    Section("Card keys on the shown page", function()
+        local page = SDB.db and SDB.db.activePage
+        local cards = page and SDB.db.pages and SDB.db.pages[page]
+        if not cards then
+            E("No shown page.")
+            return
+        end
+        E(string.format("Page %s, %d cards. 'Bound to' is what the game says the key does right now.", tostring(page), #cards))
+        local shown = 0
+        for slot, d in ipairs(cards) do
+            local key = d.key and strtrim(d.key) ~= "" and string.upper(strtrim(d.key)) or nil
+            if key and shown < 24 then
+                shown = shown + 1
+                local bound = "?"
+                if GetBindingAction then
+                    local ok, a = pcall(GetBindingAction, key, true)
+                    bound = ok and tostring(a) or "ERROR"
+                end
+                local btn = SDB.secureButtons and SDB.secureButtons["GalleonSecBtn_P" .. page .. "_S" .. slot]
+                local live
+                if btn then
+                    local ok, t = pcall(btn.GetAttribute, btn, "macrotext")
+                    live = ok and (tostring(t or "") == tostring(d.macro or "") and "same as the card" or "DIFFERS from the card (not applied yet)") or "?"
+                else
+                    live = "no key button (!BIND or !PAGE or not applied)"
+                end
+                E(string.format("  card %2d  %-20s bound to %-36s live macro %s", slot, key, bound, live))
+            end
+        end
+        if shown == 0 then E("No card on this page has a key.") end
+        E("")
+        local win, pad, kl = SDB.configWindow, _G.GalleonBridgeMatrixFrame, SDB.keyListener
+        E("Key listener: shown=" .. RTDesc(kl and kl:IsShown()) .. ", keyboard=" .. RTDesc(kl and kl:IsKeyboardEnabled())
+            .. ", listening for: card key=" .. tostring(SDB.listeningSlot) .. ", prefix=" .. tostring(SDB.listeningForPrefix)
+            .. ", capture=" .. tostring(SDB.listeningCapture))
+        E("Main window: shown=" .. RTDesc(win and win:IsShown()) .. ", keyboard=" .. RTDesc(win and win:IsKeyboardEnabled())
+            .. ", protected=" .. RTDesc(win and win:IsProtected()))
+        E("SpellPad window: shown=" .. RTDesc(pad and pad:IsShown()) .. ", protected=" .. RTDesc(pad and pad:IsProtected()))
+        local bld = _G.GalleonSpellPadBuilderFrame
+        E("SpellPad Builder: shown=" .. RTDesc(bld and bld:IsShown()) .. ", keyboard=" .. RTDesc(bld and bld:IsKeyboardEnabled()))
+        if SDB.KeyGuard and SDB.KeyGuard.Report then
+            E("")
+            SDB.KeyGuard.Report(function(s) E(s) end)
+        end
+    end)
+
+    Section("Page switching", function()
+        E("Contextual page switching: " .. ((SDB.ctx and SDB.ctx.autoSwitchContext) and "on" or "off")
+            .. ", page set to In Combat: " .. tostring(SDB.CombatPageRule and SDB.CombatPageRule() or "none"))
+        local ct = SDB.combatTrace
+        if type(ct) == "table" then
+            local parts = {}
+            for k, v in pairs(ct) do parts[#parts + 1] = tostring(k) .. "=" .. tostring(v) end
+            table.sort(parts)
+            E("Last combat start seen by the page switcher: " .. table.concat(parts, ", "))
+        else
+            E("The page switcher has seen no combat start since login.")
+        end
+        if SDB.PageReport then
+            E("")
+            SDB.PageReport(function(s) E(s) end)
+        end
+    end)
+
+    Section("Event log since login (newest last, " .. #D.combatLog .. " entries)", function()
+        if #D.combatLog == 0 then
+            E("Nothing logged yet. Fight, press card keys and cast, then run /sps combat again.")
+        end
+        for _, l in ipairs(D.combatLog) do E("  " .. l) end
+    end)
+
+    Section("Blocked actions (taint log)", function()
+        if #D.blocked == 0 then
+            E("None logged for this add-on since it loaded (other add-ons: " .. D.blockedOthers .. ").")
+        else
+            for _, l in ipairs(D.blocked) do E("  " .. l) end
+            attention[#attention + 1] = #D.blocked .. " blocked-action event(s) logged for this add-on."
+        end
+    end)
+
+    E("")
+    E("== Needs attention ==")
+    if #attention == 0 then
+        E("Nothing was flagged.")
+    else
+        for i, a in ipairs(attention) do E(string.format("%2d. %s", i, a)) end
+    end
+    E("")
+    E("End of report. Press Ctrl+C in this window and paste the whole text.")
+end
+
+-- Opens the report in the copy window; works in combat (the box takes no typing focus there, use Select All).
+function D.CombatSlash(arg)
+    if string.lower(arg or "") == "reset" then
+        D.combatLog = {}
+        print("|cFF00FF00[SpellPad Studio]|r Combat event log emptied.")
+        return
+    end
+    local lines = {}
+    local ok, err = pcall(D.Combat, function(t) lines[#lines + 1] = tostring(t) end, arg)
+    if not ok then lines[#lines + 1] = "The report failed: " .. tostring(err) end
+    if SDB.CopyWindow and SDB.CopyWindow.Show then
+        SDB.CopyWindow.Show("Combat Probe Report", table.concat(lines, "\n"))
+        print("|cFFFFFF00[SpellPad Studio]|r Combat probe report ready (" .. #lines .. " lines). Press Ctrl+C in the window and paste it.")
     else
         for _, l in ipairs(lines) do print(l) end
     end

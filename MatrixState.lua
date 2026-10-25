@@ -313,6 +313,8 @@ local function ApplyProc(btn)
         local isProc
         if C_Spell and C_Spell.IsSpellOverlayed then
             isProc = C_Spell.IsSpellOverlayed(btn.spellID)
+        elseif C_SpellActivationOverlay and C_SpellActivationOverlay.IsSpellOverlayed then
+            isProc = C_SpellActivationOverlay.IsSpellOverlayed(btn.spellID)
         elseif IsSpellOverlayed then
             isProc = IsSpellOverlayed(btn.spellID)
         end

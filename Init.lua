@@ -1082,6 +1082,11 @@ local function HandleSlash(msg)
         SDB.Diag.RetailSlash(diagArg) -- long report: straight to the copy window, not echoed to chat
         return
     end
+    diagArg = Sub("combat")
+    if diagArg and SDB.Diag and SDB.Diag.CombatSlash then
+        SDB.Diag.CombatSlash(diagArg) -- nothing here builds a window, so it also works in combat
+        return
+    end
     local cmd = string.lower(strtrim(msg or ""))
     -- plain /sps (or toggle) builds the window through SDB.ToggleMainWindow, which refuses that in combat
     if SDB.BuildUI and cmd ~= "" and cmd ~= "toggle" then SDB.BuildUI() end

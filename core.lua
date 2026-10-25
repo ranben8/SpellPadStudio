@@ -361,11 +361,19 @@ local function EquipSetIcon(clean)
     local name = string.match(clean or "", "^/equipset%s+(.-)%s*$")
     if not name or name == "" then return nil end
     local ok, icon = pcall(function()
-        if C_EquipmentSet and C_EquipmentSet.GetEquipmentSetIDByName and C_EquipmentSet.GetEquipmentSetInfo then
-            local id = C_EquipmentSet.GetEquipmentSetIDByName(name)
+        local ES = C_EquipmentSet
+        if ES and ES.GetEquipmentSetIDByName and ES.GetEquipmentSetInfo then
+            local id = ES.GetEquipmentSetIDByName(name)
             if id then
-                local _, setIcon = C_EquipmentSet.GetEquipmentSetInfo(id)
+                local _, setIcon = ES.GetEquipmentSetInfo(id)
                 return setIcon
+            end
+        elseif ES and ES.GetEquipmentSetIDs and ES.GetEquipmentSetInfo then
+            -- retail has no lookup by name: walk the sets
+            local want = string.lower(name)
+            for _, id in ipairs(ES.GetEquipmentSetIDs()) do
+                local setName, setIcon = ES.GetEquipmentSetInfo(id)
+                if type(setName) == "string" and string.lower(setName) == want then return setIcon end
             end
         elseif GetEquipmentSetInfoByName then
             return (GetEquipmentSetInfoByName(name))

@@ -598,34 +598,23 @@ do
         if s ~= "" then known[s] = true end
     end
 
-    local function ScanList(list)
-        if type(list) ~= "table" then return end
-        for name in pairs(list) do
-            if type(name) == "string" then
-                local i = 1
-                while _G["SLASH_" .. name .. i] do
-                    AddCmd(_G["SLASH_" .. name .. i])
-                    i = i + 1
-                end
-            end
-        end
-    end
-
     local function BuildKnown()
         wipe(known)
         for w in string.gmatch(STATIC, "%S+") do known[w] = true end
-        ScanList(SlashCmdList)
-        ScanList(_G["SecureCmdList"])
         for _, hname in ipairs({ "hash_SlashCmdList", "hash_SecureCmdList" }) do
             local h = _G[hname]
             if type(h) == "table" then
                 for k in pairs(h) do AddCmd(k) end
             end
         end
-        local i = 1
-        while _G["EMOTE" .. i .. "_TOKEN"] do
-            for j = 1, 4 do AddCmd(_G["EMOTE" .. i .. "_CMD" .. j]) end
-            i = i + 1
+        -- Slash words and emotes are public globals (SLASH_CAST1, EMOTE12_CMD2) even when the tables that
+        -- hold their handlers are private to Blizzard's chat addon. Read the globals themselves: counting
+        -- up from EMOTE1 stops at the first number retail leaves out.
+        for k, v in pairs(_G) do
+            if type(k) == "string" and type(v) == "string" and string.sub(v, 1, 1) == "/"
+                and (string.find(k, "^SLASH_") or string.find(k, "^EMOTE%d+_CMD%d+$")) then
+                AddCmd(v)
+            end
         end
         knownBuilt = true
     end
