@@ -1565,7 +1565,7 @@ function SDB.BuildUI()
 
     local title = configWindow:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
     title:SetPoint("TOP", 0, -16)
-    title:SetText("|cFFFFD100SpellPad Studio|r |cFFFFFFFFForever|r") -- gold name, white "Forever" (explicit codes so it also holds in the classic style)
+    title:SetText("|cFFFFD100SpellPad Studio|r |c" .. SDB.Client.nameColor .. SDB.Client.name .. "|r") -- gold name, then the client name in its own colour (explicit codes so it also holds in the classic style)
 
     local xBtn = CreateFrame("Button", nil, configWindow, "UIPanelCloseButton")
     xBtn:SetPoint("TOPRIGHT", -6, -6)

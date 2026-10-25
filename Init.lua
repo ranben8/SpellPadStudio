@@ -22,6 +22,20 @@ print("|cFFFFFF00[SpellPad Studio]|r Loaded. Type /spellpad (or /sps).")
 -- -------------------------------------------------------------
 -- Small shared helpers (this file loads first, so every other file can use them)
 -- -------------------------------------------------------------
+-- Which game client this is. Use it for text and content only; test for an API directly where one exists.
+-- Without WOW_PROJECT_ID the client counts as Forever, which is what the addon was written for.
+do
+    local retail = WOW_PROJECT_MAINLINE ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+    local ok, _, _, _, interface = pcall(GetBuildInfo)
+    SDB.Client = {
+        isRetail = retail,
+        isForever = not retail,
+        interface = ok and tonumber(interface) or 0,
+        name = retail and "Midnight" or "Forever",
+        nameColor = retail and "FFA070FF" or "FFFFFFFF",
+    }
+end
+
 -- A "|" starts a colour code in a FontString or chat line; doubled it shows as one "|".
 function SDB.EscapePipes(text)
     return (string.gsub(tostring(text or ""), "|", "||"))

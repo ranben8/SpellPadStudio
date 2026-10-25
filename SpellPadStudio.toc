@@ -1,4 +1,4 @@
-## Interface: 16001
+## Interface: 120105, 16001
 ## Title: SpellPad Studio
 ## Notes: Keybind macro studio and on-screen button pad built for macro keypads and similar hardware.
 ## Author: blund

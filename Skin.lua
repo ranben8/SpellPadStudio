@@ -57,8 +57,9 @@ local PARCHMENT = "QuestBG-Parchment"
 -- ---------------------------------------------------------------
 -- Background insets of the four metal-frame styles. The bottom inset is 6, not Blizzard's 2: the bronze bottom
 -- edge sits roughly 3 to 10 units above the window's bottom, so a background ending at 2 stuck out below the
--- bronze line as a dark strip. At 6 the background ends behind the bronze line.
-local METAL_BG = { 6, -21, -2, 6 }
+-- bronze line as a dark strip. At 6 the background ends behind the bronze line. Retail draws the same frame
+-- about 2 units lower, so at 6 a strip of the world showed between the background and the bronze line; 3 closes it.
+local METAL_BG = { 6, -21, -2, (SDB.Client and SDB.Client.isRetail) and 3 or 6 }
 
 local STYLES = {
     marble    = { label = "Marble", layout = "metal", bg = "marble", bgPoints = METAL_BG, titleY = -6, closeX = 1, closeY = 0 },

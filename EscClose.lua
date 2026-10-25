@@ -123,6 +123,7 @@ end
 function E.Report(emit)
     emit = emit or function(t) print("|cFFFFFF00[SpellPad Studio]|r " .. t) end
     local function Say(t) emit(t) end
+    Say("Client: " .. SDB.Client.name .. ", interface " .. SDB.Client.interface)
     local focus = GetCurrentKeyBoardFocus and GetCurrentKeyBoardFocus()
     Say("Typing focus (an EditBox that swallows WASD/ESC): " .. (focus and (focus:GetName() or tostring(focus:GetObjectType()) .. " (unnamed)") or "none"))
     local cw = SDB.configWindow
