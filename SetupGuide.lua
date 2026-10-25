@@ -470,6 +470,21 @@ function G.WatchCard()
     end
 end
 
+-- Pages of a standard size (12, 15, 32, 36) have no stored shape and follow the profile's Horizontal/Vertical
+-- flag, so the guide's choice is kept there for the pages added later. Existing pages that follow the flag get
+-- their current shape stored first, so they keep their look when it changes.
+local function UseOrientation(vertical)
+    local want = vertical and "VERTICAL" or "HORIZONTAL"
+    if (SDB.db.matrixOrientation or "HORIZONTAL") == want then return end
+    for _, page in ipairs(SDB.db.pages) do
+        if not SDB.PageCols(page) then
+            local _, c = SDB.GetMatrixDimensions(#page, page)
+            SDB.SetPageCols(page, c)
+        end
+    end
+    SDB.db.matrixOrientation = want
+end
+
 -- Step 1's Next: gives page 1 the chosen size and shape. Returns false when it asked first or couldn't.
 function G.ApplyShape(confirmed)
     if InCombat() then
@@ -496,6 +511,7 @@ function G.ApplyShape(confirmed)
     end
 
     local pageChanged = SDB.db.activePage ~= 1
+    if not IsSquare(n) then UseOrientation(st.vertical) end -- a square grid looks the same either way
     if rebuild then
         if SDB.Snapshots then SDB.Snapshots.Take("Before Setup Guide", "page", { page = 1 }) end
         local deck = SDB.CreateBlankDeck(1, PrefixFor(p1), n)
@@ -505,6 +521,7 @@ function G.ApplyShape(confirmed)
         if SDB.Undo and SDB.Undo.ClearAll then SDB.Undo.ClearAll() end
     else
         SDB.SetPageCols(p1, cols)
+        SDB.db.deckSize = n
     end
     if pageChanged then
         SDB.manualPage = 1
