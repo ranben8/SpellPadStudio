@@ -1,0 +1,17 @@
+# Development files: kept on this computer, never uploaded.
+# Only what the addon needs to run (plus README and LICENSE) goes to GitHub.
+CLAUDE.md
+CurseForge-*
+reference/
+.claude/
+*.zip
+
+# Third-party library extras that the addon does not load
+libs/**/docs/
+libs/**/tests/
+libs/**/.github/
+libs/**/*.rockspec
+libs/**/CHANGELOG*
+libs/**/changelog*
+libs/**/.gitignore
+libs/**/.gitattributes

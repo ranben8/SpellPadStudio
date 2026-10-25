@@ -1,0 +1,2 @@
+# Keep every file byte-for-byte as it is on disk (the addon files use CRLF line endings).
+* -text

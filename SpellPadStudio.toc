@@ -1,0 +1,49 @@
+## Interface: 16001
+## Title: SpellPad Studio
+## Notes: Keybind macro studio and on-screen button pad built for macro keypads and similar hardware.
+## Author: blund
+## Version: 1.2.0
+## IconTexture: Interface\Icons\INV_Gizmo_02
+## Category: Action Bars
+## SavedVariables: GalleonBridgeDB
+## AddonCompartmentFunc: StreamDeckBridge_OnAddonCompartmentClick
+## AddonCompartmentIcon: Interface\Icons\INV_Gizmo_02
+## OptionalDeps: LibDeflate, LibSharedMedia-3.0
+
+libs\LibStub\LibStub.lua
+libs\LibDeflate\LibDeflate.lua
+
+Init.lua
+Core.lua
+Skin.lua
+Dock.lua
+Style.lua
+UI.lua
+CardUI.lua
+OptionsUI.lua
+Templates.lua
+MatrixPreview.lua
+MatrixState.lua
+Snapshots.lua
+Conditions.lua
+EscClose.lua
+KeyGuard.lua
+CopyWindow.lua
+DragKeep.lua
+PadPickup.lua
+Pending.lua
+KeyTest.lua
+CardActions.lua
+GameMacro.lua
+TextExport.lua
+SpellBrowser.lua
+MacroBuilder.lua
+Audit.lua
+ImportPreview.lua
+MacroFont.lua
+WindowToggle.lua
+Diagnostics.lua
+Help.lua
+SettingsPage.lua
+SetupGuide.lua
+Config.lua
