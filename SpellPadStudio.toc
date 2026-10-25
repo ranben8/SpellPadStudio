@@ -3,6 +3,7 @@
 ## Notes: Keybind macro studio and on-screen button pad built for macro keypads and similar hardware.
 ## Author: blund
 ## Version: 1.2.0
+## X-Curse-Project-ID: 1747177
 ## IconTexture: Interface\Icons\INV_Gizmo_02
 ## Category: Action Bars
 ## SavedVariables: GalleonBridgeDB

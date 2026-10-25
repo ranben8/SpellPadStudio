@@ -20,8 +20,22 @@ patch lands, update the first number; get the right one in game with
 
 ## Cutting the release
 
+Publishing is automatic: pushing a version tag runs `.github/workflows/release.yml`,
+which packages the addon and uploads it to CurseForge (project 1747177) and to a
+GitHub release. Pushing a branch uploads nothing.
+
     git tag v1.2.1
     git push origin v1.2.1
+
+- `v1.2.1` is a Release, `v1.2.1-beta1` a Beta, `v1.2.1-alpha1` an Alpha. Use a beta
+  tag first when unsure.
+- The workflow needs the repository secret `CF_API_KEY` (a CurseForge API token from
+  https://wow.curseforge.com/account/api-tokens). If an upload fails with 401/403,
+  the token was revoked or expired: make a new one and replace the secret.
+- Watch the run under the repository's Actions tab. A failed run can be fixed and
+  re-run by deleting the tag (`git push --delete origin v1.2.1`) and tagging again.
+- CurseForge may not know game version 16001 (Forever); if the log complains, that
+  number is the one to look at.
 
 The packager reads `.pkgmeta`: it builds a zip whose folder is `SpellPadStudio`,
 bundles `libs/`, and leaves out the development files (`tools/`, `docs/`,

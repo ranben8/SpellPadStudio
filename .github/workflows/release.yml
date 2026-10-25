@@ -1,0 +1,22 @@
+name: Package and release
+
+# Only a version tag publishes. Plain pushes upload nothing.
+# v1.2.1 = release, v1.2.1-beta1 = beta, v1.2.1-alpha1 = alpha.
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      CF_API_KEY: ${{ secrets.CF_API_KEY }}
+      GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: BigWigsMods/packager@v2
