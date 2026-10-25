@@ -321,7 +321,7 @@ SDB.MOVEMENT_COMMANDS = {
     { text = "Follow Target", macro = "/follow", icon = "Interface\\Icons\\Ability_Rogue_Sprint" },
     { text = "Stop Casting", macro = "/stopcasting", icon = "Interface\\Icons\\Spell_Nature_TimeStop" },
     { text = "Interact with Target", macro = "/interact", icon = "Interface\\Icons\\INV_Misc_Key_03" },
-    { text = "Dismount / Leave Vehicle", macro = "/dismount\n/leavevehicle", icon = "Interface\\Icons\\Ability_Mount_JungleTiger" },
+    { text = "Dismount / Leave Vehicle", macro = "/dismount\n/leavevehicle", icon = "Interface\\Vehicles\\UI-Vehicles-Button-Exit-Up" },
 }
 
 -- Keep only what this client has, so every menu, the card icons and the reports see the same lists.

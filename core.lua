@@ -524,6 +524,12 @@ function SDB.ResolveMacroAction(macroText, live)
     return nil, nil
 end
 
+-- Icons drawn with a margin around their art: { left, right, top, bottom } texture coordinates of the art, so they
+-- fill the icon frame like the spell icons do. The coordinates are read off a screenshot of the in-game size.
+local ICON_CROP = {
+    ["Interface\\Vehicles\\UI-Vehicles-Button-Exit-Up"] = { 0.145, 0.835, 0.15, 0.85 },
+}
+
 -- iconFrame.liveIcon (set on the SpellPad buttons) = follow the macro's [conditionals] right now and
 -- keep what the live parts of the SpellPad need (macro, custom icon, equipment slot, signature).
 -- Cards use the first alternative.
@@ -613,6 +619,9 @@ function SDB.UpdateSlotIconAndTooltip(iconFrame, macroText, customIcon)
     end
 
     iconFrame.texture:SetTexture(texture)
+    -- most icons fill their whole file; a few leave a transparent margin and are shown cropped to their art
+    local crop = ICON_CROP[texture]
+    if crop then iconFrame.texture:SetTexCoord(crop[1], crop[2], crop[3], crop[4]) else iconFrame.texture:SetTexCoord(0, 1, 0, 1) end
     iconFrame.spellID = spellID
     iconFrame.targetName = target
     iconFrame.invSlot = invSlot
