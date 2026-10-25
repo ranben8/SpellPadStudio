@@ -526,9 +526,24 @@ end
 
 -- Icons drawn with a margin around their art: { left, right, top, bottom } texture coordinates of the art, so they
 -- fill the icon frame like the spell icons do. The coordinates are read off a screenshot of the in-game size.
+local EXIT_ICON = "Interface\\Vehicles\\UI-Vehicles-Button-Exit-Up"
 local ICON_CROP = {
-    ["Interface\\Vehicles\\UI-Vehicles-Button-Exit-Up"] = { 0.145, 0.835, 0.15, 0.85 },
+    [EXIT_ICON] = { 0.145, 0.835, 0.15, 0.85 },
 }
+
+-- A macro whose action lines are all /dismount or /leavevehicle (any conditions, either order) gets the exit icon.
+local function IsExitMacro(text)
+    local found = false
+    for rawLine in string.gmatch(text or "", "[^\n]+") do
+        local line = strtrim(rawLine)
+        if line ~= "" and string.sub(line, 1, 1) ~= "#" then
+            local word = string.lower(string.match(line, "^/(%a+)") or "")
+            if word ~= "dismount" and word ~= "leavevehicle" then return false end
+            found = true
+        end
+    end
+    return found
+end
 
 -- iconFrame.liveIcon (set on the SpellPad buttons) = follow the macro's [conditionals] right now and
 -- keep what the live parts of the SpellPad need (macro, custom icon, equipment slot, signature).
@@ -610,6 +625,9 @@ function SDB.UpdateSlotIconAndTooltip(iconFrame, macroText, customIcon)
     -- 1c. Equipment set macro: the set's own icon
     elseif setIcon then
         texture = setIcon
+    -- 1d. /dismount and /leavevehicle on their own
+    elseif IsExitMacro(cleanMacro) then
+        texture = EXIT_ICON
     -- 2. Page navigation icon
     elseif actType == "page" then
         texture = "Interface\\Icons\\INV_Misc_Note_01"
