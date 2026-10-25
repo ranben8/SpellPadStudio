@@ -590,6 +590,22 @@ function SDB.RefreshMatrixGrid()
                     end
                 end
 
+                -- A "!BIND ACTION" card has no secure button of its own (its key is an override binding to the game's
+                -- action), so the click runs that action through RunBinding. Out of combat only: it runs from
+                -- addon code, where the game may block protected actions.
+                if sData and sData.macro then
+                    local bAct = string.match(strtrim(sData.macro), "^!BIND%s+(.+)")
+                    if bAct then
+                        if InCombatLockdown() then
+                            SDB.Chat("Can't run a key binding in combat.", "warn")
+                        elseif RunBinding then
+                            pcall(RunBinding, strtrim(bAct))
+                        else
+                            SDB.Chat("This client can't run a key binding from a click.", "warn")
+                        end
+                    end
+                end
+
                 -- Main window open (and out of combat): the click also selects the card, like a right
                 -- click does (gold border, list scrolls to it). The macro has already run. A search
                 -- filter that hides the card is left alone (right-click clears it, left-click does not).
