@@ -670,6 +670,8 @@ do
                 if ok and info then v = true end
             end
         end
+        -- a collected mount is cast by name but may not be found by the spell lookup above
+        if not v and SDB.MountDrop and SDB.MountDrop.InfoByName(name) then v = true end
         spellCache[name] = { v = v, t = now }
         return v
     end
@@ -5336,6 +5338,18 @@ function SDB.BuildUI()
                             if isSmartReplace then generatedMacro = string.gsub(existingMacro, SDB.DRAG_PLACEHOLDER, (string.gsub(spellName, "%%", "%%%%"))) else generatedMacro = "#showtooltip\n/cast " .. spellName end
                         end
 
+                    elseif cursorType == "mount" then
+                        -- a mount from the Collections journal is cast by its spell name, like any spell
+                        local mount = SDB.MountDrop and SDB.MountDrop.Resolve(arg1, arg2, arg3)
+                        if not mount then
+                            print("|cFFFF4444[SpellPad Studio]|r Couldn't read that mount, so the card was left as it was. Run /sps cursor while holding it.")
+                            if SDB.DragKeep then SDB.DragKeep.Release() else ClearCursor() end
+                        elseif isSmartReplace then
+                            generatedMacro = string.gsub(existingMacro, SDB.DRAG_PLACEHOLDER, (string.gsub(mount.castName, "%%", "%%%%")))
+                        else
+                            generatedMacro = "#showtooltip\n/cast " .. mount.castName
+                        end
+
                     elseif cursorType == "macro" then
                         -- A game macro is copied in as its own text: /click needs a frame name, not a macro
                         -- name, and a macro may not /click a button that runs another macro anyway.
@@ -5391,7 +5405,7 @@ function SDB.BuildUI()
                     else
                         SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Empty Card", "thing")
                     end
-                    SDB.Tip.Hint("Drag a spell, item or macro here.")
+                    SDB.Tip.Hint("Drag a spell, item, mount or macro here.")
                     SDB.Tip.Hint("Right-click for the card menu.")
                     SDB.Tip.Hint("Double-click to change the icon.")
                     SDB.Tip.Done()

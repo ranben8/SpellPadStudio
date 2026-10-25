@@ -31,7 +31,7 @@ H.COMMANDS = {
     { "skin", "list the window styles; \"skin <name>\" changes the style" },
     { "keytest", "write each key press into the chat (to check what your hardware sends)" },
 }
-H.DIAGNOSTICS = "perf, syntax, ranks, pad, padprobe, macros, builder, keyscan, retail, combat, ui, keys, mods, drag, dock, pending, watch, page, templates, merge"
+H.DIAGNOSTICS = "perf, syntax, ranks, pad, padprobe, cursor, macros, builder, keyscan, retail, combat, ui, keys, mods, drag, dock, pending, watch, page, templates, merge"
 
 function H.Show(unknown)
     if unknown and unknown ~= "" then
@@ -41,7 +41,17 @@ function H.Show(unknown)
     for _, c in ipairs(H.COMMANDS) do
         print("  |cFFFFD100/spellpad" .. (c[1] ~= "" and (" " .. c[1]) or "") .. "|r - " .. c[2])
     end
-    print("  |cFF888888Troubleshooting reports: " .. H.DIAGNOSTICS .. " (e.g. /spellpad perf).|r")
+    -- chat lines are cut near 255 characters, so the word list is printed in short lines
+    print("  |cFF888888Troubleshooting reports (e.g. /spellpad perf):|r")
+    local line = ""
+    for word in string.gmatch(H.DIAGNOSTICS, "[^,%s]+") do
+        if #line + #word > 70 then
+            print("  |cFF888888" .. line .. "|r")
+            line = ""
+        end
+        line = line .. (line == "" and "" or ", ") .. word
+    end
+    if line ~= "" then print("  |cFF888888" .. line .. "|r") end
 end
 
 -- ---------------------------------------------------------------

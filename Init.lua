@@ -1030,6 +1030,7 @@ local WORD_REPORTS = {
     pending = { "Pending Changes Report", function() return SDB.Pending and SDB.Pending.Report end, true },
     dock = { "Window Dock Report", function() return SDB.Dock and SDB.Dock.Report end, true },
     keys = { "Key Report", function() return SDB.Esc and SDB.Esc.Report end, true },
+    cursor = { "Cursor Report", function() return SDB.MountDrop and SDB.MountDrop.Report end, true },
 }
 
 -- Words that take the rest of the line (original case): word -> { window title, function(emit, rest) or nil when its

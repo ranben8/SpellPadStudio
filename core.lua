@@ -557,6 +557,10 @@ function SDB.UpdateSlotIconAndTooltip(iconFrame, macroText, customIcon)
             stdTexture = GetInventoryItemTexture and GetInventoryItemTexture("player", slotNum) or nil
         else
             local spellInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(target)
+            if not spellInfo and SDB.MountDrop then
+                local mount = SDB.MountDrop.InfoByName(target)
+                if mount then spellInfo = { iconID = mount.icon, spellID = mount.spellID } end
+            end
             if spellInfo then
                 stdTexture = spellInfo.iconID
                 spellID = spellInfo.spellID
