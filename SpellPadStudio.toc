@@ -14,7 +14,7 @@ libs\LibStub\LibStub.lua
 libs\LibDeflate\LibDeflate.lua
 
 Init.lua
-Core.lua
+core.lua
 Skin.lua
 Dock.lua
 Style.lua

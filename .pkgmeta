@@ -1,0 +1,11 @@
+package-as: SpellPadStudio
+
+ignore:
+  - CLAUDE.md
+  - CurseForge-*
+  - README.md
+  - reference
+  - tools
+  - docs
+  - RELEASING.md
+  - .claude
