@@ -1077,6 +1077,11 @@ local function HandleSlash(msg)
         SDB.UI.Slash(diagArg) -- shared UI parts report; works without the main window
         return
     end
+    diagArg = Sub("retail")
+    if diagArg and SDB.Diag and SDB.Diag.RetailSlash then
+        SDB.Diag.RetailSlash(diagArg) -- long report: straight to the copy window, not echoed to chat
+        return
+    end
     local cmd = string.lower(strtrim(msg or ""))
     -- plain /sps (or toggle) builds the window through SDB.ToggleMainWindow, which refuses that in combat
     if SDB.BuildUI and cmd ~= "" and cmd ~= "toggle" then SDB.BuildUI() end

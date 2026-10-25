@@ -31,7 +31,7 @@ H.COMMANDS = {
     { "skin", "list the window styles; \"skin <name>\" changes the style" },
     { "keytest", "write each key press into the chat (to check what your hardware sends)" },
 }
-H.DIAGNOSTICS = "perf, syntax, ranks, pad, padprobe, macros, builder, keyscan, ui, keys, mods, drag, dock, pending, watch, page, templates, merge"
+H.DIAGNOSTICS = "perf, syntax, ranks, pad, padprobe, macros, builder, keyscan, retail, ui, keys, mods, drag, dock, pending, watch, page, templates, merge"
 
 function H.Show(unknown)
     if unknown and unknown ~= "" then
