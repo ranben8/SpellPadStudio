@@ -186,6 +186,9 @@ end
 -- Class menu. Level 1: your class, then "Browse other classes".
 -- ---------------------------------------------------------------
 T.CLASS_ORDER = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID" }
+if SDB.Client.isRetail then
+    for _, cf in ipairs({ "DEATHKNIGHT", "DEMONHUNTER", "MONK", "EVOKER" }) do T.CLASS_ORDER[#T.CLASS_ORDER + 1] = cf end
+end
 
 local function ClassLabel(cf)
     local name = (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[cf]) or cf
@@ -260,16 +263,25 @@ local function Cast(text, cond, id)
     return { text = text, macro = "#showtooltip\n/cast " .. cond .. " {s1}", spells = { id } }
 end
 
+-- Tags an entry for one client only (see SDB.ForClient); the lists are filtered after they are defined.
+local function Only(client, entry)
+    entry.client = client
+    return entry
+end
+
 T.CLASS = {
     WARRIOR = {
-        { text = "Interrupt (Pummel / Shield Bash)", macro = "#showtooltip\n/cast [stance:3] {s1}; [stance:1/2] {s2}", spells = { 6552, 72 } },
-        { text = "Charge / Intercept", macro = "#showtooltip\n/cast [stance:1] {s1}; [stance:3] {s2}", spells = { 100, 20252 } },
+        Only("forever", { text = "Interrupt (Pummel / Shield Bash)", macro = "#showtooltip\n/cast [stance:3] {s1}; [stance:1/2] {s2}", spells = { 6552, 72 } }),
+        Only("retail", Cast("Pummel (Focus / Target)", FOCUSKICK, 6552)),
+        Only("forever", { text = "Charge / Intercept", macro = "#showtooltip\n/cast [stance:1] {s1}; [stance:3] {s2}", spells = { 100, 20252 } }),
+        Only("retail", { text = "Charge / Intercept", macro = "#showtooltip\n/cast [combat] {s2}; {s1}", spells = { 100, 198304 } }),
         Cast("Mouseover Taunt", HARM, 355),
-        { text = "Stance Swap (Defensive / Battle)", macro = "#showtooltip\n/cast [stance:2] {s2}; {s1}", spells = { 71, 2457 } },
+        Only("forever", { text = "Stance Swap (Defensive / Battle)", macro = "#showtooltip\n/cast [stance:2] {s2}; {s1}", spells = { 71, 2457 } }),
         { text = "Battle Shout", macro = "#showtooltip\n/cast {s1}", spells = { 6673 } },
     },
     PALADIN = {
-        Cast("Mouseover Holy Light", HEAL, 635),
+        Only("forever", Cast("Mouseover Holy Light", HEAL, 635)),
+        Only("retail", Cast("Mouseover Holy Light", HEAL, 82326)),
         Cast("Mouseover Flash of Light", HEAL, 19750),
         Cast("Mouseover Cleanse", HEAL, 4987),
         Cast("Mouseover Redemption", REZ, 7328),
@@ -281,7 +293,8 @@ T.CLASS = {
         { text = "Call / Revive Pet", macro = "#showtooltip\n/cast [@pet,dead] {s2}; [nopet] {s1}", spells = { 883, 982 } },
         { text = "Mend Pet", macro = "#showtooltip\n/cast {s1}", spells = { 136 } },
         { text = "Feign Death", macro = "#showtooltip\n/cast {s1}", spells = { 5384 } },
-        { text = "Aspect (Hawk in combat / Cheetah)", macro = "#showtooltip\n/cast [nocombat] {s2}; {s1}", spells = { 13165, 5118 } },
+        Only("forever", { text = "Aspect (Hawk in combat / Cheetah)", macro = "#showtooltip\n/cast [nocombat] {s2}; {s1}", spells = { 13165, 5118 } }),
+        Only("retail", { text = "Aspect of the Cheetah / Turtle (in combat)", macro = "#showtooltip\n/cast [nocombat] {s1}; {s2}", spells = { 186257, 186265 } }),
         Cast("Mouseover Concussive Shot", HARM, 5116),
     },
     ROGUE = {
@@ -295,14 +308,18 @@ T.CLASS = {
         Cast("Mouseover Flash Heal", HEAL, 2061),
         Cast("Mouseover Renew", HEAL, 139),
         Cast("Mouseover Power Word: Shield", HEAL, 17),
-        Cast("Mouseover Power Word: Fortitude", HEAL, 1243),
-        Cast("Dispel Magic (Mouseover / Target)", "[@mouseover,exists,nodead][]", 527),
+        Only("forever", Cast("Mouseover Power Word: Fortitude", HEAL, 1243)),
+        Only("retail", Cast("Mouseover Power Word: Fortitude", HEAL, 21562)),
+        Only("forever", Cast("Dispel Magic (Mouseover / Target)", "[@mouseover,exists,nodead][]", 527)),
+        Only("retail", Cast("Dispel Magic (Mouseover / Target)", "[@mouseover,exists,nodead][]", 528)),
         Cast("Mouseover Resurrection", REZ, 2006),
         { text = "Fade", macro = "#showtooltip\n/cast {s1}", spells = { 586 } },
     },
     SHAMAN = {
-        Cast("Mouseover Healing Wave", HEAL, 331),
-        Cast("Mouseover Lesser Healing Wave", HEAL, 8004),
+        Only("forever", Cast("Mouseover Healing Wave", HEAL, 331)),
+        Only("retail", Cast("Mouseover Healing Wave", HEAL, 77472)),
+        Only("forever", Cast("Mouseover Lesser Healing Wave", HEAL, 8004)),
+        Only("retail", Cast("Mouseover Healing Surge", HEAL, 8004)),
         Cast("Mouseover Chain Heal", HEAL, 1064),
         Cast("Earth Shock Interrupt (Focus / Target)", FOCUSKICK, 8042),
         Cast("Mouseover Purge", HARM, 370),
@@ -319,22 +336,64 @@ T.CLASS = {
     WARLOCK = {
         Cast("Mouseover Fear", HARM, 5782),
         Cast("Mouseover Banish", HARM, 710),
-        Cast("Mouseover Curse of Agony", HARM, 980),
+        Only("forever", Cast("Mouseover Curse of Agony", HARM, 980)),
+        Only("retail", Cast("Mouseover Agony", HARM, 980)),
         { text = "Life Tap", macro = "#showtooltip\n/cast {s1}", spells = { 1454 } },
         { text = "Pet Attack", macro = "/petattack", icon = PET_ATTACK_TEXTURE or "Interface\\Icons\\Ability_GhoulFrenzy" },
-        Cast("Mouseover Soulstone", HEAL, 693),
+        Only("forever", Cast("Mouseover Soulstone", HEAL, 693)),
+        Only("retail", Cast("Mouseover Soulstone", HEAL, 20707)),
     },
     DRUID = {
-        Cast("Mouseover Healing Touch", HEAL, 5185),
+        Only("forever", Cast("Mouseover Healing Touch", HEAL, 5185)),
         Cast("Mouseover Rejuvenation", HEAL, 774),
         Cast("Mouseover Regrowth", HEAL, 8936),
-        Cast("Mouseover Remove Curse", HEAL, 2782),
+        Only("forever", Cast("Mouseover Remove Curse", HEAL, 2782)),
+        Only("retail", Cast("Mouseover Remove Corruption", HEAL, 2782)),
         Cast("Mouseover Rebirth", REZ, 20484),
         Cast("Mouseover Mark of the Wild", HEAL, 1126),
         { text = "Bear Form (toggle)", macro = "#showtooltip\n/cast [noform] {s1}\n/cancelform [form]", spells = { 5487 } },
         { text = "Cat Form (toggle)", macro = "#showtooltip\n/cast [noform] {s1}\n/cancelform [form]", spells = { 768 } },
     },
 }
+
+-- Classes that only exist on retail.
+if SDB.Client.isRetail then
+    local function Plain(text, id) return { text = text, macro = "#showtooltip\n/cast {s1}", spells = { id } } end
+    T.CLASS.DEATHKNIGHT = {
+        Cast("Mind Freeze (Focus / Target)", FOCUSKICK, 47528),
+        Cast("Mouseover Death Grip", HARM, 49576),
+        Cast("Mouseover Asphyxiate", HARM, 221562),
+        Cast("Mouseover Raise Ally", REZ, 61999),
+        Plain("Anti-Magic Shell", 48707),
+        Plain("Death's Advance", 48265),
+    }
+    T.CLASS.DEMONHUNTER = {
+        Cast("Disrupt (Focus / Target)", FOCUSKICK, 183752),
+        Cast("Mouseover Imprison", HARM, 217832),
+        Cast("Mouseover Consume Magic", HARM, 278326),
+        Plain("Fel Rush", 195072),
+        Plain("Darkness", 196718),
+    }
+    T.CLASS.MONK = {
+        Cast("Spear Hand Strike (Focus / Target)", FOCUSKICK, 116705),
+        Cast("Mouseover Paralysis", HARM, 115078),
+        Cast("Mouseover Detox", HEAL, 115450),
+        Cast("Mouseover Resuscitate", REZ, 115178),
+        Cast("Mouseover Provoke", HARM, 115546),
+        Plain("Leg Sweep", 119381),
+        Plain("Roll", 109132),
+    }
+    T.CLASS.EVOKER = {
+        Cast("Quell (Focus / Target)", FOCUSKICK, 351338),
+        Cast("Mouseover Cauterizing Flame", HEAL, 374251),
+        Cast("Mouseover Expunge", HEAL, 365585),
+        Cast("Mouseover Naturalize", HEAL, 360823),
+        Cast("Mouseover Emerald Blossom", HEAL, 355913),
+        Cast("Mouseover Living Flame", HEAL, 361469),
+        Cast("Mouseover Return", REZ, 361227),
+        Plain("Hover", 358267),
+    }
+end
 
 -- Consumables use the "best first" pattern: one /use line per rank, highest first.
 -- Missing items are skipped by the game; at most one potion fires per press (shared cooldown).
@@ -352,22 +411,22 @@ local function UseItem(text, id, name)
 end
 
 T.CONSUMABLES = {
-    BestFirst("Healing Potion (best first)", "", {
+    Only("forever", BestFirst("Healing Potion (best first)", "", {
         { 13446, "Major Healing Potion" }, { 3928, "Superior Healing Potion" }, { 1710, "Greater Healing Potion" },
-        { 929, "Healing Potion" }, { 858, "Lesser Healing Potion" }, { 118, "Minor Healing Potion" } }),
-    BestFirst("Mana Potion (best first)", "", {
+        { 929, "Healing Potion" }, { 858, "Lesser Healing Potion" }, { 118, "Minor Healing Potion" } })),
+    Only("forever", BestFirst("Mana Potion (best first)", "", {
         { 13444, "Major Mana Potion" }, { 13443, "Superior Mana Potion" }, { 6149, "Greater Mana Potion" },
-        { 3827, "Mana Potion" }, { 3385, "Lesser Mana Potion" }, { 2455, "Minor Mana Potion" } }),
-    BestFirst("Healthstone (best first)", "", {
+        { 3827, "Mana Potion" }, { 3385, "Lesser Mana Potion" }, { 2455, "Minor Mana Potion" } })),
+    Only("forever", BestFirst("Healthstone (best first)", "", {
         { 9421, "Major Healthstone" }, { 5510, "Greater Healthstone" }, { 5509, "Healthstone" },
-        { 5511, "Lesser Healthstone" }, { 5512, "Minor Healthstone" } }),
-    BestFirst("Bandage on Self (best first)", "[@player] ", {
+        { 5511, "Lesser Healthstone" }, { 5512, "Minor Healthstone" } })),
+    Only("forever", BestFirst("Bandage on Self (best first)", "[@player] ", {
         { 14530, "Heavy Runecloth Bandage" }, { 14529, "Runecloth Bandage" },
-        { 8545, "Heavy Mageweave Bandage" }, { 8544, "Mageweave Bandage" } }),
+        { 8545, "Heavy Mageweave Bandage" }, { 8544, "Mageweave Bandage" } })),
 }
 
 T.RAID_PREP = {
-    { name = "Flasks & Elixirs", entries = {
+    { name = "Flasks & Elixirs", client = "forever", entries = {
         UseItem(nil, 13510, "Flask of the Titans"),
         UseItem(nil, 13512, "Flask of Supreme Power"),
         UseItem(nil, 13511, "Flask of Distilled Wisdom"),
@@ -375,7 +434,7 @@ T.RAID_PREP = {
         UseItem(nil, 9206, "Elixir of Giants"),
         UseItem(nil, 13454, "Greater Arcane Elixir"),
     } },
-    { name = "Protection Potions", entries = {
+    { name = "Protection Potions", client = "forever", entries = {
         UseItem(nil, 13457, "Greater Fire Protection Potion"),
         UseItem(nil, 13456, "Greater Frost Protection Potion"),
         UseItem(nil, 13458, "Greater Nature Protection Potion"),
@@ -383,7 +442,7 @@ T.RAID_PREP = {
         UseItem(nil, 13461, "Greater Arcane Protection Potion"),
         UseItem(nil, 5634, "Free Action Potion"),
     } },
-    { name = "Food & Buffs", entries = {
+    { name = "Food & Buffs", client = "forever", entries = {
         UseItem(nil, 20452, "Smoked Desert Dumplings"),
         UseItem(nil, 18045, "Tender Wolf Steak"),
         UseItem(nil, 13928, "Grilled Squid"),
@@ -417,7 +476,53 @@ T.TRAVEL = {
     Spell("Portal: Orgrimmar", 11417, "MAGE", "Horde"),
     Spell("Portal: Undercity", 11418, "MAGE", "Horde"),
     Spell("Portal: Thunder Bluff", 11420, "MAGE", "Horde"),
+    Only("retail", Spell("Teleport: Exodar", 32271, "MAGE", "Alliance")),
+    Only("retail", Spell("Teleport: Theramore", 49359, "MAGE", "Alliance")),
+    Only("retail", Spell("Teleport: Silvermoon (Burning Crusade)", 32272, "MAGE", "Horde")),
+    Only("retail", Spell("Teleport: Stonard", 49358, "MAGE", "Horde")),
+    Only("retail", Spell("Teleport: Shattrath", 33690, "MAGE", "Alliance")),
+    Only("retail", Spell("Teleport: Shattrath", 35715, "MAGE", "Horde")),
+    Only("retail", Spell("Teleport: Dalaran - Northrend", 53140, "MAGE", nil)),
+    Only("retail", Spell("Teleport: Tol Barad", 88342, "MAGE", "Alliance")),
+    Only("retail", Spell("Teleport: Tol Barad", 88344, "MAGE", "Horde")),
+    Only("retail", Spell("Teleport: Vale of Eternal Blossoms", 132621, "MAGE", "Alliance")),
+    Only("retail", Spell("Teleport: Vale of Eternal Blossoms", 132627, "MAGE", "Horde")),
+    Only("retail", Spell("Teleport: Stormshield", 176248, "MAGE", "Alliance")),
+    Only("retail", Spell("Teleport: Warspear", 176242, "MAGE", "Horde")),
+    Only("retail", Spell("Teleport: Dalaran - Broken Isles", 224869, "MAGE", nil)),
+    Only("retail", Spell("Teleport: Boralus", 281403, "MAGE", "Alliance")),
+    Only("retail", Spell("Teleport: Dazar'alor", 281404, "MAGE", "Horde")),
+    Only("retail", Spell("Teleport: Oribos", 344587, "MAGE", nil)),
+    Only("retail", Spell("Teleport: Valdrakken", 395277, "MAGE", nil)),
+    Only("retail", Spell("Teleport: Dornogal", 446540, "MAGE", nil)),
+    Only("retail", Spell("Portal: Exodar", 32266, "MAGE", "Alliance")),
+    Only("retail", Spell("Portal: Theramore", 49360, "MAGE", "Alliance")),
+    Only("retail", Spell("Portal: Silvermoon (Burning Crusade)", 32267, "MAGE", "Horde")),
+    Only("retail", Spell("Portal: Stonard", 49361, "MAGE", "Horde")),
+    Only("retail", Spell("Portal: Shattrath", 33691, "MAGE", "Alliance")),
+    Only("retail", Spell("Portal: Shattrath", 35717, "MAGE", "Horde")),
+    Only("retail", Spell("Portal: Dalaran - Northrend", 53142, "MAGE", nil)),
+    Only("retail", Spell("Portal: Tol Barad", 88345, "MAGE", "Alliance")),
+    Only("retail", Spell("Portal: Tol Barad", 88346, "MAGE", "Horde")),
+    Only("retail", Spell("Portal: Vale of Eternal Blossoms", 132620, "MAGE", "Alliance")),
+    Only("retail", Spell("Portal: Vale of Eternal Blossoms", 132626, "MAGE", "Horde")),
+    Only("retail", Spell("Portal: Stormshield", 176246, "MAGE", "Alliance")),
+    Only("retail", Spell("Portal: Warspear", 176244, "MAGE", "Horde")),
+    Only("retail", Spell("Portal: Dalaran - Broken Isles", 224871, "MAGE", nil)),
+    Only("retail", Spell("Portal: Boralus", 281400, "MAGE", "Alliance")),
+    Only("retail", Spell("Portal: Dazar'alor", 281402, "MAGE", "Horde")),
+    Only("retail", Spell("Portal: Oribos", 344597, "MAGE", nil)),
+    Only("retail", Spell("Portal: Valdrakken", 395289, "MAGE", nil)),
+    Only("retail", Spell("Portal: Dornogal", 446534, "MAGE", nil)),
+    Only("retail", Spell("Teleport: Silvermoon City", 1259190, "MAGE")),
+    Only("retail", Spell("Portal: Silvermoon City", 1259194, "MAGE")),
 }
+
+-- Classic-era consumables and class entries are for Forever only; each client keeps its own entries.
+for cf, list in pairs(T.CLASS) do T.CLASS[cf] = SDB.ForClient(list) end
+T.CONSUMABLES = SDB.ForClient(T.CONSUMABLES)
+T.RAID_PREP = SDB.ForClient(T.RAID_PREP)
+T.TRAVEL = SDB.ForClient(T.TRAVEL)
 
 -- /sps templates: lists every entry whose spell ID didn't resolve (for checking IDs in game).
 function T.ReportUnresolved()

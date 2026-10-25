@@ -1249,14 +1249,172 @@ end
 -- Opens the report in the copy window without echoing every line to chat (it has several hundred).
 function D.RetailSlash(arg)
     local lines = {}
-    local ok, err = pcall(D.Retail, function(t) lines[#lines + 1] = tostring(t) end, arg)
+    local run, title = D.Retail, "Retail Audit Report"
+    if string.find(arg or "", "^%s*find") then return D.RetailFind(arg) end
+    if string.find(arg or "", "^%s*ids") then run, title = D.RetailIds, "Retail ID Check" end
+    local ok, err = pcall(run, function(t) lines[#lines + 1] = tostring(t) end, arg)
     if not ok then lines[#lines + 1] = "The report failed: " .. tostring(err) end
     if SDB.CopyWindow and SDB.CopyWindow.Show then
-        SDB.CopyWindow.Show("Retail Audit Report", table.concat(lines, "\n"))
-        print("|cFFFFFF00[SpellPad Studio]|r Retail audit report ready (" .. #lines .. " lines). Press Ctrl+C in the window and paste it.")
+        SDB.CopyWindow.Show(title, table.concat(lines, "\n"))
+        print("|cFFFFFF00[SpellPad Studio]|r " .. title .. " ready (" .. #lines .. " lines). Press Ctrl+C in the window and paste it.")
     else
         for _, l in ipairs(lines) do print(l) end
     end
+end
+
+-- ---------------------------------------------------------------
+-- /sps retail ids: do these spell and item IDs exist on this client, and what are they called?
+-- ---------------------------------------------------------------
+-- Used to pick retail template IDs from real data. Spells show whether this character knows them;
+-- items need a second run (the game loads item data in the background). Extra IDs can be added
+-- after the word: /sps retail ids i241322 s2139 (i = item, s = spell).
+
+local ID_CANDIDATES = {
+    { "WARRIOR", "s", 6552, 100, 355, 6673, 198304, 386164, 386208, 386196, 72, 20252, 2457 },
+    { "PALADIN", "s", 82326, 19750, 4987, 213644, 7328, 1022, 853, 635 },
+    { "HUNTER", "s", 186257, 186265, 883, 982, 136, 5384, 257284, 5116, 13165, 5118 },
+    { "PRIEST", "s", 21562, 528, 527, 2061, 139, 17, 2006, 586, 1243 },
+    { "SHAMAN", "s", 77472, 8004, 1064, 57994, 370, 2008, 2645, 51886, 77130, 331 },
+    { "WARLOCK", "s", 20707, 5782, 710, 980, 693 },
+    { "DRUID", "s", 5185, 774, 8936, 2782, 20484, 1126, 5487, 768, 783 },
+    { "MAGE", "s", 2139, 118, 475, 1459, 12051 },
+    { "DEATHKNIGHT", "s", 49576, 47528, 43265, 48707, 61999, 48265, 48792, 221562 },
+    { "DEMONHUNTER", "s", 183752, 191427, 187827, 217832, 278326, 188501, 195072, 196718 },
+    { "MONK", "s", 116705, 115078, 115450, 109132, 322109, 115178, 119381, 115546, 101643 },
+    { "EVOKER", "s", 351338, 358267, 370665, 374251, 361227, 355913, 361469, 357208, 365585, 360823 },
+    { "ITEMS", "i", 5512, 241322, 241323, 245933 },
+}
+
+function D.RetailIds(emit, arg)
+    emit("SpellPad Studio retail ID check")
+    emit("Client: " .. tostring(SDB.Client and SDB.Client.name) .. ", build " .. tostring(select(4, GetBuildInfo())))
+    local _, myClass = UnitClass("player")
+    emit("Your class: " .. tostring(myClass))
+    emit("Spells show their name, and 'known' when this character has them. Items show their name once loaded (run again if blank).")
+
+    local function spellName(id)
+        local n
+        if C_Spell and C_Spell.GetSpellInfo then
+            local ok, info = pcall(C_Spell.GetSpellInfo, id)
+            if ok and type(info) == "table" then n = info.name end
+        end
+        if not n and GetSpellInfo then
+            local ok, name = pcall(GetSpellInfo, id)
+            if ok then n = name end
+        end
+        return n
+    end
+
+    local function known(id)
+        if IsPlayerSpell then
+            local ok, r = pcall(IsPlayerSpell, id)
+            if ok then return r and true or false end
+        end
+        if C_SpellBook and C_SpellBook.IsSpellKnown then
+            local ok, r = pcall(C_SpellBook.IsSpellKnown, id)
+            if ok then return r and true or false end
+        end
+        return nil
+    end
+
+    local function itemName(id)
+        if C_Item and C_Item.RequestLoadItemDataByID then pcall(C_Item.RequestLoadItemDataByID, id) end
+        local n
+        if C_Item and C_Item.GetItemNameByID then
+            local ok, r = pcall(C_Item.GetItemNameByID, id)
+            if ok then n = r end
+        end
+        if not n and C_Item and C_Item.GetItemInfo then
+            local ok, r = pcall(C_Item.GetItemInfo, id)
+            if ok then n = r end
+        end
+        if not n and GetItemInfo then
+            local ok, r = pcall(GetItemInfo, id)
+            if ok then n = r end
+        end
+        return n
+    end
+
+    local function line(kind, id)
+        if kind == "s" then
+            local n = spellName(id)
+            local k = known(id)
+            return string.format("  spell %-7d %s%s", id, n or "NOT FOUND", (n and k) and "  [known]" or "")
+        end
+        return string.format("  item  %-7d %s", id, itemName(id) or "(not loaded or not found)")
+    end
+
+    for _, grp in ipairs(ID_CANDIDATES) do
+        emit("")
+        emit("== " .. grp[1] .. " ==")
+        for i = 3, #grp do
+            local ok, text = pcall(line, grp[2], grp[i])
+            emit(ok and text or ("  " .. tostring(grp[i]) .. ": failed: " .. tostring(text)))
+        end
+    end
+
+    local extra = {}
+    for kind, num in string.gmatch(arg or "", "([si])(%d+)") do extra[#extra + 1] = { kind, tonumber(num) } end
+    if #extra > 0 then
+        emit("")
+        emit("== EXTRA ==")
+        for _, e in ipairs(extra) do
+            local ok, text = pcall(line, e[1], e[2])
+            emit(ok and text or ("  " .. tostring(e[2]) .. ": failed: " .. tostring(text)))
+        end
+    end
+    emit("")
+    emit("End of report. Press Ctrl+C in this window and paste the whole text.")
+end
+
+-- ---------------------------------------------------------------
+-- /sps retail find <text> [from to]: which spell IDs have this word in their name?
+-- ---------------------------------------------------------------
+-- For finding a new spell's ID when no list has it. The scan asks the game for each ID in a range, a slice
+-- per frame so the game keeps running, and prints every name that contains the text (case-insensitive).
+-- Default range 1 to 1,600,000; Midnight's new spells are mostly above 1,200,000, so
+-- "/sps retail find silvermoon 1200000 1500000" finishes in a few seconds.
+
+function D.RetailFind(arg)
+    local text, from, to = string.match(arg or "", "^%s*find%s+(%S+)%s*(%d*)%s*(%d*)")
+    if not text then
+        print("|cFFFF4444[SpellPad Studio]|r Usage: /sps retail find <text> [from to]")
+        return
+    end
+    from = tonumber(from) or 1
+    to = tonumber(to) or 1600000
+    if not (C_Spell and C_Spell.GetSpellInfo) then
+        print("|cFFFF4444[SpellPad Studio]|r This client has no C_Spell.GetSpellInfo.")
+        return
+    end
+    local needle = string.lower(text)
+    local found, id, SLICE = {}, from, 25000
+    print(string.format("|cFFFFFF00[SpellPad Studio]|r Scanning spell IDs %d to %d for '%s'...", from, to, text))
+
+    local function step()
+        local last = math.min(id + SLICE - 1, to)
+        for i = id, last do
+            local ok, info = pcall(C_Spell.GetSpellInfo, i)
+            if ok and type(info) == "table" and type(info.name) == "string" and string.find(string.lower(info.name), needle, 1, true) then
+                found[#found + 1] = string.format("  %-8d %s", i, info.name)
+            end
+        end
+        id = last + 1
+        if id <= to then
+            C_Timer.After(0, step)
+            return
+        end
+        local lines = { string.format("Spells with '%s' in the name, IDs %d to %d: %d found", text, from, to, #found), "" }
+        for _, l in ipairs(found) do lines[#lines + 1] = l end
+        lines[#lines + 1] = ""
+        lines[#lines + 1] = "End of report. Press Ctrl+C in this window and paste the whole text."
+        if SDB.CopyWindow and SDB.CopyWindow.Show then
+            SDB.CopyWindow.Show("Spell Name Search", table.concat(lines, "\n"))
+        else
+            for _, l in ipairs(lines) do print(l) end
+        end
+    end
+    step()
 end
 
 -- ---------------------------------------------------------------

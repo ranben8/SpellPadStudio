@@ -2043,12 +2043,14 @@ function SDB.BuildUI()
             info.value = "MANAGE"
             SafeAddButton(info, level)
 
-            info = SafeCreateInfo()
-            info.text = "Raid Prep"
-            info.hasArrow = true
-            info.notCheckable = true
-            info.value = "RAIDPREP"
-            SafeAddButton(info, level)
+            if not (SDB.Templates and SDB.Templates.RAID_PREP and #SDB.Templates.RAID_PREP == 0) then
+                info = SafeCreateInfo()
+                info.text = "Raid Prep"
+                info.hasArrow = true
+                info.notCheckable = true
+                info.value = "RAIDPREP"
+                SafeAddButton(info, level)
+            end
 
             info = SafeCreateInfo()
             info.text = "Target Markers"
@@ -2129,7 +2131,8 @@ function SDB.BuildUI()
         }
         if level == 1 then
             for _, s in ipairs(subs) do
-                if not (s.list and #s.list == 0) then
+                local tpl = s.template and SDB.Templates and SDB.Templates[s.template]
+                if not (s.list and #s.list == 0) and not (tpl and #tpl == 0) then
                     local info = SafeCreateInfo()
                     info.text = s[1]
                     info.hasArrow = true
