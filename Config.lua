@@ -4132,7 +4132,8 @@ function SDB.BuildUI()
     -- =========================================================
     -- Drag-to-Reorder Engine
     -- Real cards are never moved while dragging. A ghost follows the
-    -- cursor and a gold bar marks the drop gap.
+    -- cursor and a gold bar marks the drop gap. Over the middle of another
+    -- card the drop swaps the two cards instead and that card glows.
     -- (Kept in a table inside a do-block so BuildUI doesn't pick up
     -- extra locals/upvalues; it's a very large function.)
     -- =========================================================
@@ -4208,6 +4209,63 @@ function SDB.BuildUI()
                 if top and bottom and (top + bottom) / 2 >= cy then gap = i end
             end
             return gap
+        end
+
+        -- The cursor is over the middle of a card: the drop swaps with it. The top and bottom quarter of a card
+        -- (and the space between cards) still mean "insert here". Only cards that are inside the visible list count.
+        D.SWAP_EDGE = 0.25
+        function D.GetSwapTarget(numRows, src)
+            local _, cy = GetCursorPosition()
+            local sTop, sBottom = scrollFrame:GetTop(), scrollFrame:GetBottom()
+            local sy = cy / scrollFrame:GetEffectiveScale()
+            if not sTop or not sBottom or sy > sTop or sy < sBottom then return nil end
+            cy = cy / content:GetEffectiveScale()
+            for i = 1, numRows do
+                local r = SDB.rows[i]
+                local top, bottom = r and r:IsShown() and r:GetTop(), r and r:GetBottom()
+                if i ~= src and top and bottom and top > bottom then
+                    local edge = (top - bottom) * D.SWAP_EDGE
+                    if cy <= top - edge and cy >= bottom + edge then return i end
+                end
+            end
+        end
+
+        -- a faint pulsing gold wash and a thin gold edge over the card that would be swapped
+        function D.GetGlow()
+            if D.glow then return D.glow end
+            local g = CreateFrame("Frame", nil, content, "BackdropTemplate")
+            g:SetFrameLevel(content:GetFrameLevel() + 50)
+            g:EnableMouse(false)
+            g:SetBackdrop({ edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12 })
+            g:SetBackdropBorderColor(1.0, 0.82, 0.0, 0.8)
+            local t = g:CreateTexture(nil, "ARTWORK")
+            t:SetPoint("TOPLEFT", 3, -3)
+            t:SetPoint("BOTTOMRIGHT", -3, 3)
+            t:SetColorTexture(1.0, 0.82, 0.0, 0.22)
+            SDB.Motion.Pulse(t, 0.45)
+            g:Hide()
+            D.glow = g
+            return g
+        end
+
+        function D.ShowGlow(index)
+            local r = SDB.rows[index]
+            if not r then return end
+            local g = D.GetGlow()
+            if g.sdbRow ~= r then
+                g.sdbRow = r
+                g:ClearAllPoints()
+                g:SetPoint("TOPLEFT", r, "TOPLEFT", -2, 2)
+                g:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", 2, -2)
+            end
+            g:Show()
+        end
+
+        function D.HideGlow()
+            if D.glow then
+                D.glow:Hide()
+                D.glow.sdbRow = nil
+            end
         end
 
         function D.ShowBar(gap)
@@ -4299,11 +4357,18 @@ function SDB.BuildUI()
                 local inside = sl and sr and sx >= sl - 30 and sx <= sr + 30
                 D.SetLook(inside and true or false)
 
-                if inside then
+                st.swap = inside and D.GetSwapTarget(#slots, st.src) or nil
+                if st.swap then
+                    st.dest = st.src
+                    D.GetBar():Hide()
+                    D.ShowGlow(st.swap)
+                elseif inside then
+                    D.HideGlow()
                     local gap = D.GetGap(#slots)
                     st.dest = (gap >= st.src) and gap or (gap + 1)
                     if st.dest ~= st.src then D.ShowBar(gap) else D.GetBar():Hide() end
                 else
+                    D.HideGlow()
                     st.dest = st.src
                     D.GetBar():Hide()
                 end
@@ -4320,13 +4385,25 @@ function SDB.BuildUI()
                 D.ghost:Hide()
             end
             if D.bar then D.bar:Hide() end
+            D.HideGlow()
 
             local srcRow = SDB.rows[st.src]
             if srcRow then srcRow:SetAlpha(1.0) end
             PlaySound(SOUNDKIT and SOUNDKIT.IG_ABILITY_ICON_DROP or 838)
 
             local page = SDB.db.pages[st.page]
-            if commit and page and st.dest ~= st.src and (SDB.db.activePage or 1) == st.page then
+            if commit and page and st.swap and st.swap ~= st.src and page[st.swap] and page[st.src]
+                    and (SDB.db.activePage or 1) == st.page then
+                -- swap the two cards' contents; hardware keys stay put, as in a reorder
+                if SDB.Snapshots then SDB.Snapshots.Take("Before Swap Cards", "page", { page = st.page }) end
+                if SDB.Undo then SDB.Undo.ClearAll() end
+                local a, b = page[st.src], page[st.swap]
+                a.macro, b.macro = b.macro, a.macro
+                a.icon, b.icon = b.icon, a.icon
+                a.matrixText, b.matrixText = b.matrixText, a.matrixText
+                SDB.activeSlotIndex = st.swap
+                if SDB.ApplyBindings then SDB.ApplyBindings() end
+            elseif commit and page and st.dest ~= st.src and (SDB.db.activePage or 1) == st.page then
                 if SDB.Snapshots then SDB.Snapshots.Take("Before Reorder Cards", "page", { page = st.page }) end
                 if SDB.Undo then SDB.Undo.ClearAll() end
                 local n = #page
