@@ -36,6 +36,19 @@ do
     }
 end
 
+-- Menu entries and templates may carry client = "retail" or "forever"; an entry without it is for both.
+-- Returns a new list in the same order with the entries meant for this client.
+function SDB.ForClient(list)
+    local out = {}
+    for _, e in ipairs(list) do
+        local c = e.client
+        if c == nil or (c == "retail" and SDB.Client.isRetail) or (c == "forever" and SDB.Client.isForever) then
+            out[#out + 1] = e
+        end
+    end
+    return out
+end
+
 -- A "|" starts a colour code in a FontString or chat line; doubled it shows as one "|".
 function SDB.EscapePipes(text)
     return (string.gsub(tostring(text or ""), "|", "||"))
@@ -156,9 +169,12 @@ SDB.DEFAULT_PREFIX = "ALT-"
 
 SDB.INTERFACE_ELEMENTS = {
     { text = "Toggle Character Sheet",     macro = "/click CharacterMicroButton", icon = "Interface\\Icons\\INV_Shirt_White_01" },
-    { text = "Toggle Spellbook",           macro = "/click SpellbookMicroButton", icon = "Interface\\Icons\\INV_Misc_Book_09" },
-    { text = "Toggle Talents",             macro = "/click TalentMicroButton", icon = "Interface\\Icons\\Ability_Marksmanship" },
-    { text = "Toggle Legacy Menu",         macro = "!BIND TOGGLELEGACYSYSTEM", icon = "Interface\\Icons\\Achievement_General" },
+    { text = "Toggle Spellbook",           macro = "/click SpellbookMicroButton", icon = "Interface\\Icons\\INV_Misc_Book_09", client = "forever" },
+    { text = "Toggle Spellbook",           macro = "!BIND TOGGLESPELLBOOK", icon = "Interface\\Icons\\INV_Misc_Book_09", client = "retail" },
+    { text = "Toggle Talents",             macro = "/click TalentMicroButton", icon = "Interface\\Icons\\Ability_Marksmanship", client = "forever" },
+    { text = "Toggle Talents",             macro = "!BIND TOGGLETALENTS", icon = "Interface\\Icons\\Ability_Marksmanship", client = "retail" },
+    { text = "Toggle Legacy Menu",         macro = "!BIND TOGGLELEGACYSYSTEM", icon = "Interface\\Icons\\Achievement_General", client = "forever" },
+    { text = "Toggle Achievements",        macro = "!BIND TOGGLEACHIEVEMENT", icon = "Interface\\Icons\\Achievement_General", client = "retail" },
     { text = "Toggle Professions",         macro = "/click ProfessionMicroButton", icon = "Interface\\Icons\\Trade_BlackSmithing" },
     { text = "Toggle Quest Log",           macro = "/click QuestLogMicroButton", icon = "Interface\\Icons\\INV_Misc_Note_01" },
     { text = "Toggle Friends / Social",    macro = "/click QuickJoinToastButton", icon = "Interface\\Icons\\INV_Misc_GroupNeedMore" },
@@ -189,7 +205,7 @@ SDB.EMOTE_CATEGORIES = {
             { text = "Sigh", macro = "/sigh" }, { text = "Shrug", macro = "/shrug" },
             { text = "Facepalm", macro = "/facepalm" }, { text = "Cry", macro = "/cry" },
             { text = "Dance", macro = "/dance" }, { text = "Gasp", macro = "/gasp" },
-            { text = "Bored", macro = "/bored" }, { text = "Joke", macro = "/joke" },
+            { text = "Bored", macro = "/bored" }, { text = "Joke", macro = "/joke", client = "forever" },
             { text = "Silly", macro = "/silly" }, { text = "Flirt", macro = "/flirt" },
         },
     },
@@ -219,7 +235,7 @@ SDB.EMOTE_CATEGORIES = {
 
 SDB.GROUP_COMMANDS = {
     { text = "Ready Check", macro = "/readycheck" },
-    { text = "Role Check", macro = "/rolecheck" },
+    { text = "Role Check", macro = "/rolecheck", client = "forever" },
     { text = "Pull Timer (10s)", macro = "/countdown 10" },
     { text = "Leave Party", macro = "/leave" },
     { text = "Invite Target", macro = "/invite %t" },
@@ -288,8 +304,8 @@ SDB.BROADCASTER_COMMANDS = {
 }
 -- Advanced menu lists; the icon is shown in the menu and on the card (core.lua, SDB.ContextIcons).
 SDB.SPEC_COMMANDS = {
-    { text = "Primary Specialization", macro = "/usetalents 1", icon = "Interface\\Icons\\Ability_Marksmanship" },
-    { text = "Secondary Specialization", macro = "/usetalents 2", icon = "Interface\\Icons\\Ability_Marksmanship" },
+    { text = "Primary Specialization", macro = "/usetalents 1", icon = "Interface\\Icons\\Ability_Marksmanship", client = "forever" },
+    { text = "Secondary Specialization", macro = "/usetalents 2", icon = "Interface\\Icons\\Ability_Marksmanship", client = "forever" },
 }
 
 SDB.TARGET_ADV_COMMANDS = {
@@ -307,6 +323,13 @@ SDB.MOVEMENT_COMMANDS = {
     { text = "Interact with Target", macro = "/interact", icon = "Interface\\Icons\\INV_Misc_Key_03" },
     { text = "Dismount / Leave Vehicle", macro = "/dismount\n/leavevehicle", icon = "Interface\\Icons\\Ability_Mount_JungleTiger" },
 }
+
+-- Keep only what this client has, so every menu, the card icons and the reports see the same lists.
+for _, name in ipairs({ "INTERFACE_ELEMENTS", "GROUP_COMMANDS", "SYSTEM_COMMANDS", "SPEC_COMMANDS", "TARGET_ADV_COMMANDS",
+        "MOVEMENT_COMMANDS", "CC_INTERRUPTS", "PARTY_UTILITY", "BROADCASTER_COMMANDS", "TARGET_MARKERS", "WORLD_MARKERS" }) do
+    SDB[name] = SDB.ForClient(SDB[name])
+end
+for _, cat in ipairs(SDB.EMOTE_CATEGORIES) do cat.emotes = SDB.ForClient(cat.emotes) end
 
 -- The one empty-card rule: no macro text (spaces don't count) and no icon. A custom name alone doesn't make a card
 -- filled here; SDB.IsSlotEmpty (the drag refusal) is the one place that also counts the name.

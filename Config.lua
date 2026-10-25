@@ -2129,12 +2129,14 @@ function SDB.BuildUI()
         }
         if level == 1 then
             for _, s in ipairs(subs) do
-                local info = SafeCreateInfo()
-                info.text = s[1]
-                info.hasArrow = true
-                info.notCheckable = true
-                info.value = s[2]
-                SafeAddButton(info, level)
+                if not (s.list and #s.list == 0) then
+                    local info = SafeCreateInfo()
+                    info.text = s[1]
+                    info.hasArrow = true
+                    info.notCheckable = true
+                    info.value = s[2]
+                    SafeAddButton(info, level)
+                end
             end
             return
         end
