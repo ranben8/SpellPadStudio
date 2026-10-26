@@ -9,3 +9,7 @@ ignore:
   - docs
   - RELEASING.md
   - .claude
+
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
