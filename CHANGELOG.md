@@ -1,4 +1,4 @@
-# SpellPad Studio, next release (version not set yet)
+# SpellPad Studio 1.3.0 (beta)
 
 ## New
 
