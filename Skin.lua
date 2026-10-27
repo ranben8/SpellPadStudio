@@ -14,6 +14,7 @@ local addonName, SDB = ...
 --       `row.sdbOnBody = true`; any frame can opt out of that with `frame.sdbKeepLight = true`.
 --   SDB.Skin.GetStyle() / SetStyle(key) / Label(key) / CheckStyle(key)
 --   SDB.Skin.BuildDropdown(parent)          the Options "Window style" dropdown (OptionsUI.lua places it)
+--   SDB.Skin.ThickOn() / SetThick(on) / BuildThickCheck(parent)   the thick border (retail only), see below
 --   SDB.Skin.Slash(arg)                     /sps skin [name]; /sps skin text; /sps skin icons
 -- The setting is one account-wide value, GalleonBridgeDB.windowStyle (not part of a profile, like the
 -- macro font size). Changing it redraws every skinned window at once; no /reload is needed.
@@ -80,6 +81,40 @@ local STYLES = {
 local ORDER = { "marble", "stone", "darkstone", "parchment", "parchmentdark", "simple", "diamond" }
 local CLASSIC_LABEL = "Classic (Old Look)"
 
+-- The thick border (retail): the frame of the game's own dialog windows (the Game Menu, and what the Transparent
+-- style draws) around the background of any style, instead of the thin Metal frame. The Dialog frame has no title bar,
+-- so the title and the X take the Transparent style's places. Offered on retail only; Forever's Metal frame is
+-- already the thick bronze one.
+-- Background insets of the thick frame: its metal line sits about 6 units inside the window's rectangle, so a background
+-- starting nearer showed as a dark band outside the line (measured on screenshots: 4 pixels of band at about 1.8 pixels per unit).
+local THICK_BG = { 7, -7, -7, 7 }
+local thickStyles = {}
+
+function S.ThickAvailable()
+    return SDB.Client ~= nil and SDB.Client.isRetail == true
+end
+
+function S.ThickOn()
+    return S.ThickAvailable() and not (GalleonBridgeDB and GalleonBridgeDB.thinFrame)
+end
+
+-- The style to draw for `key` and the id its textures are kept under: the style itself, or its thick copy
+local function Resolve(key)
+    local base = STYLES[key]
+    if base and base.layout ~= "dialog" and S.ThickOn() then
+        local t = thickStyles[key]
+        if not t then
+            t = {}
+            for k, v in pairs(base) do t[k] = v end
+            t.layout, t.bgPoints, t.streaks = "dialog", THICK_BG, nil
+            t.titleY, t.closeX, t.closeY = -14, -6, -6
+            thickStyles[key] = t
+        end
+        return t, key .. "+thick"
+    end
+    return base, key
+end
+
 -- Nine-slice layouts. Pieces are { atlas, x offset, y offset }; the keys are the names the game uses.
 local LAYOUTS = {
     metal = { -- ButtonFrameTemplateNoPortrait (exactly Blizzard's offsets; see METAL_BG for the bottom strip)
@@ -122,11 +157,11 @@ local function LayoutAtlases(L)
 end
 
 local checked = {}
--- true when every atlas the style needs exists on this client; second value = the missing names
-function S.CheckStyle(key)
-    local c = checked[key]
+-- true when every atlas the style needs exists on this client; second value = the missing names.
+-- `id` is what the result is remembered under (a thick copy of a style has its own).
+local function CheckStyleOf(style, id)
+    local c = checked[id]
     if not c then
-        local style = STYLES[key]
         local missing, seen = {}, {}
         local function need(name)
             if name and not seen[name] then
@@ -142,9 +177,14 @@ function S.CheckStyle(key)
             need("RedButton-Highlight")
         end
         c = { ok = style ~= nil and #missing == 0, missing = missing }
-        checked[key] = c
+        checked[id] = c
     end
-    return c.ok and not failed[key], c.missing
+    return c.ok and not failed[id], c.missing
+end
+
+-- the style as listed in the Window style dropdown (never its thick copy)
+function S.CheckStyle(key)
+    return CheckStyleOf(STYLES[key], key)
 end
 
 -- ---------------------------------------------------------------
@@ -307,28 +347,38 @@ local function Classic(st)
     if st.close then st.close:Show() end
 end
 
--- Draws style `key` on the window; returns false when it cannot (the caller then goes classic)
-local function Draw(st, key)
-    local style = STYLES[key]
-    if not style or not S.CheckStyle(key) then return false end
+-- Draws style `key` on the window; returns false when it cannot (the caller then goes classic). With the thick
+-- border on, the thick copy of the style is tried first; if it can't be drawn the thin frame is used (`thinOnly`).
+local function Draw(st, key, thinOnly)
+    local style, id = STYLES[key], key
+    if style and not thinOnly then style, id = Resolve(key) end
+    if not style or not CheckStyleOf(style, id) then
+        if id ~= key then return Draw(st, key, true) end
+        return false
+    end
     local frame = st.frame
 
-    local set = st.sets[key]
+    local set = st.sets[id]
     if not set then
         local err
         set, err = BuildSet(frame, style)
         if not set then
-            failed[key] = err
+            failed[id] = err
+            if id ~= key then
+                Say("FFFF9900", "Couldn't draw the thick window border (" .. tostring(err)
+                    .. "); using the thin one this session.")
+                return Draw(st, key, true)
+            end
             Say("FFFF9900", "Couldn't draw the " .. style.label .. " window style (" .. tostring(err)
                 .. "); using the classic look this session.")
             return false
         end
-        st.sets[key] = set
+        st.sets[id] = set
     end
     if not st.ownClose then st.ownClose = MakeClose(st) end
 
     for k, other in pairs(st.sets) do
-        if k ~= key then
+        if k ~= id then
             for _, t in ipairs(other) do t:Hide() end
         end
     end
@@ -632,6 +682,32 @@ function S.SetStyle(key)
     return true
 end
 
+-- Options > General > Windows: switches the thick border on or off and redraws every window
+function S.SetThick(on)
+    if GalleonBridgeDB then GalleonBridgeDB.thinFrame = (not on) or nil end
+    S.RefreshAll()
+end
+
+-- The "Thick window border" checkbox, or nil where the border isn't offered (Forever); OptionsUI.lua places it
+function S.BuildThickCheck(parent)
+    if not S.ThickAvailable() then return nil end
+    local cb = SDB.UI.CheckButton(parent, "GalleonThickFrameToggle", "Thick window border")
+    cb:SetChecked(S.ThickOn())
+    cb:SetScript("OnClick", function(self)
+        PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+        S.SetThick(self:GetChecked() and true or false)
+    end)
+    cb:SetScript("OnEnter", function(self)
+        SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Thick Window Border", "control")
+        SDB.Tip.Line("Draws the window styles inside the thick metal frame of the game's own dialog windows.")
+        SDB.Tip.Hint("Not used by the SpellPad.")
+        SDB.Tip.Done()
+    end)
+    cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    parent:HookScript("OnShow", function() cb:SetChecked(S.ThickOn()) end)
+    return cb
+end
+
 function S.Apply(frame, opts)
     if not frame then return nil end
     if frame.sdbSkin then return frame.sdbSkin end
@@ -759,6 +835,7 @@ function S.Slash(arg)
         end
         names[#names + 1] = CLASSIC_LABEL
         Say("FFFFFF00", "Window style: " .. S.Label(S.GetStyle()) .. ".")
+        if S.ThickAvailable() then Say("FFFFFF00", "Thick window border: " .. (S.ThickOn() and "on" or "off") .. ".") end
         Say("FFFFFF00", "Choices: " .. table.concat(names, ", ") .. ". Use /sps skin <name>.")
         for key, why in pairs(failed) do
             Say("FFFF9900", S.Label(key) .. " failed to draw this session: " .. tostring(why))

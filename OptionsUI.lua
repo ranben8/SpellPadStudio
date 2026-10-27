@@ -201,7 +201,7 @@ local COL_W = (OPT_W - 32 - GAP) / 2   -- 276
 local function OptionsBody(win)
     local ctl = {
         opacity = Named("GalleonOpacitySlider"), scale = Named("GalleonScaleSlider"),
-        style = win.styleDropDown, lockWin = Named("GalleonLockFramesToggle"),
+        style = win.styleDropDown, thick = win.thickCheck, lockWin = Named("GalleonLockFramesToggle"),
         minimap = Named("GalleonMinimapToggle"), autoHide = Named("GalleonAutoHideToggle"),
         help = Named("GalleonHelpTooltipsToggle"), pageFollow = Named("GalleonPageCardsFollowToggle"),
         font = win.fontSlider, color = Named("GalleonColorTextToggle"),
@@ -216,6 +216,7 @@ local function OptionsBody(win)
             AddSlider(g, ctl.opacity)
             AddSlider(g, ctl.scale)
             if ctl.style then AddRow(g, "Window style", ctl.style, 150) end
+            AddCheck(g, ctl.thick) -- nil on Forever
             AddCheck(g, ctl.lockWin)
         end } })
         local h2 = Stack(content, 16 + COL_W + GAP, COL_W, {

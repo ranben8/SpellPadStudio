@@ -2561,6 +2561,7 @@ function SDB.BuildUI()
 
     -- Window style dropdown (Skin.lua builds it, account-wide)
     optionsWindow.styleDropDown = SDB.Skin.BuildDropdown(optionsWindow)
+    optionsWindow.thickCheck = SDB.Skin.BuildThickCheck(optionsWindow)
 
     local minimapToggle = SDB.UI.CheckButton(optionsWindow, "GalleonMinimapToggle", "Show minimap button")
     minimapToggle:SetChecked(not SDB.db.hideMinimap)
