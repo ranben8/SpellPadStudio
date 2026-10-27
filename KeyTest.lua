@@ -39,7 +39,7 @@ local function FlashOn(frame, inset)
             t:SetAlpha(0.75)
             a:SetChange(-0.75)
         end
-        a:SetDuration(0.45)
+        a:SetDuration(0.35) -- the same length as the SpellPad's change glow (MATRIX_LOOK.glowTime)
         ag:SetScript("OnFinished", function() t:Hide() end)
         t.anim = ag
         t:Hide()

@@ -33,6 +33,7 @@ CopyWindow.lua
 DragKeep.lua
 PadPickup.lua
 MountDrop.lua
+PadColors.lua
 Pending.lua
 KeyTest.lua
 CardActions.lua

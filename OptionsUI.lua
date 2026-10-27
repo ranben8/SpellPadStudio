@@ -286,8 +286,43 @@ local function OptionsBody(win)
         return math.max(h1, h2)
     end)
 
+    -- Colors: the SpellPad's fill, line and glow (PadColors.lua makes the controls)
+    spec[4] = Tab("Colors", function(content)
+        local PC = SDB.PadColors
+        if not PC then return 100 end
+        local pickerNote = PC.PickerAvailable()
+            and "Click a swatch to pick a color, or type a hex code and press Enter. Opacity is set in the SpellPad tab."
+            or "Type a hex code and press Enter. Opacity is set in the SpellPad tab."
+        local h1 = Stack(content, 16, COL_W, {
+            { title = "Preset", fill = function(g)
+                AddButton(g, PC.PresetButton(g, 248), 248, 22)
+                AddNote(g, "Sets the fill, line and glow together. Two presets are made for color blindness.", 3)
+            end },
+            { title = "Try It", fill = function(g)
+                local b = SDB.UI.Button(g, "secondary", "Flash Glow", 110, 24)
+                b:SetScript("OnClick", function()
+                    PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+                    PC.FlashGlow()
+                end)
+                AddButton(g, b, 110, 24)
+                AddNote(g, "Shows the glow once on the SpellPad.", 1)
+            end },
+        })
+        local h2 = Stack(content, 16 + COL_W + GAP, COL_W, { { title = "Colors", fill = function(g)
+            for _, kind in ipairs(PC.KINDS) do
+                local row = PC.Row(g, kind)
+                row:SetPoint("TOPLEFT", g, "TOPLEFT", PAD, -g.cur)
+                row:SetPoint("TOPRIGHT", g, "TOPRIGHT", -PAD, -g.cur)
+                g.cur = g.cur + 32
+            end
+            AddNote(g, pickerNote, 4)
+        end } })
+        content:HookScript("OnShow", PC.RefreshAll)
+        return math.max(h1, h2)
+    end)
+
     -- Data: what the profile holds, and the tools around it
-    spec[4] = Tab("Data", function(content)
+    spec[5] = Tab("Data", function(content)
         local h1 = Stack(content, 16, COL_W, { { title = "This Profile", fill = function(g)
             local st = win.statusText
             if st then

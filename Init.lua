@@ -425,6 +425,16 @@ end
 -- would shadow the store), so AttachOptions removes any it finds. The first time it runs (no store yet) the
 -- ACTIVE profile's values become the shared ones, so the look you have now is kept.
 -- Not in the list, because they belong to the pages: deckSize, matrixOrientation, pages, pageNames, activePage.
+-- true for { r, g, b } with three numbers from 0 to 1 (a saved color is checked before it is used)
+function SDB.ValidColor(c)
+    if type(c) ~= "table" then return false end
+    for i = 1, 3 do
+        local v = c[i]
+        if type(v) ~= "number" or v ~= v or v < 0 or v > 1 then return false end
+    end
+    return true
+end
+
 SDB.OPTION_DEFAULTS = {
     opacity = 1.0, uiScale = 1.0, hideMinimap = false, autoHideCombat = false, lockWindows = false,
     matrixAlwaysShow = false, matrixScale = 1.0, matrixBackdropOpacity = 1.0, matrixHideBackdrop = false,
@@ -437,6 +447,8 @@ SDB.OPTION_KEYS = {
     matrixSpacing = true, matrixNoClickSound = true, matrixHideBackdrop = true, matrixHideEmpty = true,
     matrixHideCombat = true, matrixNoTooltips = true, matrixNoDim = true, matrixMouseoverFade = true,
     matrixFadeOpacity = true, matrixChangeGlow = true,
+    -- The SpellPad colors, each { r, g, b } from 0 to 1; unset = the built-in look (PadColors.lua)
+    matrixFillColor = true, matrixLineColor = true, matrixGlowColor = true,
     -- What the SpellPad buttons show (all four default to nil = the default look)
     matrixShowKeys = true, matrixHideNames = true, matrixNoCooldownNumbers = true, matrixNoRangeTint = true,
 }
@@ -495,7 +507,12 @@ function SDB.ValidateDB()
     GalleonBridgeDB.reduceMotion = nil -- the removed "Reduce motion" option: drop a saved value
     GalleonBridgeDB.gripStyle, GalleonBridgeDB.gripFont, GalleonBridgeDB.gripDy = nil, nil, nil -- the removed grip test settings
     -- the old "Disable tooltips in combat" key (now matrixNoTooltips): drop the stored value
-    if type(GalleonBridgeDB.options) == "table" then GalleonBridgeDB.options.matrixNoCombatTooltip = nil end
+    if type(GalleonBridgeDB.options) == "table" then
+        GalleonBridgeDB.options.matrixNoCombatTooltip = nil
+        for _, k in ipairs({ "matrixFillColor", "matrixLineColor", "matrixGlowColor" }) do
+            if not SDB.ValidColor(GalleonBridgeDB.options[k]) then GalleonBridgeDB.options[k] = nil end
+        end
+    end
 
     -- Migration: legacy root-level pages are packaged into a "Default" profile
     if GalleonBridgeDB.pages then

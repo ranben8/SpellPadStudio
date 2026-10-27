@@ -209,6 +209,14 @@ function SDB.PadGlowPeak()
     return MATRIX_LOOK.glowPeak * math.max(0, math.min(1, opacity))
 end
 
+-- The glow's color follows the setting (PadColors.lua); only touched when it changed
+function SDB.ApplyPadGlowColor()
+    local r, g, b = SDB.PadColor("glow")
+    if padGlow.sdbR == r and padGlow.sdbG == g and padGlow.sdbB == b then return end
+    padGlow.sdbR, padGlow.sdbG, padGlow.sdbB = r, g, b
+    padGlow:SetColorTexture(r, g, b, 1)
+end
+
 -- Flashes the glow once; a flash that is still fading starts again instead of stacking.
 function SDB.FlashPadGlow()
     if not matrixWindow:IsShown() then return end
@@ -224,6 +232,38 @@ function SDB.FlashPadGlow()
     end
     padGlow:Show()
     padGlowAnim:Play()
+end
+
+-- The fill, line and glow colors: the saved setting, else the built-in look (MATRIX_LOOK). `kind` is "fill", "line" or "glow".
+local PAD_COLOR_KEYS = { fill = "matrixFillColor", line = "matrixLineColor", glow = "matrixGlowColor" }
+
+function SDB.PadColorDefault(kind)
+    local d = MATRIX_LOOK[kind]
+    return d[1], d[2], d[3]
+end
+
+function SDB.IsPadColorUnset(kind)
+    return not SDB.ValidColor(SDB.db and SDB.db[PAD_COLOR_KEYS[kind]])
+end
+
+function SDB.PadColor(kind)
+    local c = SDB.db and SDB.db[PAD_COLOR_KEYS[kind]]
+    if SDB.ValidColor(c) then return c[1], c[2], c[3] end
+    return SDB.PadColorDefault(kind)
+end
+
+-- Saves a color (r, g, b from 0 to 1; nothing = back to the built-in look) and shows it. Only colors are
+-- recolored, so it is allowed in combat too.
+function SDB.SetPadColor(kind, r, g, b)
+    local key = PAD_COLOR_KEYS[kind]
+    if not key or not SDB.db then return end
+    if r == nil then
+        SDB.db[key] = nil
+    else
+        local function clamp(v) return math.max(0, math.min(1, tonumber(v) or 0)) end
+        SDB.db[key] = { clamp(r), clamp(g), clamp(b) }
+    end
+    if SDB.UpdateMatrixAppearance then SDB.UpdateMatrixAppearance() end
 end
 
 -- (Re)builds the flat backdrop when the pixel size changed. Returns true when it did. The caller
@@ -331,10 +371,12 @@ function SDB.UpdateMatrixAppearance()
         matrixWindow:SetBackdropBorderColor(0, 0, 0, 0)
     else
         local bgAlpha = SDB.db.matrixBackdropOpacity or 1.0
-        local fill, line = MATRIX_LOOK.fill, MATRIX_LOOK.line
-        matrixWindow:SetBackdropColor(fill[1], fill[2], fill[3], bgAlpha)
-        matrixWindow:SetBackdropBorderColor(line[1], line[2], line[3], bgAlpha)
+        local fr, fg, fb = SDB.PadColor("fill")
+        local lr, lg, lb = SDB.PadColor("line")
+        matrixWindow:SetBackdropColor(fr, fg, fb, bgAlpha)
+        matrixWindow:SetBackdropBorderColor(lr, lg, lb, bgAlpha)
     end
+    SDB.ApplyPadGlowColor()
 end
 
 local function Matrix_OnUpdate(self, elapsed)
