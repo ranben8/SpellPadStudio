@@ -7,6 +7,7 @@
 - **Thick window border (Retail).** Every window style can be drawn inside the thick metal frame the game uses for its own dialog windows, such as the Game Menu. It is off by default; turn it on in Options > General > Windows. Forever keeps its own bronze frame and doesn't show the option.
 - **Flash button on key press.** The SpellPad button that lights when you press its key now has its own switch in Options > SpellPad. Cards in the main window still flash.
 - **Drag a card onto the SpellPad to swap it** with the button under the cursor. Both buttons flash when the swap is done. When the drag turns grey (you left the card list), the list scrolls so the card you are holding is at the top.
+- **Toggle Housing Dashboard and Toggle Adventure Guide (Retail)** are in Easy Macros > Advanced > Interface. They work from a key and from the SpellPad.
 - **A new addon icon**: the gold key on its pad, in a frame that is bronze on one side and metal on the other. It shows in the AddOn list, the addon compartment and broker bars, and a round version without a frame sits on the minimap button.
 
 ## Changes
