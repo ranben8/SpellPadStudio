@@ -32,6 +32,7 @@ KeyGuard.lua
 CopyWindow.lua
 DragKeep.lua
 PadPickup.lua
+AutoName.lua
 MountDrop.lua
 PadColors.lua
 Pending.lua

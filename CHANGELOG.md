@@ -8,6 +8,7 @@
 - **Flash button on key press.** The SpellPad button that lights when you press its key now has its own switch in Options > SpellPad. Cards in the main window still flash.
 - **Drag a card onto the SpellPad to swap it** with the button under the cursor. Both buttons flash when the swap is done. When the drag turns grey (you left the card list), the list scrolls so the card you are holding is at the top.
 - **Toggle Housing Dashboard and Toggle Adventure Guide (Retail)** are in Easy Macros > Advanced > Interface. They work from a key and from the SpellPad.
+- **Cards name themselves.** A card without a name now shows what it holds: an Easy Macros entry shows the entry's name ("Toggle Spellbook"), and a one-line spell or item macro shows the spell or item ("Frostbolt"). The name is grey, and its tooltip says it was applied automatically. A name you type is white and always wins.
 - **A new addon icon**: the gold key on its pad, in a frame that is bronze on one side and metal on the other. It shows in the AddOn list, the addon compartment and broker bars, and a round version without a frame sits on the minimap button.
 
 ## Changes

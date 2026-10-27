@@ -728,9 +728,9 @@ function SDB.RefreshMatrixGrid()
                 local curPage = SDB.db.activePage or 1
                 local slotData = SDB.db.pages[curPage] and SDB.db.pages[curPage][self.slotIndex]
                 if slotData then
-                    -- the card's custom name, else "Card n"
-                    local tooltipTitle = (slotData.matrixText and slotData.matrixText ~= "") and (string.gsub(slotData.matrixText, "|", "||")) or ("Card " .. self.slotIndex)
-                    SDB.Tip.Begin(self, "ANCHOR_RIGHT", tooltipTitle, "thing")
+                    -- the card's custom name, else the name taken from its macro, else "Card n"
+                    local cardName, nameKind = SDB.CardName(slotData, self.slotIndex)
+                    SDB.Tip.Begin(self, "ANCHOR_RIGHT", (string.gsub(cardName, "|", "||")), "thing")
 
                     if slotData.key and slotData.key ~= "" then
                         SDB.Tip.Line("Key: " .. SDB.Colors.Wrap("WHITE", slotData.key))
@@ -745,6 +745,7 @@ function SDB.RefreshMatrixGrid()
                         SDB.Tip.Hint("(No macro)")
                     end
                     if SDB.PadPickup then SDB.PadPickup.AddTooltipHint(slotData.macro) end -- grey hint on cards that can be picked up
+                    if nameKind == "auto" then SDB.Tip.Hint("This card's name was auto-applied.") end
                 else
                     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                 end

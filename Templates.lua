@@ -106,7 +106,7 @@ end
 
 -- The index is rarely complete (other classes' spells and uncached items never resolve), so a missing icon is
 -- only looked for again once new spell or item data has arrived, not on a timer.
-local iconIndex, indexComplete, indexTime, indexDirty = nil, false, 0, false
+local iconIndex, nameIndex, indexComplete, indexTime, indexDirty = nil, nil, false, 0, false
 
 do
     local watch = CreateFrame("Frame")
@@ -116,10 +116,11 @@ do
 end
 
 local function BuildIconIndex()
-    iconIndex, indexComplete, indexTime, indexDirty = {}, true, GetTime(), false
+    iconIndex, nameIndex, indexComplete, indexTime, indexDirty = {}, {}, true, GetTime(), false
     local function add(list)
         for _, e in ipairs(list) do
             local m = T.Expand(e)
+            if m and e.text and nameIndex[strtrim(m)] == nil then nameIndex[strtrim(m)] = e.text end
             local ic = m and T.IconFor(e)
             if ic then
                 iconIndex[strtrim(m)] = ic
@@ -134,14 +135,25 @@ local function BuildIconIndex()
     for _, cat in ipairs(T.RAID_PREP) do add(cat.entries) end
 end
 
--- Used by SDB.UpdateSlotIconAndTooltip (core.lua). Returns an icon or nil.
-function T.IconForMacro(cleanMacro)
-    if not cleanMacro or cleanMacro == "" then return nil end
+local function EnsureIndex()
     -- item data arrives in bursts: at most one rebuild every 2 seconds
     if not iconIndex or (not indexComplete and indexDirty and (GetTime() - indexTime) > 2) then
         BuildIconIndex()
     end
+end
+
+-- Used by SDB.UpdateSlotIconAndTooltip (core.lua). Returns an icon or nil.
+function T.IconForMacro(cleanMacro)
+    if not cleanMacro or cleanMacro == "" then return nil end
+    EnsureIndex()
     return iconIndex[cleanMacro]
+end
+
+-- The template entry's name for a card holding exactly its finished macro text (SDB.AutoName), or nil.
+function T.NameForMacro(cleanMacro)
+    if not cleanMacro or cleanMacro == "" then return nil end
+    EnsureIndex()
+    return nameIndex[cleanMacro]
 end
 
 local function Visible(e)

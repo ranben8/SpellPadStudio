@@ -14,7 +14,7 @@ local addonName, SDB = ...
 --   SDB.CardUI.ApplyGeometry(row)        sizes after a font change (RefreshRows calls it when the row height changed)
 --   SDB.CardUI.SetLook(row, which)       "normal" | "hover" (the SpellPad button is hovered) | "selected"
 --   SDB.CardUI.SetState(row, state)      key cap line and problem badge: "red" | "orange" | anything else = none
---   SDB.CardUI.SetName(row, name)        the name field (custom name, else a dim "Card n")
+--   SDB.CardUI.SetName(row, name, auto)  the name field (custom name in white, else the automatic name or "Card n", both dim)
 --   SDB.CardUI.Tick(row)                 dims or lights the Undo and Clear buttons (called by the card's 0.1 s timer)
 --   SDB.CardUI.ThinBar(scrollFrame)      hides the stock scroll bar of a scroll frame and adds the thin minimal one
 --   SDB.CardUI.OnFontChanged()           redraws the list after a macro font size change
@@ -331,13 +331,17 @@ function C.SetState(row, state)
     end
 end
 
-function C.SetName(row, name)
+function C.SetName(row, name, auto)
     local fs = row.nameText
     if not fs then return end
     name = type(name) == "string" and string.match(name, "^%s*(.-)%s*$") or ""
     if name ~= "" then
         fs:SetFontObject("GameFontHighlight")
         fs:SetText((string.gsub(name, "|", "||")))
+    elseif auto and auto ~= "" and not row.sdbCompact then
+        -- the name taken from the macro (SDB.AutoName) is as dim as "Card n"; only a typed name is white
+        fs:SetFontObject("GameFontDisable")
+        fs:SetText((string.gsub(auto, "|", "||")))
     elseif row.sdbCompact then
         -- a compact empty card says what to do; the first one on the page says it in full
         fs:SetFontObject("GameFontDisableSmall")

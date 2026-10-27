@@ -5235,7 +5235,7 @@ function SDB.BuildUI()
             -- it, and a problem shows as a badge on the cap as well as in its colour (CardUI.lua)
             local state = State(row, data)
             SDB.CardUI.SetState(row, state)
-            SDB.CardUI.SetName(row, data.matrixText)
+            SDB.CardUI.SetName(row, data.matrixText, SDB.AutoName and SDB.AutoName(data.macro))
             if listening then
                 fs:SetFontObject("GameFontNormalSmall")
                 row.bindBtn:SetText("|cFFFFFF00Press Key|r")
@@ -5269,9 +5269,10 @@ function SDB.BuildUI()
             local data = SlotData(row)
             if not data then return end
             local hasKey = data.key and data.key ~= ""
-            local name = data.matrixText and strtrim(data.matrixText) or ""
-            -- the title is the card's custom name, else "Card n" (the same as the SpellPad hover and the card menu)
-            SDB.Tip.Begin(btn, "ANCHOR_RIGHT", name ~= "" and (string.gsub(name, "|", "||")) or ("Card " .. tostring(row.slotIndex)), "thing")
+            -- the title is the card's custom name, else the name taken from its macro, else "Card n" (the same as
+            -- the SpellPad hover)
+            local name, nameKind = SDB.CardName(data, row.slotIndex)
+            SDB.Tip.Begin(btn, "ANCHOR_RIGHT", (string.gsub(name, "|", "||")), "thing")
             if hasKey then SDB.Tip.Line("Key: " .. data.key) else SDB.Tip.Hint("No key") end
             if hasKey and SDB.IsGameKillKey and SDB.IsGameKillKey(data.key) then
                 SDB.Tip.Gap()
@@ -5297,6 +5298,7 @@ function SDB.BuildUI()
             SDB.Tip.Gap()
             SDB.Tip.Hint("Double-click to rename this card.")
             SDB.Tip.Hint("Right-click to map a new key to this card.")
+            if nameKind == "auto" then SDB.Tip.Hint("This card's name was auto-applied.") end
             SDB.Tip.Done()
         end
 
@@ -5918,9 +5920,10 @@ function SDB.BuildUI()
                     end)
                     nb:SetScript("OnEnter", function(self)
                         local data = SDB.db.pages[SDB.db.activePage or 1] and SDB.db.pages[SDB.db.activePage or 1][row.slotIndex]
-                        local name = data and data.matrixText and strtrim(data.matrixText) or ""
-                        SDB.Tip.Begin(self, "ANCHOR_RIGHT", name ~= "" and (string.gsub(name, "|", "||")) or ("Card " .. tostring(row.slotIndex)), "thing")
+                        local name, nameKind = SDB.CardName(data, row.slotIndex)
+                        SDB.Tip.Begin(self, "ANCHOR_RIGHT", (string.gsub(name, "|", "||")), "thing")
                         SDB.Tip.Hint("Double-click to rename this card.")
+                        if nameKind == "auto" then SDB.Tip.Hint("This card's name was auto-applied.") end
                         SDB.Tip.Done()
                     end)
                     nb:SetScript("OnLeave", function() GameTooltip:Hide() end)
