@@ -1050,6 +1050,7 @@ local WORD_REPORTS = {
     dock = { "Window Dock Report", function() return SDB.Dock and SDB.Dock.Report end, true },
     keys = { "Key Report", function() return SDB.Esc and SDB.Esc.Report end, true },
     cursor = { "Cursor Report", function() return SDB.MountDrop and SDB.MountDrop.Report end, true },
+    feedback = { "Feedback", function() return SDB.Help and SDB.Help.Feedback end },
 }
 
 -- Words that take the rest of the line (original case): word -> { window title, function(emit, rest) or nil when its

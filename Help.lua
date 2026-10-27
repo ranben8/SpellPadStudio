@@ -30,6 +30,7 @@ H.COMMANDS = {
     { "autocomplete", "turn macro suggestions on or off" },
     { "skin", "list the window styles; \"skin <name>\" changes the style" },
     { "keytest", "write each key press into the chat (to check what your hardware sends)" },
+    { "feedback", "show where to report a bug or leave a comment" },
 }
 H.DIAGNOSTICS = "perf, syntax, ranks, pad, padprobe, cursor, macros, builder, keyscan, retail, combat, ui, keys, mods, drag, dock, pending, watch, page, templates, merge"
 
@@ -52,6 +53,16 @@ function H.Show(unknown)
         line = line .. (line == "" and "" or ", ") .. word
     end
     if line ~= "" then print("  |cFF888888" .. line .. "|r") end
+end
+
+-- Where to send feedback. Printed on request only; nothing here ever pops up by itself.
+H.ISSUES_URL = "https://github.com/ranben8/SpellPadStudio/issues"
+H.PAGE_URL = "https://www.curseforge.com/wow/addons/spellpad-studio"
+
+function H.Feedback(emit)
+    emit("Bug reports and ideas: " .. H.ISSUES_URL)
+    emit("Comments and ratings: " .. H.PAGE_URL)
+    emit("For a bug, run /sps retail (Retail) or /sps keys, then paste the report into the issue.")
 end
 
 -- ---------------------------------------------------------------

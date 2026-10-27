@@ -1,0 +1,24 @@
+name: Feature or suggestion
+description: An idea that would make SpellPad Studio better for you.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like to be able to do?
+      description: Describe the situation first, then the change you have in mind.
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: How do you do it today?
+      description: A workaround, another addon, or "I can't".
+  - type: dropdown
+    id: client
+    attributes:
+      label: Game client
+      options:
+        - Retail (Midnight)
+        - WoW Forever
+        - Both

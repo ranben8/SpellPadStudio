@@ -1,0 +1,48 @@
+name: Bug report
+description: Something in SpellPad Studio doesn't work as expected.
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: client
+    attributes:
+      label: Game client
+      options:
+        - Retail (Midnight)
+        - WoW Forever
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Addon version
+      description: Shown in the AddOn list, or type /sps help.
+      placeholder: "1.3.0"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: What did you do?
+      description: The clicks or keys, in order. Mention the page and card if it matters.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: error
+    attributes:
+      label: Lua error (if any)
+      description: Paste the text of the error popup. Turn popups on with /console scriptErrors 1.
+      render: text
+  - type: textarea
+    id: report
+    attributes:
+      label: Report (optional)
+      description: |
+        Run /sps retail (Retail) or /sps keys (any client). A window opens with the text; press Ctrl+C and paste it here.
+        Keys not firing: /sps keys. Page not switching: /sps page. Cooldowns or glow on the SpellPad: /sps pad.
+      render: text
