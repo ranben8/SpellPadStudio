@@ -109,8 +109,7 @@ function D.PointFor(frame)
         if b and registered[b] and b.IsShown and b:IsShown() then
             return "TOPRIGHT", b, "TOPLEFT", -D.SIDE_GAP * Ratio(b, frame), 0
         end
-        -- otherwise left of the main window at the height of its title bar, so the cards stay free to drop on
-        return "TOPRIGHT", main, "TOPLEFT", -D.SIDE_GAP * r, -D.TOP_GAP * r
+        -- otherwise it falls through to the left side of the main window, top-aligned, so the pad fits under it
     end
     if D.Side(frame) == "left" then
         return "TOPRIGHT", main, "TOPLEFT", -D.SIDE_GAP * r, 0
