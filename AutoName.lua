@@ -19,22 +19,41 @@ local function Plain(text)
     return strtrim(text)
 end
 
+-- The text of an entry with the [DRAG_SPELL_HERE] placeholder as a Lua pattern: the placeholder may have been
+-- replaced by a spell or item name (one line, anything), the rest of the text is exact. Nil when it has no placeholder.
+local function PlaceholderPattern(macro)
+    local holder = SDB.DRAG_PLACEHOLDER
+    if not holder or not string.find(macro, holder) then return nil end
+    local parts, pos = {}, 1
+    while true do
+        local s, e = string.find(macro, holder, pos)
+        if not s then break end
+        parts[#parts + 1] = string.gsub(string.sub(macro, pos, s - 1), "[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%0")
+        pos = e + 1
+    end
+    parts[#parts + 1] = string.gsub(string.sub(macro, pos), "[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%0")
+    return "^" .. table.concat(parts, "[^\n]+") .. "$"
+end
+
 -- macro text -> menu text, built once (the lists don't change while the game runs). The first entry wins a shared macro.
-local byMacro
+-- A card made from an entry with the placeholder keeps that entry's name after a spell replaced the placeholder.
+local byMacro, patterns
 local function Index()
-    if byMacro then return byMacro end
-    byMacro = {}
+    if byMacro then return byMacro, patterns end
+    byMacro, patterns = {}, {}
     local function add(list)
         for _, e in ipairs(list or {}) do
             if e.macro and e.text then
                 local key = strtrim(e.macro)
                 if byMacro[key] == nil then byMacro[key] = Plain(e.text) end
+                local pat = PlaceholderPattern(key)
+                if pat then patterns[#patterns + 1] = { pat, Plain(e.text) } end
             end
         end
     end
     for _, name in ipairs(LISTS) do add(SDB[name]) end
     for _, cat in ipairs(SDB.EMOTE_CATEGORIES or {}) do add(cat.emotes) end
-    return byMacro
+    return byMacro, patterns
 end
 
 -- A pasted link ("|Hitem:6948|h[Hearthstone]|h") names itself between the brackets
@@ -49,8 +68,12 @@ function SDB.AutoName(macro)
     local text = strtrim(macro)
     if text == "" then return nil end
 
-    local preset = Index()[text]
+    local exact, holders = Index()
+    local preset = exact[text]
     if preset and preset ~= "" then return preset end
+    for _, h in ipairs(holders) do
+        if string.find(text, h[1]) then return h[2] end
+    end
 
     local T = SDB.Templates
     local tmpl = T and T.NameForMacro and T.NameForMacro(text)
