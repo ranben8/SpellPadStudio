@@ -88,6 +88,24 @@ for f in top_lua:
             if tag not in ("retail", "forever"):
                 err("%s:%d client tag '%s' is not retail or forever" % (f, n, tag))
 
+# --- addon texture paths ------------------------------------------------
+# A path like Interface\AddOns\SpellPadStudio\textures\icon.tga must exist with exactly that case (the
+# packager runs on Linux), and a .tga must be an uncompressed 32-bit image (what the game reads without trouble).
+path_re = re.compile(r'Interface[\\]+AddOns[\\]+SpellPadStudio[\\]+([A-Za-z0-9_ .\\-]+?[.](?:tga|blp))')
+for f in ["SpellPadStudio.toc"] + top_lua:
+    text = read(f).decode("utf-8", "replace")
+    for m in path_re.finditer(text):
+        rel = re.sub(r'[\\]+', '/', m.group(1))
+        full = os.path.join(ROOT, *rel.split('/'))
+        folder = os.path.dirname(full)
+        names = os.listdir(folder) if os.path.isdir(folder) else []
+        if os.path.basename(full) not in names:
+            err('%s refers to a texture that is not there: %s' % (f, rel))
+        elif rel.lower().endswith('.tga'):
+            head = read(rel)[:18]
+            if len(head) < 18 or head[2] != 2 or head[16] != 32:
+                err('%s is not an uncompressed 32-bit TGA' % rel)
+
 # --- report -------------------------------------------------------------
 for w in warnings:
     print("warning:", w)

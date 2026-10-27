@@ -4,11 +4,11 @@
 ## Author: blund
 ## Version: 1.2.1
 ## X-Curse-Project-ID: 1747177
-## IconTexture: Interface\Icons\INV_Gizmo_02
+## IconTexture: Interface\AddOns\SpellPadStudio\textures\icon.tga
 ## Category: Action Bars
 ## SavedVariables: GalleonBridgeDB
 ## AddonCompartmentFunc: StreamDeckBridge_OnAddonCompartmentClick
-## AddonCompartmentIcon: Interface\Icons\INV_Gizmo_02
+## AddonCompartmentIcon: Interface\AddOns\SpellPadStudio\textures\icon.tga
 ## OptionalDeps: LibDeflate, LibSharedMedia-3.0
 
 libs\LibStub\LibStub.lua

@@ -789,10 +789,12 @@ minimapBtn:RegisterForDrag("LeftButton")
 minimapBtn:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-Button-Highlight")
 
 local mIcon = minimapBtn:CreateTexture(nil, "BACKGROUND")
-mIcon:SetSize(20, 20)
-mIcon:SetPoint("CENTER", 0, 0)
-mIcon:SetTexture("Interface\\Icons\\INV_Gizmo_02")
-mIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+mIcon:SetSize(21, 21)
+-- The tracking ring's opening is not at the middle of the 32 x 32 button: measured on a screenshot, the ring's
+-- centre lies about 0.8 units to the right of and 0.8 below the button's centre.
+mIcon:SetPoint("CENTER", 0.8, -0.8)
+mIcon:SetTexture("Interface\\AddOns\\SpellPadStudio\\textures\\icon_round.tga") -- a round picture with transparent corners
+mIcon:SetTexCoord(0, 1, 0, 1)
 
 local mBorder = minimapBtn:CreateTexture(nil, "OVERLAY")
 mBorder:SetSize(54, 54)
@@ -893,7 +895,7 @@ if LibStub then
         ldb:NewDataObject("SpellPadStudio", {
             type = "launcher",
             text = "SpellPad Studio",
-            icon = "Interface\\Icons\\INV_Gizmo_02",
+            icon = "Interface\\AddOns\\SpellPadStudio\\textures\\icon.tga",
             OnClick = function(_, button)
                 if button == "LeftButton" then
                     PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPEN or 850)
