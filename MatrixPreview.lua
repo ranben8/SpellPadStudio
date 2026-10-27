@@ -692,7 +692,7 @@ function SDB.RefreshMatrixGrid()
                 -- "*" = with any modifier held. A plain type1 / macrotext1 only matches an UNMODIFIED left click, so
                 -- Shift-, Ctrl- and Alt-clicks (and [mod:shift] macros) would do nothing.
                 btn:SetAttribute("*type1", "macro")
-                btn:SetAttribute("*macrotext1", secureMacro)
+                btn:SetAttribute("*macrotext1", SDB.SecureMacroText(secureMacro))
                 btn:SetAttribute("type2", nil)
                 btn:SetAttribute("macrotext2", nil)
             end

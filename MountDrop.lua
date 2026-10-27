@@ -11,6 +11,7 @@ local pcall = pcall
 local type = type
 local tostring = tostring
 local string = string
+local strtrim = strtrim
 
 SDB.MountDrop = SDB.MountDrop or {}
 local M = SDB.MountDrop
@@ -108,6 +109,64 @@ function M.Resolve(a1, a2, a3)
     for i = 1, 3 do
         if args[i] == 0 then return RandomInfo() end
     end
+end
+
+-- The random favorite spell is not in the spellbook (IsSpellKnown is false), so "/cast <its name>" casts nothing;
+-- the journal's own button calls C_MountJournal.SummonByID(0). A card keeps the clean "/cast <name>" text and
+-- only the copy of the text that a secure button runs gets the call, so the card never shows a /run line.
+local RANDOM_CALL = "/run C_MountJournal.SummonByID(0)"
+
+-- the localized names the random favorite mount goes by, lower case
+local function RandomNames()
+    local names = {}
+    local name = SpellName(M.RANDOM_SPELL)
+    if name then names[string.lower(name)] = true end
+    if type(_G.MOUNT_JOURNAL_SUMMON_RANDOM_FAVORITE_MOUNT) == "string" then
+        names[string.lower(_G.MOUNT_JOURNAL_SUMMON_RANDOM_FAVORITE_MOUNT)] = true
+    end
+    return names
+end
+
+-- "/cast Summon Random Favorite Mount" or "/use ..." with nothing else on the line
+local function IsRandomCast(lower, names)
+    local word, target = string.match(lower, "^/(%a+)%s+(.-)%s*$")
+    return (word == "cast" or word == "use") and names[target] == true
+end
+
+-- "/run C_MountJournal.SummonByID(0)" (also /script, an optional trailing semicolon)
+local function IsRandomRun(lower)
+    local word, code = string.match(lower, "^/(%a+)%s+(.-)%s*$")
+    if word ~= "run" and word ~= "script" then return false end
+    code = string.gsub(code, "%s+", "")
+    return code == "c_mountjournal.summonbyid(0)" or code == "c_mountjournal.summonbyid(0);"
+end
+
+-- The text a secure button runs for a card's macro text: every random favorite "/cast" line becomes the call.
+function M.SecureText(text)
+    if type(text) ~= "string" or not M.Available() then return text end
+    local names
+    return (string.gsub(text, "[^\r\n]+", function(line)
+        local lower = string.lower(strtrim(line))
+        if string.sub(lower, 1, 1) ~= "/" then return nil end
+        names = names or RandomNames()
+        if IsRandomCast(lower, names) then return RANDOM_CALL end
+    end))
+end
+
+-- The journal icon when every action line of the text is the random favorite mount (as a /cast or as the /run call).
+function M.RandomIcon(text)
+    if type(text) ~= "string" or not M.Available() then return nil end
+    local names, found = RandomNames(), false
+    for rawLine in string.gmatch(text, "[^\r\n]+") do
+        local lower = string.lower(strtrim(rawLine))
+        if lower ~= "" and string.sub(lower, 1, 1) ~= "#" then
+            if not (IsRandomCast(lower, names) or IsRandomRun(lower)) then return nil end
+            found = true
+        end
+    end
+    if not found then return nil end
+    local info = RandomInfo()
+    return info and info.icon or nil
 end
 
 function M.Report(emit)

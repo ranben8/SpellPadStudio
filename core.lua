@@ -566,6 +566,7 @@ function SDB.UpdateSlotIconAndTooltip(iconFrame, macroText, customIcon)
     local tmplIcon = SDB.Templates and SDB.Templates.IconForMacro(cleanMacro)
     local setIcon = EquipSetIcon(cleanMacro)
     local custom = customIcon and customIcon ~= ""
+    local randomMountIcon = SDB.MountDrop and SDB.MountDrop.RandomIcon(cleanMacro)
 
     -- Standard spell / item / equipment-slot lookup. Cards only do it when it decides the icon;
     -- SpellPad buttons always do it, because their cooldown, range, count and glow need the IDs.
@@ -628,6 +629,9 @@ function SDB.UpdateSlotIconAndTooltip(iconFrame, macroText, customIcon)
     -- 1d. /dismount and /leavevehicle on their own
     elseif IsExitMacro(cleanMacro) then
         texture = EXIT_ICON
+    -- 1e. The random favorite mount as /cast or as the /run call it needs
+    elseif randomMountIcon then
+        texture = randomMountIcon
     -- 2. Page navigation icon
     elseif actType == "page" then
         texture = "Interface\\Icons\\INV_Misc_Note_01"
@@ -650,6 +654,12 @@ function SDB.UpdateSlotIconAndTooltip(iconFrame, macroText, customIcon)
         iconFrame.sdbEmpty = SDB.IsCardBlank(cleanMacro, customIcon) and true or nil
         if SDB.PadApplyEmpty then SDB.PadApplyEmpty(iconFrame) end
     end
+end
+
+-- The text a secure button runs for a card's macro text. The card keeps its own text; only the button's copy changes.
+function SDB.SecureMacroText(text)
+    if SDB.MountDrop then return SDB.MountDrop.SecureText(text) end
+    return text
 end
 
 -- -------------------------------------------------------------
@@ -756,7 +766,7 @@ function SDB.ApplyBindings(opts)
                             btn:SetAttribute("macrotext", nil)
                         else
                             btn:SetAttribute("type", "macro")
-                            btn:SetAttribute("macrotext", data.macro or "")
+                            btn:SetAttribute("macrotext", SDB.SecureMacroText(data.macro or ""))
                         end
                         SetOverrideBindingClick(SDB.bridgeFrame, true, cleanKey, btnName)
                         if not pageAction and SDB.MacroUsesModifiers(data.macro) then

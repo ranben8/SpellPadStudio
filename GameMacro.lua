@@ -378,10 +378,11 @@ function G.Save(page, slotIndex, nameText, perChar, db)
         Chat(err, true)
         return false
     end
-    local body = strtrim(data.macro)
+    local text = strtrim(data.macro)
+    local body = SDB.SecureMacroText(text) -- a game macro needs the same text the SpellPad buttons run
     return G.Write({
         name = name, perChar = perChar and true or false, body = body,
-        icons = G.IconCandidates(data, body), page = page, slot = slotIndex, pageTag = PageTag(page),
+        icons = G.IconCandidates(data, text), page = page, slot = slotIndex, pageTag = PageTag(page),
     })
 end
 
