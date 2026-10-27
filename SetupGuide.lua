@@ -350,17 +350,12 @@ local function ResetTest()
     st.lastLight = nil
 end
 
-local function SetBrowserLeft(on)
-    if SDB.Dock and SDB.Dock.SetBrowserLeft then SDB.Dock.SetBrowserLeft(on) end
-end
-
 local function BrowserShown()
     local br = _G["GalleonSpellBrowserFrame"]
     return br and br:IsShown() and true or false
 end
 
 local function OpenBrowser()
-    SetBrowserLeft(true)
     if SDB.SpellBrowser and SDB.SpellBrowser.Open and not BrowserShown() then SDB.SpellBrowser.Open() end
 end
 
@@ -386,7 +381,6 @@ local function GoTo(step)
     st.capturing = false
     st.step = step
     st.note = ""
-    if step < 4 then SetBrowserLeft(false) end
     if step == 3 then
         ResetTest()
         MakePageOneActive()
@@ -988,7 +982,6 @@ local function Build()
         if SDB.KeyTest and SDB.KeyTest.onKey == G.OnKey then SDB.KeyTest.onKey = nil end
         if SDB.listeningCapture and SDB.CancelKeyCapture then SDB.CancelKeyCapture("closed") end
         st.capturing = false
-        SetBrowserLeft(false)
         GameTooltip:Hide()
     end)
     if SDB.Esc then SDB.Esc.Register(f) end

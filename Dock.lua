@@ -5,10 +5,11 @@ local addonName, SDB = ...
 -- -------------------------------------------------------------
 -- Every window that opens after the main window (the windows that go through SDB.Skin.Apply, except the main
 -- window itself) docks directly under the main window's brown title bar with its right edge flush with the main
--- window's right edge, and closes the other docked windows, so they take turns in the same place. The Audit
--- window is the one exception: it docks to the LEFT of the main window (the cards stay in view when you jump
--- to one) and is not closed by the other windows, nor does it close them, except that it closes Options (its
--- button is in there). While the main window is closed nothing is moved: a window opens where it did before.
+-- window's right edge, and closes the other docked windows, so they take turns in the same place. Audit and the
+-- Spell Browser are the exceptions: they dock to the LEFT of the main window (the cards stay in view when you jump
+-- to one or drop a spell on one) and are not closed by the other windows, nor do they close them. Audit closes
+-- Options (its button is in there), and Audit and the Spell Browser replace each other in their shared column.
+-- While the main window is closed nothing is moved: a window opens where it did before.
 --
 -- Skin.lua tells this file about each window (SDB.Dock.Register in SDB.Skin.Apply) and calls OnShow / OnHide from
 -- the small child frame it already keeps on every skinned window (a child's OnShow / OnHide fire with its
@@ -37,11 +38,15 @@ D.TOP_GAP = 27 -- units between the main window's top edge and a docked window's
 D.SIDE_GAP = 14  -- beside the main window (the metal frames overhang 8 units on a left side and 4 on a right side)
 D.MAIN_NAME = "GalleonConfigFrame"
 -- windows that dock beside the main window instead of under its title bar; they take no part in the one-at-a-time rule
-D.SIDE = { GalleonAuditFrame = "left", GalleonSetupGuideFrame = "right" }
--- windows that close the named windows when they open, although they take no part in the one-at-a-time rule
-D.CLOSES = { GalleonAuditFrame = { GalleonBridgeOptionsFrame = true } }
+D.SIDE = { GalleonAuditFrame = "left", GalleonSpellBrowserFrame = "left", GalleonSetupGuideFrame = "right" }
+-- windows that close the named windows when they open, although they take no part in the one-at-a-time rule.
+-- Audit and the Spell Browser share the left column, so each replaces the other.
+D.CLOSES = {
+    GalleonAuditFrame = { GalleonBridgeOptionsFrame = true, GalleonSpellBrowserFrame = true },
+    GalleonSpellBrowserFrame = { GalleonAuditFrame = true },
+}
 -- windows that are used together: opening one does not close the other (SpellPad Builder + Spell Browser).
--- While SpellPad Builder is open the Spell Browser docks to ITS left side instead of under the main window's title bar.
+-- While SpellPad Builder is open the Spell Browser docks to ITS left side instead of the main window's.
 D.BUILDER_NAME = "GalleonSpellPadBuilderFrame"
 D.BROWSER_NAME = "GalleonSpellBrowserFrame"
 D.TOGETHER = {
@@ -104,8 +109,8 @@ function D.PointFor(frame)
         if b and registered[b] and b.IsShown and b:IsShown() then
             return "TOPRIGHT", b, "TOPLEFT", -D.SIDE_GAP * Ratio(b, frame), 0
         end
-        -- the Setup Guide's "put a spell on a card" step: the cards must stay free to drop on, so it goes beside them
-        if D.browserLeft then return "TOPRIGHT", main, "TOPLEFT", -D.SIDE_GAP * r, 0 end
+        -- otherwise left of the main window at the height of its title bar, so the cards stay free to drop on
+        return "TOPRIGHT", main, "TOPLEFT", -D.SIDE_GAP * r, -D.TOP_GAP * r
     end
     if D.Side(frame) == "left" then
         return "TOPRIGHT", main, "TOPLEFT", -D.SIDE_GAP * r, 0
@@ -202,7 +207,8 @@ function D.OnShow(frame)
     local closes = D.CLOSES[NameOf(frame) or ""]
     if closes then
         for _, w in ipairs(D.windows) do
-            if w ~= frame and closes[NameOf(w) or ""] and w:IsShown() then w:Hide() end
+            -- HideAlone: a closed Spell Browser must not take an open SpellPad Builder (and its unapplied changes) along
+            if w ~= frame and closes[NameOf(w) or ""] and w:IsShown() then D.HideAlone(w) end
         end
     end
     D.Place(frame)
@@ -223,14 +229,6 @@ function D.OnHide(frame)
         end
     end
     if NameOf(frame) == D.BUILDER_NAME then ReplaceBrowser() end
-end
-
--- The Setup Guide moves the Spell Browser beside the main window (on) and back under its title bar (off)
-function D.SetBrowserLeft(on)
-    on = on and true or false
-    if D.browserLeft == on then return end
-    D.browserLeft = on
-    ReplaceBrowser()
 end
 
 -- Hides one window and leaves its partner open: SpellPad Builder's Spell Browser button turns the browser off while the
@@ -298,7 +296,7 @@ function D.Report(emit)
         main and (main:IsShown() and "open" or "closed") or "not built yet",
         main and main.GetScale and string.format("%.2f", main:GetScale() or 0) or "?",
         main and main.IsToplevel and tostring(main:IsToplevel()) or "?"))
-    emit(string.format("Docking: under the title bar %d units down, right edges flush; beside the main window %d units apart (left side: Audit; right side: Setup Guide).",
+    emit(string.format("Docking: under the title bar %d units down, right edges flush; beside the main window %d units apart (left side: Audit and the Spell Browser, which replace each other; right side: Setup Guide).",
         D.TOP_GAP, D.SIDE_GAP))
     for _, w in ipairs(D.windows) do
         local line = string.format("%s: %s, scale %.2f, strata %s", NameOf(w) or "?", w:IsShown() and "OPEN" or "closed",

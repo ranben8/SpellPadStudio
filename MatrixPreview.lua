@@ -114,12 +114,13 @@ matrixWindow:SetScript("OnDragStop", function(self)
     end
 end)
 
--- Puts the SpellPad beside the main window (its top right corner against the main window's top
--- left), or in the middle of the screen when the main window is closed. It is anchored to the
--- SCREEN (UIParent) with a computed offset, never to the main window: a window that a protected
--- frame is anchored to becomes protected itself, and a protected main window loses its keyboard
--- handling and its ESC close in combat. The main window calls this again after it is dragged
--- while SDB.matrixDocked is set.
+-- Puts the SpellPad beside the main window at its lower left (its bottom right corner against the main
+-- window's bottom left, so a larger page grows upward), or in the middle of the screen when the main
+-- window is closed. The Spell Browser docks above it and, being in a higher strata, covers it where they
+-- overlap. It is anchored to the SCREEN (UIParent) with a computed offset, never to the main window:
+-- a window that a protected frame is anchored to becomes protected itself, and a protected main window
+-- loses its keyboard handling and its ESC close in combat. The main window calls this again after it
+-- is dragged while SDB.matrixDocked is set.
 function SDB.DockMatrix()
     if SDB.IsMatrixLocked() then return false end -- Lock Position: the SpellPad stays where it is
     if SDB.MatrixBlocked(true) then return false end
@@ -127,11 +128,11 @@ function SDB.DockMatrix()
     matrixWindow:ClearAllPoints()
     local cw = SDB.configWindow
     local left = cw and cw:IsShown() and cw:GetLeft() or nil
-    local top = cw and cw:IsShown() and cw:GetTop() or nil
-    if left and top then
+    local bottom = cw and cw:IsShown() and cw:GetBottom() or nil
+    if left and bottom then
         local ms, cs = matrixWindow:GetEffectiveScale(), cw:GetEffectiveScale()
         if ms and ms > 0 and cs then
-            matrixWindow:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", left * cs / ms - 14, top * cs / ms) -- 14: the skinned main window's frame overhangs 8 px on its left
+            matrixWindow:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMLEFT", left * cs / ms - 14, bottom * cs / ms) -- 14: the skinned main window's frame overhangs 8 px on its left
             SDB.matrixDocked = true
             return true
         end
