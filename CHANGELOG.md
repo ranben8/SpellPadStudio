@@ -1,3 +1,26 @@
+# SpellPad Studio, next release (version not set yet)
+
+## New
+
+- **A glow when the page or profile changes.** The SpellPad's background flashes gold behind the buttons when the active page or the profile changes: a page tab click, a `!PAGE` key, a context rule or a profile switch. It works in combat, follows the backdrop opacity, and can be turned off in Options > SpellPad ("Glow on page or profile change").
+- **A Colors tab in Options.** Choose the SpellPad's fill, line, background flash (the glow above) and button flash (what a pressed key does to its button and card). Click a swatch to use the game's color picker, or type a hex code. Presets include High Contrast and two color-blind friendly sets (red-green and blue-yellow), which also keep the two flashes easy to tell apart. "Flash Background" and "Flash Buttons" show each color once.
+- **Thick window border (Retail).** Every window style can be drawn inside the thick metal frame the game uses for its own dialog windows, such as the Game Menu. It is on by default and can be turned off in Options > General > Windows. Forever keeps its own bronze frame and doesn't show the option.
+- **A new addon icon**: the gold key on its pad, in a frame that is bronze on one side and metal on the other. It shows in the AddOn list, the addon compartment and broker bars, and a round version without a frame sits on the minimap button.
+
+## Changes
+
+- **The Spell Browser opens to the left of the main window**, level with its top edge, so you can see your cards while you pick spells. Audit and the Spell Browser share that spot and replace each other. The Spell Browser no longer closes Options, Profiles and the other windows, and they no longer close it. With SpellPad Builder open, the browser still sits against the Builder.
+- **The SpellPad docks at the lower left of the main window** (it used to dock at the upper left), so it sits under the Spell Browser. A pad you moved by hand, or locked, stays where you put it.
+- The key press flash on SpellPad buttons and cards is shorter (0.35 s), the same length as the new glow.
+
+## Fixes
+
+- **Summon Random Favorite Mount works on Retail.** A card with `/cast Summon Random Favorite Mount` (what dropping the journal's random favorite button gives you) now summons a mount from a key and from the SpellPad. The card text stays as you see it; only the macro the game runs is changed behind the scenes. A card with `/run C_MountJournal.SummonByID(0)` shows the mount's icon too.
+
+## Known issues
+
+- Forever: these changes haven't been re-tested there since Forever's beta went offline. They will be checked again at Forever's launch.
+
 # SpellPad Studio 1.2.1
 
 This is the first release that runs on **Retail (Midnight)** as well as **WoW Forever**. One download works on both.
