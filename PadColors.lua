@@ -1,6 +1,7 @@
 local addonName, SDB = ...
 
--- SpellPad colors: the fill, the line and the glow of the SpellPad window. This file holds the presets, the hex
+-- SpellPad colors: the fill and line of the SpellPad window, the background flash (the glow on a page or profile
+-- change) and the button flash (a pressed key). This file holds the presets, the hex
 -- codes and the game's color picker; the Options > Colors tab only places what it makes (OptionsUI.lua). The
 -- colors themselves are account-wide settings (Init.lua) that MatrixPreview.lua reads through SDB.PadColor.
 --
@@ -19,16 +20,17 @@ local string = string
 SDB.PadColors = SDB.PadColors or {}
 local PC = SDB.PadColors
 
-PC.KINDS = { "fill", "line", "glow" }
-local LABELS = { fill = "Fill", line = "Line", glow = "Glow" }
+PC.KINDS = { "fill", "line", "glow", "flash" }
+local LABELS = { fill = "Fill", line = "Line", glow = "Background flash", flash = "Button flash" }
 
--- Default leaves all three colors unset (the built-in look). The two "Friendly" presets use colors from the
--- Okabe-Ito set, which is chosen to stay apart for the common kinds of color blindness.
+-- Default leaves all four colors unset (the built-in look). The two "Friendly" presets use colors from the
+-- Okabe-Ito set, which is chosen to stay apart for the common kinds of color blindness; their two flashes are
+-- picked to differ from each other as well as from the fill.
 PC.PRESETS = {
     { name = "Default" },
-    { name = "High Contrast", fill = "000000", line = "FFFFFF", glow = "FFEE00" },
-    { name = "Red-Green Friendly", fill = "0A1220", line = "7FB2E5", glow = "E69F00" },
-    { name = "Blue-Yellow Friendly", fill = "0E1214", line = "A8B8BC", glow = "D55E00" },
+    { name = "High Contrast", fill = "000000", line = "FFFFFF", glow = "FFEE00", flash = "FFFFFF" },
+    { name = "Red-Green Friendly", fill = "0A1220", line = "7FB2E5", glow = "E69F00", flash = "56B4E9" },
+    { name = "Blue-Yellow Friendly", fill = "0E1214", line = "A8B8BC", glow = "D55E00", flash = "009E73" },
 }
 
 local TOLERANCE = 1.01 / 255 -- a picker hands back floats; a hex code is whole steps of 1/255
@@ -160,16 +162,16 @@ function PC.Row(parent, kind)
     hl:SetAllPoints(sw)
     hl:SetColorTexture(1, 1, 1, 0.18)
 
-    local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     label:SetPoint("LEFT", sw, "RIGHT", 8, 0)
     label:SetText(LABELS[kind])
 
-    local reset = SDB.UI.Button(row, "secondary", "Reset", 52, 22)
+    local reset = SDB.UI.Button(row, "secondary", "Reset", 48, 22)
     reset:SetPoint("RIGHT", row, "RIGHT", 0, 0)
 
     local box = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
-    box:SetSize(64, 20)
-    box:SetPoint("RIGHT", reset, "LEFT", -10, 0)
+    box:SetSize(60, 20)
+    box:SetPoint("RIGHT", reset, "LEFT", -6, 0)
     box:SetAutoFocus(false)
     box:SetMaxLetters(7)
     box:SetFontObject("GameFontHighlightSmall")
@@ -248,7 +250,7 @@ function PC.PresetButton(parent, w)
     SDB.UI.AttachMenu(btn, menu)
     btn:HookScript("OnEnter", function(self)
         SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Color Preset", "control")
-        SDB.Tip.Line("Sets the fill, line and glow together. Change any color afterwards and this reads Custom.")
+        SDB.Tip.Line("Sets all four colors together. Change any color afterwards and this reads Custom.")
         SDB.Tip.Done()
     end)
     btn:HookScript("OnLeave", function() GameTooltip:Hide() end)
@@ -256,7 +258,7 @@ function PC.PresetButton(parent, w)
     return btn
 end
 
--- "Flash Glow": shows the SpellPad's change glow once, or says why it can't
+-- "Flash Background": shows the SpellPad's change glow once, or says why it can't
 function PC.FlashGlow()
     local pad = _G["GalleonBridgeMatrixFrame"]
     if not (pad and pad:IsShown()) then
@@ -268,4 +270,11 @@ function PC.FlashGlow()
         return
     end
     SDB.FlashPadGlow()
+end
+
+-- "Flash Buttons": flashes every SpellPad button once in the button flash color, or says why it can't
+function PC.FlashButtons()
+    if not (SDB.KeyTest and SDB.KeyTest.FlashPreview and SDB.KeyTest.FlashPreview()) then
+        SDB.Chat("Show the SpellPad first, then try again.", "warn")
+    end
 end

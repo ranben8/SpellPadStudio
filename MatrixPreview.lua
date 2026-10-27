@@ -155,6 +155,7 @@ local MATRIX_LOOK = {
     emptyFill = { 0.05, 0.05, 0.06, 0.8 },
     emptyLine = { 0.27, 0.27, 0.30, 0.8 },
     emptyKey = { 0.45, 0.45, 0.50 }, -- the faint key shown on an empty button when "Show keys" is on
+    flash = { 1.0, 0.85, 0.2 }, -- the flash of a button and its card when its key is pressed (KeyTest.lua)
     -- the glow on a page or profile change: a gold wash behind the buttons that fades out
     glow = { 1.0, 0.85, 0.2 },
     glowPeak = 0.6,  -- strongest alpha at full backdrop opacity
@@ -234,8 +235,8 @@ function SDB.FlashPadGlow()
     padGlowAnim:Play()
 end
 
--- The fill, line and glow colors: the saved setting, else the built-in look (MATRIX_LOOK). `kind` is "fill", "line" or "glow".
-local PAD_COLOR_KEYS = { fill = "matrixFillColor", line = "matrixLineColor", glow = "matrixGlowColor" }
+-- The fill, line, glow and key flash colors: the saved setting, else the built-in look (MATRIX_LOOK). `kind` is "fill", "line", "glow" or "flash".
+local PAD_COLOR_KEYS = { fill = "matrixFillColor", line = "matrixLineColor", glow = "matrixGlowColor", flash = "matrixFlashColor" }
 
 function SDB.PadColorDefault(kind)
     local d = MATRIX_LOOK[kind]

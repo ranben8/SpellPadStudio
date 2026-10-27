@@ -45,9 +45,26 @@ local function FlashOn(frame, inset)
         t:Hide()
         frame.keyFlash = t
     end
+    -- the flash color is a setting (Options > Colors); only recolor when it changed
+    local r, g, b = 1.0, 0.85, 0.2
+    if SDB.PadColor then r, g, b = SDB.PadColor("flash") end
+    if t.sdbR ~= r or t.sdbG ~= g or t.sdbB ~= b then
+        t.sdbR, t.sdbG, t.sdbB = r, g, b
+        t:SetColorTexture(r, g, b, 1)
+    end
     t.anim:Stop()
     t:Show()
     t.anim:Play()
+end
+
+-- Options > Colors > Flash Buttons: flashes every shown SpellPad button once
+function K.FlashPreview()
+    local mat = _G["GalleonBridgeMatrixFrame"]
+    if not (mat and mat:IsShown() and mat.matrixButtons) then return false end
+    for _, btn in ipairs(mat.matrixButtons) do
+        if btn:IsShown() then FlashOn(btn, 3) end
+    end
+    return true
 end
 
 function K.Flash(page, slot)

@@ -448,7 +448,7 @@ SDB.OPTION_KEYS = {
     matrixHideCombat = true, matrixNoTooltips = true, matrixNoDim = true, matrixMouseoverFade = true,
     matrixFadeOpacity = true, matrixChangeGlow = true,
     -- The SpellPad colors, each { r, g, b } from 0 to 1; unset = the built-in look (PadColors.lua)
-    matrixFillColor = true, matrixLineColor = true, matrixGlowColor = true,
+    matrixFillColor = true, matrixLineColor = true, matrixGlowColor = true, matrixFlashColor = true,
     -- What the SpellPad buttons show (all four default to nil = the default look)
     matrixShowKeys = true, matrixHideNames = true, matrixNoCooldownNumbers = true, matrixNoRangeTint = true,
 }
@@ -509,7 +509,7 @@ function SDB.ValidateDB()
     -- the old "Disable tooltips in combat" key (now matrixNoTooltips): drop the stored value
     if type(GalleonBridgeDB.options) == "table" then
         GalleonBridgeDB.options.matrixNoCombatTooltip = nil
-        for _, k in ipairs({ "matrixFillColor", "matrixLineColor", "matrixGlowColor" }) do
+        for _, k in ipairs({ "matrixFillColor", "matrixLineColor", "matrixGlowColor", "matrixFlashColor" }) do
             if not SDB.ValidColor(GalleonBridgeDB.options[k]) then GalleonBridgeDB.options[k] = nil end
         end
     end
