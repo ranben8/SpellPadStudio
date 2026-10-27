@@ -3364,6 +3364,20 @@ function SDB.BuildUI()
     end)
     cbNoTT:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
+    -- "Glow on page or profile change" (SDB.FlashPadGlow, MatrixPreview.lua). Turning it on shows the glow once.
+    do
+        local cb = CreateMatrixCheck("GalleonMopChangeGlow", "Glow on page or profile change", "matrixChangeGlow", function(checked)
+            if checked and SDB.FlashPadGlow then SDB.FlashPadGlow() end
+        end)
+        cb:SetScript("OnEnter", function(self)
+            SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Glow on Page or Profile Change", "control")
+            SDB.Tip.Line("Flashes the SpellPad's background gold when the page or the profile changes.")
+            SDB.Tip.Hint("Follows the backdrop opacity, so it is off while the backdrop is hidden.")
+            SDB.Tip.Done()
+        end)
+        cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end
+
     -- "Dim unusable buttons (grey / blue)". The stored key is the OPPOSITE (matrixNoDim = dimming off,
     -- as /sps matrixdim keeps it), so this box is built by hand. In a do-block (BuildUI local limit);
     -- reached as _G.GalleonMopDim.

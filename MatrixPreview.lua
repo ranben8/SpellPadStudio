@@ -155,6 +155,10 @@ local MATRIX_LOOK = {
     emptyFill = { 0.05, 0.05, 0.06, 0.8 },
     emptyLine = { 0.27, 0.27, 0.30, 0.8 },
     emptyKey = { 0.45, 0.45, 0.50 }, -- the faint key shown on an empty button when "Show keys" is on
+    -- the glow on a page or profile change: a gold wash behind the buttons that fades out
+    glow = { 1.0, 0.85, 0.2 },
+    glowPeak = 0.6,  -- strongest alpha at full backdrop opacity
+    glowTime = 0.35, -- seconds to fade out
 }
 matrixWindow.sdbOwnBackdrop = true -- SDB.ApplyLSMToFrame must not swap this window's edge texture
 
@@ -171,6 +175,57 @@ function SDB.MatrixPixel()
     return 1
 end
 
+-- The change glow. A gold texture between the backdrop's fill and the buttons (the buttons are child frames, so
+-- they always draw above it), made here, out of combat, so a page switch at the pull only shows and fades an
+-- existing texture. It sits one pixel inside the line and fades from a peak that follows the backdrop opacity.
+local padGlow, padGlowAnim, padGlowFade
+
+local function BuildPadGlow()
+    local t = matrixWindow:CreateTexture(nil, "BACKGROUND", nil, 0)
+    local c = MATRIX_LOOK.glow
+    t:SetColorTexture(c[1], c[2], c[3], 1)
+    t:SetBlendMode("ADD")
+    t:Hide()
+    local ag = t:CreateAnimationGroup()
+    local a = ag:CreateAnimation("Alpha")
+    a:SetDuration(MATRIX_LOOK.glowTime)
+    ag:SetScript("OnFinished", function() t:Hide() end)
+    padGlow, padGlowAnim, padGlowFade = t, ag, a
+end
+BuildPadGlow()
+
+local function PlacePadGlow(px)
+    padGlow:ClearAllPoints()
+    padGlow:SetPoint("TOPLEFT", matrixWindow, "TOPLEFT", px, -px)
+    padGlow:SetPoint("BOTTOMRIGHT", matrixWindow, "BOTTOMRIGHT", -px, px)
+end
+
+-- How strong the glow is right now: none when the option is off or the backdrop is hidden, otherwise the
+-- peak scaled by the backdrop opacity (0% gives none). The window's own fade multiplies on top of that.
+function SDB.PadGlowPeak()
+    if not SDB.db or not SDB.db.matrixChangeGlow or SDB.db.matrixHideBackdrop then return 0 end
+    local opacity = tonumber(SDB.db.matrixBackdropOpacity)
+    if not opacity then opacity = 1 end
+    return MATRIX_LOOK.glowPeak * math.max(0, math.min(1, opacity))
+end
+
+-- Flashes the glow once; a flash that is still fading starts again instead of stacking.
+function SDB.FlashPadGlow()
+    if not matrixWindow:IsShown() then return end
+    local peak = SDB.PadGlowPeak()
+    if peak <= 0 then return end
+    padGlowAnim:Stop()
+    if padGlowFade.SetFromAlpha then
+        padGlowFade:SetFromAlpha(peak)
+        padGlowFade:SetToAlpha(0)
+    else
+        padGlow:SetAlpha(peak)
+        padGlowFade:SetChange(-peak)
+    end
+    padGlow:Show()
+    padGlowAnim:Play()
+end
+
 -- (Re)builds the flat backdrop when the pixel size changed. Returns true when it did. The caller
 -- sets the colours afterwards (SDB.UpdateMatrixAppearance). Texture work on the protected window:
 -- only called where scale changes are allowed, i.e. never while SDB.MatrixBlocked.
@@ -184,6 +239,7 @@ function SDB.ApplyMatrixBackdrop()
         edgeSize = px,
         insets = { left = px, right = px, top = px, bottom = px },
     })
+    PlacePadGlow(px)
     return true
 end
 SDB.ApplyMatrixBackdrop()
@@ -419,6 +475,17 @@ end
 function SDB.RefreshMatrixGrid()
     if SDB.UpdateMatrixAppearance then SDB.UpdateMatrixAppearance() end
     local curP = SDB.db.activePage or 1
+
+    -- Change glow: flash when the page or the profile is not the one drawn last time. The first draw and the
+    -- one right after the pad was shown only record it, so a change made while the pad was hidden doesn't glow later.
+    local drawnProfile = SDB.currentProfileName
+    if matrixWindow.sdbGlowQuiet then
+        matrixWindow.sdbGlowQuiet = nil
+    elseif matrixWindow.sdbGlowSeen and (matrixWindow.sdbGlowProfile ~= drawnProfile or matrixWindow.sdbGlowPage ~= curP) then
+        SDB.FlashPadGlow()
+    end
+    matrixWindow.sdbGlowSeen, matrixWindow.sdbGlowProfile, matrixWindow.sdbGlowPage = true, drawnProfile, curP
+
     local pageSlots = (SDB.db.pages and SDB.db.pages[curP]) or {}
     local totalSlots = #pageSlots > 0 and #pageSlots or (SDB.db.deckSize or 12)
     local numRows, numCols = SDB.GetMatrixDimensions(totalSlots, pageSlots)
@@ -764,6 +831,7 @@ function SDB.RefreshPadIfShown()
 end
 
 matrixWindow:HookScript("OnShow", function()
+    matrixWindow.sdbGlowQuiet = true
     SDB.RefreshMatrixGrid()
 
     -- Gold look on the sidebar SpellPad button while the pad is open

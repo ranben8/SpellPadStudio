@@ -429,14 +429,14 @@ SDB.OPTION_DEFAULTS = {
     opacity = 1.0, uiScale = 1.0, hideMinimap = false, autoHideCombat = false, lockWindows = false,
     matrixAlwaysShow = false, matrixScale = 1.0, matrixBackdropOpacity = 1.0, matrixHideBackdrop = false,
     matrixHideEmpty = false, matrixHideCombat = false, matrixNoTooltips = false, matrixMouseoverFade = false,
-    matrixFadeOpacity = 0.25,
+    matrixFadeOpacity = 0.25, matrixChangeGlow = true,
 }
 SDB.OPTION_KEYS = {
     opacity = true, uiScale = true, hideMinimap = true, autoHideCombat = true, lockWindows = true,
     matrixAlwaysShow = true, matrixScale = true, matrixBackdropOpacity = true, matrixButtonOpacity = true,
     matrixSpacing = true, matrixNoClickSound = true, matrixHideBackdrop = true, matrixHideEmpty = true,
     matrixHideCombat = true, matrixNoTooltips = true, matrixNoDim = true, matrixMouseoverFade = true,
-    matrixFadeOpacity = true,
+    matrixFadeOpacity = true, matrixChangeGlow = true,
     -- What the SpellPad buttons show (all four default to nil = the default look)
     matrixShowKeys = true, matrixHideNames = true, matrixNoCooldownNumbers = true, matrixNoRangeTint = true,
 }

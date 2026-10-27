@@ -256,6 +256,7 @@ local function OptionsBody(win)
                 AddRow(g, "Orientation", win.orientBtn, 90)
                 AddCheck(g, Named("GalleonMopLock"))
                 AddCheck(g, Named("GalleonMopClickSound"))
+                AddCheck(g, Named("GalleonMopChangeGlow"))
                 AddCheck(g, Named("GalleonMopNoTooltips"))
             end },
             { title = "Size and Opacity", fill = function(g)
