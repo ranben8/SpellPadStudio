@@ -258,18 +258,19 @@ function PC.PresetButton(parent, w)
     return btn
 end
 
--- "Flash Background": shows the SpellPad's change glow once, or says why it can't
+-- "Flash Background": shows the SpellPad's change glow once, or says why it can't. It works with the
+-- "Glow on page or profile change" box off too; only a hidden or fully transparent backdrop stops it.
 function PC.FlashGlow()
     local pad = _G["GalleonBridgeMatrixFrame"]
     if not (pad and pad:IsShown()) then
         SDB.Chat("Show the SpellPad first, then try again.", "warn")
         return
     end
-    if SDB.PadGlowPeak() <= 0 then
-        SDB.Chat("The glow is off. Turn on 'Glow on page or profile change' and show the window backdrop.", "warn")
+    if SDB.PadGlowPeak(true) <= 0 then
+        SDB.Chat("The glow is drawn on the window backdrop. Turn off 'Hide window backdrop' and raise its opacity.", "warn")
         return
     end
-    SDB.FlashPadGlow()
+    SDB.FlashPadGlow(true)
 end
 
 -- "Flash Buttons": flashes every SpellPad button once in the button flash color, or says why it can't

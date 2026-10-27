@@ -83,8 +83,8 @@ local CLASSIC_LABEL = "Classic (Old Look)"
 
 -- The thick border (retail): the frame of the game's own dialog windows (the Game Menu, and what the Transparent
 -- style draws) around the background of any style, instead of the thin Metal frame. The Dialog frame has no title bar,
--- so the title and the X take the Transparent style's places. Offered on retail only; Forever's Metal frame is
--- already the thick bronze one.
+-- so the title and the X take the Transparent style's places. Offered on retail only, off by default
+-- (GalleonBridgeDB.thickFrame = true turns it on); Forever's Metal frame is already the thick bronze one.
 -- Background insets of the thick frame: its metal line sits about 6 units inside the window's rectangle, so a background
 -- starting nearer showed as a dark band outside the line (measured on screenshots: 4 pixels of band at about 1.8 pixels per unit).
 local THICK_BG = { 7, -7, -7, 7 }
@@ -95,7 +95,7 @@ function S.ThickAvailable()
 end
 
 function S.ThickOn()
-    return S.ThickAvailable() and not (GalleonBridgeDB and GalleonBridgeDB.thinFrame)
+    return S.ThickAvailable() and GalleonBridgeDB ~= nil and GalleonBridgeDB.thickFrame == true
 end
 
 -- The style to draw for `key` and the id its textures are kept under: the style itself, or its thick copy
@@ -684,7 +684,7 @@ end
 
 -- Options > General > Windows: switches the thick border on or off and redraws every window
 function S.SetThick(on)
-    if GalleonBridgeDB then GalleonBridgeDB.thinFrame = (not on) or nil end
+    if GalleonBridgeDB then GalleonBridgeDB.thickFrame = on and true or nil end
     S.RefreshAll()
 end
 

@@ -67,6 +67,18 @@ function K.FlashPreview()
     return true
 end
 
+-- Flashes the SpellPad buttons of these card slots once, whatever the key flash option says (a drop on the
+-- SpellPad uses it to show which two buttons swapped)
+function K.FlashSlots(slots)
+    local mat = _G["GalleonBridgeMatrixFrame"]
+    if not (mat and mat:IsShown() and mat.matrixButtons) then return false end
+    for _, slot in ipairs(slots) do
+        local btn = mat.matrixButtons[slot]
+        if btn and btn:IsShown() then FlashOn(btn, 3) end
+    end
+    return true
+end
+
 function K.Flash(page, slot)
     if K.traceOn and K.TraceFire then K.TraceFire(page, slot) end -- /sps mods
     if K.onKey then pcall(K.onKey, page, slot) end -- the Setup Guide's button test
@@ -77,7 +89,7 @@ function K.Flash(page, slot)
         local mat = _G["GalleonBridgeMatrixFrame"]
         if mat and mat:IsShown() and mat.matrixButtons then
             local btn = mat.matrixButtons[slot]
-            if btn and btn:IsShown() then FlashOn(btn, 3) end
+            if btn and btn:IsShown() and SDB.db.matrixKeyFlash then FlashOn(btn, 3) end
         end
         if SDB.configWindow and SDB.configWindow:IsShown() and SDB.rows then
             local row = SDB.rows[slot]

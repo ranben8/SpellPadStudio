@@ -439,14 +439,14 @@ SDB.OPTION_DEFAULTS = {
     opacity = 1.0, uiScale = 1.0, hideMinimap = false, autoHideCombat = false, lockWindows = false,
     matrixAlwaysShow = false, matrixScale = 1.0, matrixBackdropOpacity = 1.0, matrixHideBackdrop = false,
     matrixHideEmpty = false, matrixHideCombat = false, matrixNoTooltips = false, matrixMouseoverFade = false,
-    matrixFadeOpacity = 0.25, matrixChangeGlow = true,
+    matrixFadeOpacity = 0.25, matrixChangeGlow = true, matrixKeyFlash = true,
 }
 SDB.OPTION_KEYS = {
     opacity = true, uiScale = true, hideMinimap = true, autoHideCombat = true, lockWindows = true,
     matrixAlwaysShow = true, matrixScale = true, matrixBackdropOpacity = true, matrixButtonOpacity = true,
     matrixSpacing = true, matrixNoClickSound = true, matrixHideBackdrop = true, matrixHideEmpty = true,
     matrixHideCombat = true, matrixNoTooltips = true, matrixNoDim = true, matrixMouseoverFade = true,
-    matrixFadeOpacity = true, matrixChangeGlow = true,
+    matrixFadeOpacity = true, matrixChangeGlow = true, matrixKeyFlash = true,
     -- The SpellPad colors, each { r, g, b } from 0 to 1; unset = the built-in look (PadColors.lua)
     matrixFillColor = true, matrixLineColor = true, matrixGlowColor = true, matrixFlashColor = true,
     -- What the SpellPad buttons show (all four default to nil = the default look)
@@ -505,6 +505,7 @@ end
 function SDB.ValidateDB()
     if not GalleonBridgeDB then GalleonBridgeDB = {} end
     GalleonBridgeDB.reduceMotion = nil -- the removed "Reduce motion" option: drop a saved value
+    GalleonBridgeDB.thinFrame = nil -- the old inverted thick-border flag (the border is off unless thickFrame is set)
     GalleonBridgeDB.gripStyle, GalleonBridgeDB.gripFont, GalleonBridgeDB.gripDy = nil, nil, nil -- the removed grip test settings
     -- the old "Disable tooltips in combat" key (now matrixNoTooltips): drop the stored value
     if type(GalleonBridgeDB.options) == "table" then

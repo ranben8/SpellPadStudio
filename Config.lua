@@ -3379,6 +3379,21 @@ function SDB.BuildUI()
         cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
     end
 
+    -- "Flash button on key press" (KeyTest.lua): the SpellPad button lights when its card's key is pressed.
+    -- The card in the main window flashes either way. Turning it on shows the flash once.
+    do
+        local cb = CreateMatrixCheck("GalleonMopKeyFlash", "Flash button on key press", "matrixKeyFlash", function(checked)
+            if checked and SDB.KeyTest then SDB.KeyTest.FlashPreview() end
+        end)
+        cb:SetScript("OnEnter", function(self)
+            SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Flash Button on Key Press", "control")
+            SDB.Tip.Line("Flashes a SpellPad button when you press its key.")
+            SDB.Tip.Hint("Cards in the main window flash either way. Set the color in the Colors tab.")
+            SDB.Tip.Done()
+        end)
+        cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end
+
     -- "Dim unusable buttons (grey / blue)". The stored key is the OPPOSITE (matrixNoDim = dimming off,
     -- as /sps matrixdim keeps it), so this box is built by hand. In a do-block (BuildUI local limit);
     -- reached as _G.GalleonMopDim.
@@ -4148,7 +4163,8 @@ function SDB.BuildUI()
     -- Drag-to-Reorder Engine
     -- Real cards are never moved while dragging. A ghost follows the
     -- cursor and a gold bar marks the drop gap. Over the middle of another
-    -- card the drop swaps the two cards instead and that card glows.
+    -- card, or over a SpellPad button, the drop swaps the two cards instead
+    -- (a card glows; a SpellPad button has its own hover glow).
     -- (Kept in a table inside a do-block so BuildUI doesn't pick up
     -- extra locals/upvalues; it's a very large function.)
     -- =========================================================
@@ -4182,7 +4198,8 @@ function SDB.BuildUI()
             return g
         end
 
-        -- gold while the drop would work, grey while it would not (the cursor is outside the card list: the move is cancelled);
+        -- gold while the drop would work, grey while it would not (the cursor is outside the card list and not over a SpellPad
+        -- button: the move is cancelled);
         -- same look as the drag in SpellPad Builder
         function D.SetLook(ok)
             local g = D.ghost
@@ -4243,6 +4260,27 @@ function SDB.BuildUI()
                     if cy <= top - edge and cy >= bottom + edge then return i end
                 end
             end
+        end
+
+        -- The cursor is over a SpellPad button of the shown page (not the dragged card's own): the drop swaps those two
+        -- cards. Geometry, not OnEnter, so it doesn't depend on which frame the game thinks the mouse is on mid-drag.
+        function D.GetPadTarget(numRows, src)
+            local mat = _G["GalleonBridgeMatrixFrame"]
+            if not (mat and mat:IsShown() and mat.matrixButtons) then return nil end
+            for i = 1, numRows do
+                local b = mat.matrixButtons[i]
+                if i ~= src and b and b:IsShown() and b:IsMouseOver() then return i end
+            end
+        end
+
+        -- Scrolls the list so the dragged card is at the top, for when the drag goes grey: the list may have moved
+        -- while the cursor travelled, and the card the user is holding should still be in view.
+        function D.ScrollToSource(src)
+            local row = SDB.rows and SDB.rows[src]
+            local bar = _G["GalleonScrollFrameScrollBar"]
+            if not row or not bar then return end
+            local _, _, _, _, y = row:GetPoint(1)
+            if y then bar:SetValue(math.max(0, -y)) end
         end
 
         -- a faint pulsing gold wash and a thin gold edge over the card that would be swapped
@@ -4364,15 +4402,22 @@ function SDB.BuildUI()
                 self:ClearAllPoints()
                 self:SetPoint("LEFT", UIParent, "BOTTOMLEFT", cx / us + 14, cy / us - 4)
 
-                D.AutoScroll(elapsed)
-
-                -- Dragging out sideways cancels the move
+                -- Dragging out sideways cancels the move, unless the cursor is over a SpellPad button
                 local sl, sr = scrollFrame:GetLeft(), scrollFrame:GetRight()
                 local sx = cx / scrollFrame:GetEffectiveScale()
                 local inside = sl and sr and sx >= sl - 30 and sx <= sr + 30
-                D.SetLook(inside and true or false)
+                local padTarget = D.GetPadTarget(#slots, st.src)
+                local ok = (inside or padTarget) and true or false
+                D.SetLook(ok)
 
-                st.swap = inside and D.GetSwapTarget(#slots, st.src) or nil
+                -- The list only scrolls while the cursor is over it; crossing its top or bottom edge on the way to the
+                -- SpellPad used to scroll the dragged card away. When the drag turns grey the card is brought to the top.
+                if inside then D.AutoScroll(elapsed) end
+                if not ok and not st.grey then D.ScrollToSource(st.src) end
+                st.grey = not ok
+
+                st.pad = padTarget ~= nil
+                st.swap = padTarget or (inside and D.GetSwapTarget(#slots, st.src)) or nil
                 if st.swap then
                     st.dest = st.src
                     D.GetBar():Hide()
@@ -4407,8 +4452,10 @@ function SDB.BuildUI()
             PlaySound(SOUNDKIT and SOUNDKIT.IG_ABILITY_ICON_DROP or 838)
 
             local page = SDB.db.pages[st.page]
+            local swapped
             if commit and page and st.swap and st.swap ~= st.src and page[st.swap] and page[st.src]
                     and (SDB.db.activePage or 1) == st.page then
+                swapped = true
                 -- swap the two cards' contents; hardware keys stay put, as in a reorder
                 if SDB.Snapshots then SDB.Snapshots.Take("Before Swap Cards", "page", { page = st.page }) end
                 if SDB.Undo then SDB.Undo.ClearAll() end
@@ -4442,6 +4489,10 @@ function SDB.BuildUI()
                 if r.macroBox then r.macroBox:ClearFocus() end
             end
             configWindow.RefreshRows()
+            -- dropped on the SpellPad: the two buttons flash once so the swap is visible there
+            if swapped and st.pad and SDB.KeyTest and SDB.KeyTest.FlashSlots then
+                SDB.KeyTest.FlashSlots({ st.src, st.swap })
+            end
         end
 
         -- Cancel cleanly if the window closes mid-drag

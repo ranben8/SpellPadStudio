@@ -203,8 +203,10 @@ end
 
 -- How strong the glow is right now: none when the option is off or the backdrop is hidden, otherwise the
 -- peak scaled by the backdrop opacity (0% gives none). The window's own fade multiplies on top of that.
-function SDB.PadGlowPeak()
-    if not SDB.db or not SDB.db.matrixChangeGlow or SDB.db.matrixHideBackdrop then return 0 end
+-- force = the Options preview: ignores the option, but the glow still needs a visible backdrop.
+function SDB.PadGlowPeak(force)
+    if not SDB.db or SDB.db.matrixHideBackdrop then return 0 end
+    if not force and not SDB.db.matrixChangeGlow then return 0 end
     local opacity = tonumber(SDB.db.matrixBackdropOpacity)
     if not opacity then opacity = 1 end
     return MATRIX_LOOK.glowPeak * math.max(0, math.min(1, opacity))
@@ -219,9 +221,9 @@ function SDB.ApplyPadGlowColor()
 end
 
 -- Flashes the glow once; a flash that is still fading starts again instead of stacking.
-function SDB.FlashPadGlow()
+function SDB.FlashPadGlow(force)
     if not matrixWindow:IsShown() then return end
-    local peak = SDB.PadGlowPeak()
+    local peak = SDB.PadGlowPeak(force)
     if peak <= 0 then return end
     padGlowAnim:Stop()
     if padGlowFade.SetFromAlpha then

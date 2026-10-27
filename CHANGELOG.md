@@ -4,13 +4,16 @@
 
 - **A glow when the page or profile changes.** The SpellPad's background flashes gold behind the buttons when the active page or the profile changes: a page tab click, a `!PAGE` key, a context rule or a profile switch. It works in combat, follows the backdrop opacity, and can be turned off in Options > SpellPad ("Glow on page or profile change").
 - **A Colors tab in Options.** Choose the SpellPad's fill, line, background flash (the glow above) and button flash (what a pressed key does to its button and card). Click a swatch to use the game's color picker, or type a hex code. Presets include High Contrast and two color-blind friendly sets (red-green and blue-yellow), which also keep the two flashes easy to tell apart. "Flash Background" and "Flash Buttons" show each color once.
-- **Thick window border (Retail).** Every window style can be drawn inside the thick metal frame the game uses for its own dialog windows, such as the Game Menu. It is on by default and can be turned off in Options > General > Windows. Forever keeps its own bronze frame and doesn't show the option.
+- **Thick window border (Retail).** Every window style can be drawn inside the thick metal frame the game uses for its own dialog windows, such as the Game Menu. It is off by default; turn it on in Options > General > Windows. Forever keeps its own bronze frame and doesn't show the option.
+- **Flash button on key press.** The SpellPad button that lights when you press its key now has its own switch in Options > SpellPad. Cards in the main window still flash.
+- **Drag a card onto the SpellPad to swap it** with the button under the cursor. Both buttons flash when the swap is done. When the drag turns grey (you left the card list), the list scrolls so the card you are holding is at the top.
 - **A new addon icon**: the gold key on its pad, in a frame that is bronze on one side and metal on the other. It shows in the AddOn list, the addon compartment and broker bars, and a round version without a frame sits on the minimap button.
 
 ## Changes
 
 - **The Spell Browser opens to the left of the main window**, level with its top edge, so you can see your cards while you pick spells. Audit and the Spell Browser share that spot and replace each other. The Spell Browser no longer closes Options, Profiles and the other windows, and they no longer close it. With SpellPad Builder open, the browser still sits against the Builder.
 - **The SpellPad docks at the lower left of the main window** (it used to dock at the upper left), so it sits under the Spell Browser. A pad you moved by hand, or locked, stays where you put it.
+- **Mage teleports and portals are listed by city** (teleport, then portal), newest city first starting with Silvermoon City, and the original capitals last.
 - The key press flash on SpellPad buttons and cards is shorter (0.35 s), the same length as the new glow.
 
 ## Fixes
