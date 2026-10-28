@@ -1,4 +1,4 @@
-# SpellPad Studio 1.3.0 (beta)
+# SpellPad Studio 1.3.0
 
 ## New
 
