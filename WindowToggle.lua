@@ -1,9 +1,9 @@
 local addonName, SDB = ...
 
 -- -------------------------------------------------------------
--- Key binding: open / close the main window
+-- Key bindings: open / close the main window, show / hide the SpellPad
 -- -------------------------------------------------------------
--- The binding itself is declared in Bindings.xml (WoW loads that file by itself; it is not listed in
+-- The bindings themselves are declared in Bindings.xml (WoW loads that file by itself; it is not listed in
 -- the .toc). It is filed under Game Menu > Options > Key Bindings > AddOns by category="ADDONS" there.
 -- It deliberately has NO header: a custom header put it under "Other" with a garbled heading on
 -- Forever. The name carries the addon name instead.
@@ -11,6 +11,7 @@ local addonName, SDB = ...
 -- cannot clash with the keys of the cards.
 
 BINDING_NAME_STREAMDECKBRIDGE_TOGGLE = "SpellPad Studio: Open / Close Window"
+BINDING_NAME_STREAMDECKBRIDGE_TOGGLE_PAD = "SpellPad Studio: Show / Hide SpellPad"
 
 local function Say(text, hex)
     print("|c" .. (hex or "FFFFFF00") .. "[SpellPad Studio]|r " .. text)
@@ -66,7 +67,39 @@ function SDB.OpenMainWindow()
     w:Show()
 end
 
--- Bindings.xml runs its body in the global environment, so it needs a global to call
+-- Show or hide the SpellPad (minimap and broker right-click, and the Show / Hide SpellPad key binding). A plain
+-- toggle: the "Always show SpellPad" setting is left alone, and the pad comes back where it was. The pad is a protected window, so nothing happens in
+-- combat (SDB.MatrixBlocked says so); building the main window for the first time is refused in combat as well.
+function SDB.ToggleSpellPad()
+    PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPEN or 850)
+    if not SDB.configWindow then
+        if InCombatLockdown() then
+            Say("Can't open SpellPad Studio for the first time in combat.", "FFFF4444")
+            return
+        end
+        if SDB.BuildUI then SDB.BuildUI() end
+    end
+    local matFrame = _G["GalleonBridgeMatrixFrame"]
+    if matFrame and not SDB.MatrixBlocked() then
+        if matFrame:IsShown() then
+            matFrame:Hide()
+        else
+            -- it comes back where it was: a hidden frame keeps its anchor. Only a pad that was never placed (not
+            -- docked this session, not dragged) is docked once; docking again would put it in the middle of the
+            -- screen whenever the main window is closed.
+            if SDB.matrixDocked == nil and not (matFrame.IsUserPlaced and matFrame:IsUserPlaced()) then
+                SDB.DockMatrix() -- beside the main window if it is open, anchored to the screen (never to the main window)
+            end
+            matFrame:Show()
+        end
+    end
+end
+
+-- Bindings.xml runs its body in the global environment, so it needs globals to call
 _G.StreamDeckBridge_ToggleWindow = function()
     SDB.ToggleMainWindow()
+end
+
+_G.StreamDeckBridge_TogglePad = function()
+    SDB.ToggleSpellPad()
 end

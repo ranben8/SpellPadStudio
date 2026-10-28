@@ -822,7 +822,7 @@ function IP.UniqueName(base)
 end
 
 -- Stores the imported pages as a NEW profile under `name` and returns the name, or nil + a reason.
--- The profile gets every plain value of the active profile except cards per page and the active page (for
+-- The profile gets every plain value of the active profile except cards per page, the active page and the prefix mode (for
 -- example the SpellPad orientation). The look settings (opacity, scale, SpellPad options...) are account-wide,
 -- so switching to it does not change how the addon looks; the imported string only carries pages (with their
 -- SpellPad shapes), page names and the cards per page. Context rules are not copied. Nothing existing is
@@ -836,7 +836,8 @@ function IP.CreateProfile(data, name)
 
     local p = SDB.GetDefaultProfile()
     for k, v in pairs(SDB.db or {}) do
-        if type(v) ~= "table" and k ~= "activePage" and k ~= "deckSize" and k ~= "autoSwitchContext" then
+        if type(v) ~= "table" and k ~= "activePage" and k ~= "deckSize" and k ~= "autoSwitchContext"
+            and k ~= "prefixMode" and k ~= "globalPrefix" then
             p[k] = v
         end
     end

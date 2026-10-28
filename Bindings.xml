@@ -2,4 +2,7 @@
     <Binding name="STREAMDECKBRIDGE_TOGGLE" category="ADDONS">
         StreamDeckBridge_ToggleWindow()
     </Binding>
+    <Binding name="STREAMDECKBRIDGE_TOGGLE_PAD" category="ADDONS">
+        StreamDeckBridge_TogglePad()
+    </Binding>
 </Bindings>

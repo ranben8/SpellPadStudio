@@ -198,6 +198,96 @@ end
 local OPT_W = 594
 local COL_W = (OPT_W - 32 - GAP) / 2   -- 276
 
+-- Key Prefix group (General tab): Per Page / Global, and the global prefix as a key cap (click = listen, right-click =
+-- remove). The cap only works in Global mode; in Per Page mode each page's own key cap in the main window does it.
+local function BuildPrefixGroup(g)
+    local modeLabel = g:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    modeLabel:SetPoint("TOPLEFT", g, "TOPLEFT", PAD, -(g.cur + 4))
+    modeLabel:SetText("Prefix mode")
+    local global = SDB.UI.ChoiceChip(g, "Global", 74, 22)
+    global:SetPoint("TOPRIGHT", g, "TOPRIGHT", -PAD, -g.cur)
+    local perPage = SDB.UI.ChoiceChip(g, "Per Page", 74, 22)
+    perPage:SetPoint("RIGHT", global, "LEFT", -6, 0)
+    g.cur = g.cur + 30
+
+    local capLabel = g:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    capLabel:SetPoint("TOPLEFT", g, "TOPLEFT", PAD, -(g.cur + 4))
+    capLabel:SetText("Global prefix")
+    local cap = SDB.UI.KeyCap(g, "", false, 96)
+    cap:SetPoint("TOPRIGHT", g, "TOPRIGHT", -PAD, -g.cur)
+    local click = CreateFrame("Button", nil, g)
+    click:SetAllPoints(cap)
+    click:SetFrameLevel(cap:GetFrameLevel() + 2)
+    click:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    g.cur = g.cur + 30
+
+    local note = AddNote(g, "", 4)
+
+    local function Refresh()
+        local isGlobal = SDB.PrefixIsGlobal and SDB.PrefixIsGlobal() or false
+        global:SetSelected(isGlobal)
+        perPage:SetSelected(not isGlobal)
+        click:SetEnabled(isGlobal)
+        cap:SetAlpha(isGlobal and 1 or 0.45)
+        local text
+        if not isGlobal then
+            text = "|cFF888888Per page|r"
+        elseif SDB.listeningForPrefix then
+            local keys = SDB.PrefixBufferText and SDB.PrefixBufferText() or ""
+            text = keys ~= "" and ("|cFFFFFFFF" .. keys .. "|r") or "|cFF888888Listening...|r"
+        else
+            local p = SDB.db and SDB.db.globalPrefix
+            text = (p and p ~= "") and (string.gsub(p, "|", "||")) or "|cFF888888None|r"
+        end
+        cap:SetText(text)
+        note:SetText(isGlobal
+            and "One prefix for every page. Setting it changes all pages, removing it clears all pages, and new pages start with it. Click the key cap and press the keys, or right-click it to remove the prefix."
+            or "Each page has its own prefix. Set or remove it with the Prefix key cap above the cards, or in Page Options. New pages start with no keys.")
+    end
+    SDB.RefreshPrefixOptions = Refresh
+
+    local function Choose(wantGlobal)
+        PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+        if SDB.SetPrefixMode then SDB.SetPrefixMode(wantGlobal) end
+        Refresh() -- a question that is still open leaves the mode as it was
+    end
+    global:SetScript("OnClick", function() Choose(true) end)
+    perPage:SetScript("OnClick", function() Choose(false) end)
+    for _, chip in ipairs({ global, perPage }) do
+        chip:SetScript("OnEnter", function(self)
+            SDB.Tip.Begin(self, "ANCHOR_RIGHT", self == global and "Global Prefix" or "Per Page Prefix", "control")
+            SDB.Tip.Line(self == global
+                and "One prefix for every page. Turning it on gives every page the prefix of the page you are on."
+                or "Every page has its own prefix. New pages start with no keys.")
+            SDB.Tip.Done()
+        end)
+        chip:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end
+
+    click:SetScript("OnClick", function(_, button)
+        PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+        if button == "RightButton" then
+            if SDB.UnbindPrefix then SDB.UnbindPrefix() end
+        elseif SDB.StartPrefixListen then
+            SDB.StartPrefixListen()
+        end
+    end)
+    click:SetScript("OnEnter", function(self)
+        SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Global Prefix", "control")
+        if SDB.PrefixIsGlobal and SDB.PrefixIsGlobal() then
+            SDB.Tip.Line("Click, then press the keys for the prefix of every page. Enter applies, Esc cancels.")
+            SDB.Tip.Hint("Right-click to remove the prefix from every page.")
+        else
+            SDB.Tip.Line("Turn on Global to use one prefix for every page.")
+        end
+        SDB.Tip.Done()
+    end)
+    click:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    g:HookScript("OnShow", Refresh)
+    Refresh()
+end
+
 local function OptionsBody(win)
     local ctl = {
         opacity = Named("GalleonOpacitySlider"), scale = Named("GalleonScaleSlider"),
@@ -218,7 +308,7 @@ local function OptionsBody(win)
             if ctl.style then AddRow(g, "Window style", ctl.style, 150) end
             AddCheck(g, ctl.thick) -- nil on Forever
             AddCheck(g, ctl.lockWin)
-        end } })
+        end }, { title = "Key Prefix", fill = BuildPrefixGroup } })
         local h2 = Stack(content, 16 + COL_W + GAP, COL_W, {
             { title = "Behavior", fill = function(g)
                 AddCheck(g, ctl.minimap)
@@ -416,6 +506,7 @@ local function PageOptionsBody(win)
     end
     g1.cur = g1.cur + 32
     AddButton(g1, win.copyBtn, 110, 24)
+    AddCheck(g1, Named("GalleonPageLogicMain"))
     local h1 = Finish(g1)
     y = y + h1 + GAP
 

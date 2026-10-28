@@ -21,7 +21,8 @@ local IsStealthed = IsStealthed
 local IsInGroup = IsInGroup
 local IsInRaid = IsInRaid
 local IsInInstance = IsInInstance
-local GetShapeshiftFormID = GetShapeshiftFormID or GetShapeshiftForm
+-- the form rule stores the shapeshift bar position, which GetShapeshiftForm returns; the form ID is a different number
+local GetShapeshiftFormIndex = GetShapeshiftForm or GetShapeshiftFormID
 
 -- Shared state
 SDB.secureButtons = {}
@@ -36,6 +37,63 @@ SDB.configWindow = nil -- Instantiated in Config.lua
 -- -------------------------------------------------------------
 SDB.manualPage = 1
 
+-- Swimming and flying: nothing fires on every change (swimming has no event at all, the glide event misses
+-- classic flight), so a 0.25 s poll watches them, but only while a page uses one of those contexts. A new state
+-- counts once it has held for a moment: at the water's edge IsSwimming flips several times a second, and every
+-- page switch re-binds the keys. SDB.ctxHeld holds the settled state; nil = not watched, read it live.
+SDB.ctxHeld = {}
+local POLLED_CONTEXTS = {
+    SWIMMING = { hold = 1.0, read = function() return IsSwimming and IsSwimming() end },
+    FLYING = { hold = 0.3, read = function() return IsFlying and IsFlying() end },
+}
+
+local function PageUsesPolledContext()
+    local rules = SDB.ctx and SDB.ctx.pageContexts
+    if not rules then return false end
+    for _, trigger in pairs(rules) do
+        if POLLED_CONTEXTS[trigger] then return true end
+    end
+    return false
+end
+
+do
+    local poller = CreateFrame("Frame")
+    local needAcc, pollAcc, needed = 1, 0, false
+    local seen = {}
+    poller:SetScript("OnUpdate", function(_, elapsed)
+        needAcc = needAcc + elapsed
+        if needAcc >= 1 then
+            needAcc = 0
+            needed = (SDB.ctx and SDB.ctx.autoSwitchContext and PageUsesPolledContext()) and true or false
+            if not needed then
+                SDB.ctxHeld.SWIMMING, SDB.ctxHeld.FLYING = nil, nil
+                seen = {}
+            end
+        end
+        if not needed then return end
+        pollAcc = pollAcc + elapsed
+        if pollAcc < 0.25 then return end
+        pollAcc = 0
+        local now, changed = GetTime(), false
+        for trigger, def in pairs(POLLED_CONTEXTS) do
+            local raw = def.read() and true or false
+            local st = seen[trigger]
+            if not st then
+                seen[trigger] = { raw = raw, since = now }
+                SDB.ctxHeld[trigger] = raw
+            else
+                if raw ~= st.raw then st.raw, st.since = raw, now end
+                if raw ~= SDB.ctxHeld[trigger] and now - st.since >= def.hold then
+                    SDB.ctxHeld[trigger] = raw
+                    changed = true
+                end
+            end
+        end
+        -- in combat the page can't change anyway; PLAYER_REGEN_ENABLED evaluates the rules again
+        if changed and not InCombatLockdown() then SDB.EvaluateContextState() end
+    end)
+end
+
 function SDB.IsContextActive(trigger)
     if not trigger then return false end
     -- SDB.inCombat is set by the PLAYER_REGEN_DISABLED handler (Init.lua), where InCombatLockdown() can still be
@@ -43,6 +101,12 @@ function SDB.IsContextActive(trigger)
     if trigger == "COMBAT" then return InCombatLockdown() or SDB.inCombat == true end
     if trigger == "MOUNT" then return IsMounted() end
     if trigger == "STEALTH" then return IsStealthed() end
+    if trigger == "RESTING" then return IsResting and IsResting() and true or false end
+    if POLLED_CONTEXTS[trigger] then
+        local held = SDB.ctxHeld[trigger]
+        if held ~= nil then return held end
+        return POLLED_CONTEXTS[trigger].read() and true or false
+    end
     if trigger == "PARTY" then return IsInGroup() and not IsInRaid() end
     if trigger == "RAID" then return IsInRaid() end
     if trigger == "DUNGEON" then
@@ -55,7 +119,7 @@ function SDB.IsContextActive(trigger)
     end
     if string.match(trigger, "^FORM:(%d+)") then
         local reqForm = tonumber(string.match(trigger, "^FORM:(%d+)"))
-        return (GetShapeshiftFormID() or 0) == reqForm
+        return (GetShapeshiftFormIndex() or 0) == reqForm
     end
     return false
 end
@@ -69,6 +133,66 @@ function SDB.CombatPageRule()
         if SDB.ctx.pageContexts[p] == "COMBAT" then return p end
     end
     return nil
+end
+
+-- The main page: at most one page of the profile carries `main = true` (a flag on the page table, like `cols`, so it
+-- moves, deletes and restores with the page). It is the page SpellPad falls back to when no context rule applies,
+-- and the page it returns to at login, on a profile switch and when the main window closes.
+function SDB.MainPage()
+    local pages = SDB.db and SDB.db.pages
+    if not pages then return nil end
+    for i = 1, #pages do
+        if type(pages[i]) == "table" and pages[i].main then return i end
+    end
+    return nil
+end
+
+function SDB.SetMainPage(page, on)
+    local pages = SDB.db and SDB.db.pages
+    if not pages or type(pages[page]) ~= "table" then return end
+    for i = 1, #pages do
+        if type(pages[i]) == "table" then pages[i].main = nil end
+    end
+    if on then pages[page].main = true end
+    if SDB.configWindow and SDB.configWindow.RefreshPageTabs then SDB.configWindow.RefreshPageTabs() end
+end
+
+-- Data only: make the main page the fallback and the active page. In combat the page can't change, so only the
+-- fallback is set and the rest waits for PLAYER_REGEN_ENABLED. Returns true when the active page was set.
+function SDB.ResetToMainPage()
+    local main = SDB.MainPage()
+    if not main then return false end
+    SDB.manualPage = main
+    if InCombatLockdown() then
+        SDB.pendingMainPage = true
+        return false
+    end
+    SDB.db.activePage = main
+    SDB.activeSlotIndex = nil
+    return true
+end
+
+-- First world entry of a session: start on the main page. Without one the saved page is kept (Init.lua).
+function SDB.SeedMainPage()
+    if SDB.manualPageSeeded or not SDB.db or not SDB.MainPage() then return end
+    SDB.manualPageSeeded = true
+    SDB.ResetToMainPage()
+end
+
+-- The main window closed (or combat ended after it did): show the main page, unless a context rule applies now.
+function SDB.GoToMainPage()
+    local main = SDB.MainPage()
+    if not main then return end
+    SDB.manualPage = main
+    if InCombatLockdown() then
+        SDB.pendingMainPage = true
+        return
+    end
+    if SDB.ctx and SDB.ctx.autoSwitchContext then
+        SDB.EvaluateContextState() -- a context page that applies right now wins over the fallback
+    elseif SDB.db.activePage ~= main then
+        SDB.ChangePage(main)
+    end
 end
 
 function SDB.EvaluateContextState()
@@ -102,6 +226,16 @@ function SDB.EvaluateContextState()
                 bestPage = p
             end
         end
+    end
+
+    -- The context page just ended (dismounted, left the water, the fight is over): the page to fall back to is
+    -- the main page, not whatever page was picked by hand in the meantime. While the context holds, a page picked
+    -- by hand (a !PAGE key, a tab click) stays as it is until then.
+    local previousContextPage = SDB.lastContextPage
+    SDB.lastContextPage = bestPage or false
+    if previousContextPage and not bestPage then
+        local main = SDB.MainPage()
+        if main then SDB.manualPage = main end
     end
 
     local targetPage = bestPage or SDB.manualPage or 1
@@ -201,6 +335,7 @@ function SDB.PageReport(emit)
     local t = SDB.pageTrace
     local pages = SDB.db and SDB.db.pages and #SDB.db.pages or 0
     emit("Active page " .. tostring(SDB.db and SDB.db.activePage) .. " of " .. pages .. ", manual page " .. tostring(SDB.manualPage)
+        .. ", main page " .. tostring(SDB.MainPage and SDB.MainPage() or "none")
         .. ", main window " .. ((SDB.configWindow and SDB.configWindow:IsShown()) and "open" or "closed"))
     if t then
         emit("Last page jump (#" .. t.calls .. "): " .. tostring(t.from) .. " -> " .. tostring(t.to)
@@ -322,19 +457,17 @@ end
 -- -------------------------------------------------------------
 -- Apply Prefix across the active page
 -- -------------------------------------------------------------
-function SDB.BatchApplyPagePrefix(pageIndex, newPrefix)
-    local slots = SDB.db.pages[pageIndex]
-    if not slots then return end
-
-    newPrefix = strtrim(newPrefix or "")
-    if newPrefix ~= "" and not string.match(newPrefix, "[%-%_]$") then
-        newPrefix = newPrefix .. "-"
+local function NormalizePrefix(prefix)
+    prefix = strtrim(prefix or "")
+    if prefix ~= "" and not string.match(prefix, "[%-%_]$") then
+        prefix = prefix .. "-"
     end
+    return string.upper(prefix)
+end
 
-    if SDB.Snapshots then
-        SDB.Snapshots.Take("Before Apply Prefix", "page", { page = pageIndex })
-    end
-
+-- gives every card of one page the prefix, keeping each card's own key suffix (a card with no key gets its
+-- position's default suffix)
+local function ApplyPrefixTo(slots, prefix)
     for i, data in ipairs(slots) do
         local baseKey = SDB.SUFFIX_MAP[i] or tostring(i)
         if data.key and data.key ~= "" then
@@ -343,14 +476,239 @@ function SDB.BatchApplyPagePrefix(pageIndex, newPrefix)
                 baseKey = extracted
             end
         end
-        data.key = string.upper(newPrefix .. baseKey)
+        data.key = string.upper(prefix .. baseKey)
     end
     local swapped = SDB.FixGameKillKeys(slots)
     if swapped > 0 then
         print("|cFFFFFF00[SpellPad Studio]|r ALT-F4 closes the game, so " .. swapped .. (swapped == 1 and " card uses" or " cards use")
             .. " another numpad key on this page instead.")
     end
-    return string.upper(newPrefix) -- the prefix as stored (with its trailing dash), for the chat line
+end
+
+function SDB.BatchApplyPagePrefix(pageIndex, newPrefix)
+    local slots = SDB.db.pages[pageIndex]
+    if not slots then return end
+
+    newPrefix = NormalizePrefix(newPrefix)
+
+    if SDB.Snapshots then
+        SDB.Snapshots.Take("Before Apply Prefix", "page", { page = pageIndex })
+    end
+
+    ApplyPrefixTo(slots, newPrefix)
+    return newPrefix -- the prefix as stored (with its trailing dash), for the chat line
+end
+
+-- -------------------------------------------------------------
+-- Prefix modes
+-- -------------------------------------------------------------
+-- Per page (the default): every page has its own prefix and a page made with "+" starts with no keys.
+-- Global (SDB.db.prefixMode == "global"): setting the prefix applies it to every page, unbinding it clears every
+-- page, and a new page starts with it (SDB.db.globalPrefix, with its trailing dash). Both fields belong to the
+-- profile, because the pages do.
+local function InCombat()
+    return InCombatLockdown() or (UnitAffectingCombat and UnitAffectingCombat("player")) or false
+end
+
+function SDB.PrefixIsGlobal()
+    return SDB.db ~= nil and SDB.db.prefixMode == "global"
+end
+
+-- the prefix of the first bound card of a page, with its trailing dash ("" when no card has a key or the key has no prefix)
+function SDB.PagePrefix(pageIndex)
+    for _, d in ipairs(SDB.db and SDB.db.pages and SDB.db.pages[pageIndex] or {}) do
+        if d.key and d.key ~= "" then
+            return (SDB.SplitKey(d.key))
+        end
+    end
+    return ""
+end
+
+local function PageHasKeys(slots)
+    for _, d in ipairs(slots or {}) do
+        if d.key and d.key ~= "" then return true end
+    end
+    return false
+end
+
+-- the prefix a page made with "+" starts with: the global one, else none
+function SDB.NewPagePrefix()
+    if SDB.PrefixIsGlobal() then return SDB.db.globalPrefix or "" end
+    return ""
+end
+
+local function PrefixChanged()
+    if SDB.configWindow and SDB.configWindow.RefreshRows then SDB.configWindow.RefreshRows() end
+    local plw = _G["GalleonBridgePageLogicFrame"]
+    if plw and plw.FillPrefixBox and plw:IsShown() then plw.FillPrefixBox() end
+    if SDB.UpdatePrefixLabel then SDB.UpdatePrefixLabel() end
+    if SDB.RefreshPrefixOptions then SDB.RefreshPrefixOptions() end
+end
+SDB.PrefixChanged = PrefixChanged
+
+-- Sets the prefix of a page, or of every page in Global mode. Returns the stored prefix and how many pages it
+-- reached (nil for an empty prefix). Does not bind: the caller runs ApplyBindings.
+function SDB.SetPagePrefix(pageIndex, prefix)
+    prefix = NormalizePrefix(prefix)
+    if prefix == "" then return nil end
+    if not SDB.PrefixIsGlobal() then
+        return SDB.BatchApplyPagePrefix(pageIndex, prefix), 1
+    end
+    if SDB.Snapshots then SDB.Snapshots.Take("Before Apply Prefix (All Pages)", "profile") end
+    local pages = SDB.db.pages
+    for i = 1, #pages do ApplyPrefixTo(pages[i], prefix) end
+    SDB.db.globalPrefix = prefix
+    return prefix, #pages
+end
+
+-- how many of the pages hold a key (the cards that unbinding would clear)
+local function PagesWithKeys(list)
+    local n = 0
+    for _, p in ipairs(list) do
+        if PageHasKeys(SDB.db.pages[p]) then n = n + 1 end
+    end
+    return n
+end
+
+local function ClearKeys(list)
+    if SDB.Snapshots then
+        if #list == 1 then
+            SDB.Snapshots.Take("Before Remove Prefix", "page", { page = list[1] })
+        else
+            SDB.Snapshots.Take("Before Remove Prefix (All Pages)", "profile")
+        end
+    end
+    for _, p in ipairs(list) do
+        for _, d in ipairs(SDB.db.pages[p] or {}) do d.key = "" end
+    end
+    if SDB.PrefixIsGlobal() then SDB.db.globalPrefix = nil end
+    if SDB.Undo and SDB.Undo.ClearAll then SDB.Undo.ClearAll() end
+    SDB.ApplyBindings()
+    PrefixChanged()
+end
+
+-- a yes/no question that names what happens; ok() runs when it is accepted
+StaticPopupDialogs["GALLEONBRIDGE_PREFIX_CONFIRM"] = {
+    text = "%s",
+    button1 = "Continue",
+    button2 = "Cancel",
+    OnAccept = function(self, data)
+        if InCombat() then
+            print("|cFFFF4444[SpellPad Studio]|r Can't change a prefix in combat.")
+        elseif type(data) == "function" then
+            data()
+        end
+        PrefixChanged()
+    end,
+    OnCancel = function() PrefixChanged() end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
+-- Unbinds the prefix: the keys of the cards on this page (every page in Global mode) are cleared, never reduced to
+-- bare number keys, which would take over the game's own keys. A snapshot is taken first.
+function SDB.UnbindPrefix(pageIndex)
+    -- the right-click that cancelled a running listen has its release after the cancel: it must not unbind
+    if GetTime() - (SDB.prefixClickCancelAt or -10) < 0.3 then return false end
+    if InCombat() then
+        print("|cFFFF4444[SpellPad Studio]|r Can't change a prefix in combat.")
+        return false
+    end
+    pageIndex = pageIndex or (SDB.db and SDB.db.activePage) or 1
+    local list
+    if SDB.PrefixIsGlobal() then
+        list = {}
+        for i = 1, #SDB.db.pages do list[i] = i end
+    else
+        list = { pageIndex }
+    end
+    local n = PagesWithKeys(list)
+    if n == 0 then
+        if SDB.PrefixIsGlobal() then SDB.db.globalPrefix = nil end
+        print("|cFFFFFF00[SpellPad Studio]|r There is no prefix to remove.")
+        PrefixChanged()
+        return false
+    end
+    if #list > 1 and n > 1 then
+        StaticPopup_Show("GALLEONBRIDGE_PREFIX_CONFIRM", "Remove the prefix from " .. n .. " pages?\n\nEvery card on those pages loses its key. "
+            .. "A snapshot is saved first, so Options > Restore... can bring them back.", nil, function()
+            ClearKeys(list)
+            print("|cFF00FF00[SpellPad Studio]|r Prefix removed from " .. n .. " pages.")
+        end)
+        return true
+    end
+    ClearKeys(list)
+    if #list > 1 then
+        print("|cFF00FF00[SpellPad Studio]|r Prefix removed from every page.")
+    else
+        print("|cFF00FF00[SpellPad Studio]|r Prefix removed from page " .. pageIndex .. ".")
+    end
+    return true
+end
+
+-- Switches between the two modes. Turning Global on takes the active page's prefix (else the stored one) and gives
+-- it to every page, after a question that names how many pages change; turning it off leaves every key as it is.
+function SDB.SetPrefixMode(global)
+    if not SDB.db or global == SDB.PrefixIsGlobal() then return false end
+    if InCombat() then
+        print("|cFFFF4444[SpellPad Studio]|r Can't change a prefix in combat.")
+        return false
+    end
+    if not global then
+        SDB.db.prefixMode, SDB.db.globalPrefix = nil, nil
+        print("|cFFFFFF00[SpellPad Studio]|r Each page has its own prefix now. New pages start with no keys.")
+        PrefixChanged()
+        return true
+    end
+    local prefix = SDB.PagePrefix(SDB.db.activePage or 1)
+    if prefix == "" then prefix = SDB.db.globalPrefix or "" end
+    local differ = 0
+    if prefix ~= "" then
+        for i = 1, #SDB.db.pages do
+            if SDB.PagePrefix(i) ~= prefix or not PageHasKeys(SDB.db.pages[i]) then differ = differ + 1 end
+        end
+    end
+    local function Turn()
+        SDB.db.prefixMode = "global"
+        SDB.db.globalPrefix = nil
+        if prefix ~= "" then
+            SDB.SetPagePrefix(SDB.db.activePage or 1, prefix)
+            SDB.ApplyBindings()
+            print("|cFF00FF00[SpellPad Studio]|r All pages now share the prefix '" .. prefix .. "'. New pages start with it.")
+        else
+            print("|cFFFFFF00[SpellPad Studio]|r All pages share one prefix now. Set it with the Prefix key cap. New pages start with it.")
+        end
+        PrefixChanged()
+    end
+    if differ > 0 then
+        StaticPopup_Show("GALLEONBRIDGE_PREFIX_CONFIRM", "Use the prefix " .. prefix .. " on all " .. #SDB.db.pages .. " pages?\n\n"
+            .. SDB.Plural(differ, "page") .. (differ == 1 and " uses" or " use") .. " another prefix or no keys, and every card key there "
+            .. "changes to " .. prefix .. " plus its own key. A snapshot is saved first, so Options > Restore... can bring them back.", nil, Turn)
+        return true
+    end
+    Turn()
+    return true
+end
+
+-- The Setup Guide's first completion: Global mode with the prefix page 1 ended up with. Pages that have no keys get
+-- it; a page whose cards already hold keys is left as it is, whatever its prefix. Returns how many pages were left.
+function SDB.AdoptGlobalPrefix(prefix)
+    prefix = NormalizePrefix(prefix)
+    if not SDB.db or prefix == "" then return 0 end
+    SDB.db.prefixMode = "global"
+    SDB.db.globalPrefix = prefix
+    local left = 0
+    for i, slots in ipairs(SDB.db.pages) do
+        if not PageHasKeys(slots) then
+            ApplyPrefixTo(slots, prefix)
+        elseif SDB.PagePrefix(i) ~= prefix then
+            left = left + 1
+        end
+    end
+    PrefixChanged()
+    return left
 end
 
 -- -------------------------------------------------------------
@@ -1033,6 +1391,7 @@ end
 -- far, nil = "Listening...", false = listening ended
 local function PrefixUI(text)
     if SDB.UpdatePrefixLabel then SDB.UpdatePrefixLabel() end -- the label reads SDB.listeningForPrefix and the buffer itself
+    if SDB.RefreshPrefixOptions then SDB.RefreshPrefixOptions() end -- so does the Global prefix key cap in Options
     local plw = _G["GalleonBridgePageLogicFrame"]
     if not plw then return end
     if text == false then
@@ -1327,8 +1686,13 @@ SDB.keyListener:SetScript("OnKeyDown", function(self, key)
             end
 
             local activeP = SDB.db.activePage or 1
-            local applied = SDB.BatchApplyPagePrefix(activeP, chord)
-            print("|cFF00FF00[SpellPad Studio]|r Prefix for page " .. activeP .. " set to '" .. (applied or string.upper(chord)) .. "'.")
+            local applied, reached = SDB.SetPagePrefix(activeP, chord)
+            applied = applied or string.upper(chord)
+            if (reached or 1) > 1 then
+                print("|cFF00FF00[SpellPad Studio]|r Prefix for all " .. reached .. " pages set to '" .. applied .. "'.")
+            else
+                print("|cFF00FF00[SpellPad Studio]|r Prefix for page " .. activeP .. " set to '" .. applied .. "'.")
+            end
 
             EndPrefixListen() -- the box shows the stored prefix again
 

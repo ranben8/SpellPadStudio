@@ -1789,3 +1789,248 @@ function D.CombatSlash(arg)
         for _, l in ipairs(lines) do print(l) end
     end
 end
+
+-- ---------------------------------------------------------------
+-- /sps contexts: which game states can drive a page switch on this client
+-- ---------------------------------------------------------------
+-- Read-only. The events are logged from login; the state sampler (every 0.25 s) starts with the first
+-- `/sps contexts` and logs each change of the polled values, so a change that fires no event shows up too.
+-- Run it in each situation, e.g. in town, swimming, flying, in a Delve or a Mythic+ key, and as each class.
+-- `/sps contexts stop` stops the sampler, `/sps contexts reset` empties the log.
+
+D.contextLog = {}
+local CX_MAX = 120
+
+local function CXLog(text)
+    local l = D.contextLog
+    l[#l + 1] = string.format("%7.1f s  %s", GetTime() - loadedAt, RTClean(text))
+    if #l > CX_MAX then table.remove(l, 1) end
+end
+
+local CX_EVENTS = {
+    "PLAYER_UPDATE_RESTING", "ZONE_CHANGED_NEW_AREA", "PLAYER_ENTERING_WORLD", "UPDATE_INSTANCE_INFO",
+    "PLAYER_MOUNT_DISPLAY_CHANGED", "PLAYER_IS_GLIDING_CHANGED", "MIRROR_TIMER_START", "MIRROR_TIMER_STOP",
+    "UPDATE_SHAPESHIFT_FORM", "UPDATE_SHAPESHIFT_FORMS", "UPDATE_STEALTH", "PLAYER_SPECIALIZATION_CHANGED",
+    "CHALLENGE_MODE_START", "CHALLENGE_MODE_COMPLETED", "CHALLENGE_MODE_RESET", "SCENARIO_UPDATE",
+    "SCENARIO_COMPLETED", "SCENARIO_CRITERIA_UPDATE",
+}
+D.contextEventsOk, D.contextEventsFailed = {}, {}
+
+do
+    local f = CreateFrame("Frame")
+    for _, ev in ipairs(CX_EVENTS) do
+        if pcall(f.RegisterEvent, f, ev) then
+            D.contextEventsOk[#D.contextEventsOk + 1] = ev
+        else
+            D.contextEventsFailed[#D.contextEventsFailed + 1] = ev
+        end
+    end
+    f:SetScript("OnEvent", function(_, event, ...)
+        pcall(function(...)
+            local parts = {}
+            for i = 1, math.min(select("#", ...), 4) do parts[#parts + 1] = RTDesc((select(i, ...))) end
+            CXLog("event " .. event .. (#parts > 0 and (" (" .. table.concat(parts, ", ") .. ")") or ""))
+        end, ...)
+    end)
+end
+
+local CX_KEYS = { "resting", "swimming", "submerged", "flying", "mounted", "stealthed", "instance", "difficulty",
+    "challengeActive", "keystoneMap", "inScenario", "formIndex", "formID" }
+
+-- the polled values as short text, one per key; every call is guarded
+local function CXNow()
+    local s = {}
+    local function Put(key, fn, ...)
+        if type(fn) ~= "function" then s[key] = "n/a" return end
+        local n, r = RTPack(pcall(fn, ...))
+        if not r[1] then s[key] = "ERROR" return end
+        local out = {}
+        for i = 2, n do out[#out + 1] = RTDesc(r[i]) end
+        s[key] = #out > 0 and table.concat(out, ",") or "-"
+    end
+    Put("resting", IsResting)
+    Put("swimming", IsSwimming)
+    Put("submerged", IsSubmerged)
+    Put("flying", IsFlying)
+    Put("mounted", IsMounted)
+    Put("stealthed", IsStealthed)
+    Put("instance", IsInInstance)
+    Put("difficulty", GetInstanceInfo and function()
+        local _, instanceType, difficultyID = GetInstanceInfo()
+        return instanceType, difficultyID
+    end)
+    local cm = _G.C_ChallengeMode
+    Put("challengeActive", cm and cm.IsChallengeModeActive)
+    Put("keystoneMap", cm and cm.GetActiveChallengeMapID)
+    Put("inScenario", _G.C_Scenario and _G.C_Scenario.IsInScenario)
+    Put("formIndex", GetShapeshiftForm)
+    Put("formID", GetShapeshiftFormID)
+    return s
+end
+
+do
+    local sampler = CreateFrame("Frame")
+    sampler:Hide()
+    local acc = 0
+    sampler:SetScript("OnUpdate", function(_, elapsed)
+        acc = acc + elapsed
+        if acc < 0.25 then return end
+        acc = 0
+        pcall(function()
+            local now, last = CXNow(), D.contextLast
+            if last then
+                for _, k in ipairs(CX_KEYS) do
+                    if now[k] ~= last[k] then CXLog(string.format("polled %s: %s -> %s", k, tostring(last[k]), tostring(now[k]))) end
+                end
+            end
+            D.contextLast = now
+        end)
+    end)
+    D.contextSampler = sampler
+end
+
+-- every function with "delve" in its name, and every function of a C_ table with "delve" in its name (the Delve APIs
+-- are not known by name)
+local function CXDelveSearch(E)
+    local found = {}
+    for gk, gv in pairs(_G) do
+        if type(gk) == "string" then
+            if type(gv) == "function" and string.find(string.lower(gk), "delve", 1, true) then
+                found[#found + 1] = { gk, gv }
+            elseif type(gv) == "table" and string.sub(gk, 1, 2) == "C_" then
+                -- a table with "delve" in its name (C_DelvesUI) contributes every function, whatever the function is called
+                local wholeTable = string.find(string.lower(gk), "delve", 1, true) ~= nil
+                pcall(function()
+                    for k, v in pairs(gv) do
+                        if type(k) == "string" and type(v) == "function"
+                            and (wholeTable or string.find(string.lower(k), "delve", 1, true)) then
+                            found[#found + 1] = { gk .. "." .. k, v }
+                        end
+                    end
+                end)
+            end
+        end
+    end
+    table.sort(found, function(a, b) return a[1] < b[1] end)
+    if #found == 0 then
+        E("No function with 'delve' in its name was found in the globals or the C_ tables.")
+        return
+    end
+    E(#found .. " function(s) with 'delve' in the name. Query-style ones (Is..., Has..., In..., Get...) are called with no argument:")
+    for i, f in ipairs(found) do
+        if i > 40 then E("  ... and " .. (#found - 40) .. " more") break end
+        local short = string.match(f[1], "([^.]+)$")
+        if string.match(short, "^Is") or string.match(short, "^Has") or string.match(short, "^In") or string.match(short, "^Get") then
+            RTLive(E, f[1] .. "()", f[2])
+        else
+            E(string.format("  %-42s (not called)", f[1]))
+        end
+    end
+end
+
+-- the names of the query functions in a C_ table, for finding the right call
+local function CXNames(E, tableName, pattern)
+    local t = _G[tableName]
+    if type(t) ~= "table" then
+        E("  " .. tableName .. " does not exist.")
+        return
+    end
+    local names = {}
+    for k, v in pairs(t) do
+        if type(k) == "string" and type(v) == "function" and string.find(k, pattern) then names[#names + 1] = k end
+    end
+    table.sort(names)
+    E("  " .. tableName .. ": " .. (#names > 0 and table.concat(names, ", ") or "(none)"))
+end
+
+function D.Contexts(emit)
+    local function E(s) emit(RTClean(s)) end
+    local function Section(title, fn)
+        E("")
+        E("== " .. title .. " ==")
+        local ok, err = pcall(fn)
+        if not ok then E("This section failed: " .. RTFirstLine(err)) end
+    end
+
+    E("Context probe for SpellPad Studio. Nothing was changed.")
+    local client = SDB.Client or {}
+    E("Client: " .. (client.name or "?") .. ", interface " .. tostring(client.interface))
+    E("State now: " .. (InCombatLockdown() and "IN COMBAT" or "out of combat"))
+    local _, class = UnitClass("player")
+    E("Class: " .. tostring(class))
+    RTLive(E, "specialization index", GetSpecialization)
+    if D.contextSampler:IsShown() then
+        E("The state sampler is running: changes of the values below are logged at the end of this report.")
+    end
+
+    Section("Polled values right now", function()
+        local now = CXNow()
+        for _, k in ipairs(CX_KEYS) do E(string.format("  %-18s %s", k, tostring(now[k]))) end
+        E("  (instance = inside an instance, instance type; difficulty = instance type, difficulty id)")
+    end)
+
+    Section("Shapeshift forms and stances (the 'Specific Stance / Form' rule)", function()
+        RTLive(E, "GetNumShapeshiftForms()", GetNumShapeshiftForms)
+        RTLive(E, "GetShapeshiftForm()   (bar position)", GetShapeshiftForm)
+        RTLive(E, "GetShapeshiftFormID() (form id)", GetShapeshiftFormID)
+        local n = GetNumShapeshiftForms and GetNumShapeshiftForms() or 0
+        if n == 0 then E("  This character has no shapeshift bar entries.") end
+        for i = 1, n do
+            RTLive(E, "GetShapeshiftFormInfo(" .. i .. ")", GetShapeshiftFormInfo, i)
+            E(string.format("  %-42s %s", "rule 'FORM:" .. i .. "' active now", tostring(SDB.IsContextActive and SDB.IsContextActive("FORM:" .. i))))
+        end
+    end)
+
+    Section("Delve and scenario calls", function()
+        CXDelveSearch(E)
+        E("")
+        E("Query functions that may separate Delves and Mythic+ from other instances:")
+        CXNames(E, "C_Scenario", "^Is")
+        CXNames(E, "C_ChallengeMode", "^Is")
+        CXNames(E, "C_ChallengeMode", "^GetActive")
+        CXNames(E, "C_PartyInfo", "^Is")
+    end)
+
+    Section("Events registered for the log", function()
+        E("Registered: " .. (#D.contextEventsOk > 0 and table.concat(D.contextEventsOk, ", ") or "(none)"))
+        E("Unknown to this client: " .. (#D.contextEventsFailed > 0 and table.concat(D.contextEventsFailed, ", ") or "(none)"))
+    end)
+
+    Section("Log since login (newest last, " .. #D.contextLog .. " entries)", function()
+        if #D.contextLog == 0 then
+            E("Nothing logged yet. Do the thing (enter a town, swim, fly, enter a Delve...) and run /sps contexts again.")
+        end
+        for _, l in ipairs(D.contextLog) do E("  " .. l) end
+    end)
+
+    E("")
+    E("End of report. Press Ctrl+C in this window and paste the whole text.")
+end
+
+function D.ContextsSlash(arg)
+    arg = string.lower(arg or "")
+    if arg == "reset" then
+        D.contextLog = {}
+        print("|cFF00FF00[SpellPad Studio]|r Context log emptied.")
+        return
+    end
+    if arg == "stop" then
+        D.contextSampler:Hide()
+        print("|cFFFFFF00[SpellPad Studio]|r Context state sampler stopped.")
+        return
+    end
+    if not D.contextSampler:IsShown() then
+        pcall(function() D.contextLast = CXNow() end)
+        D.contextSampler:Show()
+        print("|cFFFFFF00[SpellPad Studio]|r Context state sampler started. Do the thing you want to check, then run /sps contexts again.")
+    end
+    local lines = {}
+    local ok, err = pcall(D.Contexts, function(t) lines[#lines + 1] = tostring(t) end)
+    if not ok then lines[#lines + 1] = "The report failed: " .. tostring(err) end
+    if SDB.CopyWindow and SDB.CopyWindow.Show then
+        SDB.CopyWindow.Show("Context Probe Report", table.concat(lines, "\n"))
+        print("|cFFFFFF00[SpellPad Studio]|r Context probe report ready (" .. #lines .. " lines). Press Ctrl+C in the window and paste it.")
+    else
+        for _, l in ipairs(lines) do print(l) end
+    end
+end

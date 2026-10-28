@@ -120,6 +120,7 @@ end
 -- the prefix page 1's keys are built with: the one it has, or the default when it has none (bare keys would replace
 -- the game's own number keys)
 local function PrefixFor(page)
+    if SDB.PrefixIsGlobal() and SDB.db.globalPrefix and SDB.db.globalPrefix ~= "" then return SDB.db.globalPrefix end
     for _, d in ipairs(page or {}) do
         if d.key and d.key ~= "" then
             local p = SDB.SplitKey(string.upper(d.key))
@@ -376,8 +377,26 @@ local function EnterCardStep()
     OpenBrowser()
 end
 
+-- The first time the guide reaches its finish screen on this account, every page shares the prefix page 1 ended with
+-- (Global prefix mode, see SDB.AdoptGlobalPrefix). Later runs, and a profile that is already in Global mode, are left alone.
+local function OnFirstCompletion()
+    if not GalleonBridgeDB or GalleonBridgeDB.setupDone then return end
+    GalleonBridgeDB.setupDone = true
+    if SDB.PrefixIsGlobal() then return end
+    local prefix = SDB.PagePrefix(1)
+    if prefix == "" then return end
+    local left = SDB.AdoptGlobalPrefix(prefix)
+    if not InCombat() then SDB.ApplyBindings() end -- after combat the game applies it itself
+    Chat("All pages now share the prefix " .. prefix .. ", and new pages start with it. Change this in Options > General > Key Prefix.")
+    if left > 0 then
+        Chat(SDB.Plural(left, "page") .. " with keys under another prefix " .. (left == 1 and "was" or "were")
+            .. " left as " .. (left == 1 and "it is" or "they are") .. ". They change the next time you set the prefix.", "warn")
+    end
+end
+
 local function GoTo(step)
     if SDB.listeningCapture and SDB.CancelKeyCapture then SDB.CancelKeyCapture("closed") end
+    if step == FINISH then OnFirstCompletion() end
     st.capturing = false
     st.step = step
     st.note = ""
@@ -510,6 +529,7 @@ function G.ApplyShape(confirmed)
         if SDB.Snapshots then SDB.Snapshots.Take("Before Setup Guide", "page", { page = 1 }) end
         local deck = SDB.CreateBlankDeck(1, PrefixFor(p1), n)
         SDB.SetPageCols(deck, cols)
+        deck.main = SDB.db.pages[1] and SDB.db.pages[1].main or nil -- the rebuilt page keeps its main page status
         SDB.db.pages[1] = deck
         SDB.db.deckSize = n -- pages you add later match your keypad
         if SDB.Undo and SDB.Undo.ClearAll then SDB.Undo.ClearAll() end
@@ -569,12 +589,13 @@ function G.UsePrefix(prefix)
         return
     end
     if not prefix or prefix == "" or not Page1() then return end
-    local applied = SDB.BatchApplyPagePrefix(1, prefix) -- takes its own snapshot
+    local applied = SDB.SetPagePrefix(1, prefix) -- takes its own snapshot; every page in Global mode
     SDB.ApplyBindings()
     RefreshMainWindow()
-    Chat("Page 1 now uses " .. (applied or prefix) .. " keys.")
+    local who = SDB.PrefixIsGlobal() and "Every page" or "Page 1"
+    Chat(who .. " now uses " .. (applied or prefix) .. " keys.")
     ResetTest()
-    st.note = "Page 1 now uses " .. table.concat(ModsWords(applied or prefix), " + ")
+    st.note = who .. " now uses " .. table.concat(ModsWords(applied or prefix), " + ")
         .. ". Press every button again: the ones that lit before sent the old keys."
     G.Refresh()
 end
@@ -1084,7 +1105,9 @@ function G.Refresh()
         s3.note:SetText(st.note or "")
         s3.find:SetText(st.capturing and "Listening..." or FIND_TEXT)
         s3.fix:SetShown(st.fixPrefix ~= nil and not st.capturing)
-        if st.fixPrefix then s3.fix:SetText("Use " .. table.concat(ModsWords(st.fixPrefix), " + ") .. " for Page 1") end
+        if st.fixPrefix then
+            s3.fix:SetText("Use " .. table.concat(ModsWords(st.fixPrefix), " + ") .. (SDB.PrefixIsGlobal() and " for All Pages" or " for Page 1"))
+        end
         DrawPad(f, keys, PreviewCols(), st.lit)
 
     elseif step == 4 then

@@ -815,6 +815,21 @@ function U.Row(parent, w, h, opts)
         if self.label then self.label:SetFontObject(on and "GameFontNormal" or "GameFontHighlight") end
     end
     function b:SetDot(on) dot:SetShown(on and true or false) end
+    -- the main page's star sits at the right edge; the dot then moves to its left
+    local star
+    function b:SetStar(on)
+        on = on and true or false
+        if on and not star then
+            star = b:CreateTexture(nil, "ARTWORK")
+            star:SetSize(13, 13)
+            star:SetPoint("RIGHT", b, "RIGHT", -8, 0)
+            star:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcon_1")
+        end
+        if star then star:SetShown(on) end
+        dot:ClearAllPoints()
+        dot:SetPoint("RIGHT", b, "RIGHT", on and -26 or -10, 0)
+        self.sdbStar = on
+    end
     -- a row that is only a heading (the Spell Browser's category lines) shows no hover look
     function b:SetHover(on) hover:SetAlpha(on and 1 or 0) end
     function b:SetLabel(text) if self.label then self.label:SetText(text or "") end end

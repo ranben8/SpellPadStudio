@@ -9,7 +9,11 @@
 - **Drag a card onto the SpellPad to swap it** with the button under the cursor. Both buttons flash when the swap is done. When the drag turns grey (you left the card list), the list scrolls so the card you are holding is at the top.
 - **Toggle Housing Dashboard and Toggle Adventure Guide (Retail)** are in Easy Macros > Advanced > Interface. They work from a key and from the SpellPad.
 - **Cards name themselves.** A card without a name now shows what it holds: an Easy Macros entry shows the entry's name ("Toggle Spellbook"), and a one-line spell or item macro shows the spell or item ("Frostbolt"). The name is grey, and its tooltip says it was applied automatically. A name you type is white and always wins.
+- **Prefix modes.** Options > General > Key Prefix chooses between **Per Page** (each page has its own prefix, new pages start with no keys: how it always worked) and **Global** (one prefix for every page: setting it changes all pages, and new pages start with it). Right-click the Prefix key cap above the cards, or the prefix box in Page Options, to remove the prefix: the cards of that page (every page in Global mode) lose their keys, after a snapshot, so Restore can bring them back. The first time you finish the setup guide, Global is turned on with the prefix you set up.
 - **A new addon icon**: the gold key on its pad, in a frame that is bronze on one side and metal on the other. It shows in the AddOn list, the addon compartment and broker bars, and a round version without a frame sits on the minimap button.
+- **A main page.** Tick "Main page" in Page Options to make that page your home page (one per profile). It is marked with a star in the Pages list. SpellPad returns to it when you close the main window, when a context ends (you dismount, leave the water, the fight is over), at login and when you switch profiles. A context page that applies at that moment still wins. A page you picked by hand or with a `!PAGE` key stays until one of those happens.
+- **Three more page contexts:** Flying, Swimming and Resting (town or inn), chosen with Select Context in Page Options. Swimming waits a second before it counts, so wading at the water's edge doesn't flip pages; Flying waits a third of a second. Like every context except In Combat, they switch pages out of combat only.
+- **A key binding to show or hide the SpellPad.** Key Bindings > AddOns > "SpellPad Studio: Show / Hide SpellPad". It is a plain toggle (the "Always show SpellPad" setting is not changed) and does nothing in combat. The pad, and the minimap right-click that shows it, bring it back where it was.
 
 ## Changes
 
@@ -21,6 +25,8 @@
 ## Fixes
 
 - **Summon Random Favorite Mount works on Retail.** A card with `/cast Summon Random Favorite Mount` (what dropping the journal's random favorite button gives you) now summons a mount from a key and from the SpellPad. The card text stays as you see it; only the macro the game runs is changed behind the scenes. A card with `/run C_MountJournal.SummonByID(0)` shows the mount's icon too.
+
+- **The "Specific Stance / Form" page rule matched the wrong form on Retail.** The rule saved the form's position on the shapeshift bar but compared it with the game's form ID, so a druid's Cat Form rule could switch the page in the wrong form. It now compares the bar position.
 
 ## Known issues
 

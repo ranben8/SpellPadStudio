@@ -832,21 +832,6 @@ minimapBtn:SetScript("OnDragStop", function(self)
     self:SetScript("OnUpdate", nil)
 end)
 
--- Right-click on the minimap button or the broker entry: show or hide the SpellPad
-local function ToggleSpellPad()
-    PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPEN or 850)
-    if SDB.BuildUI then SDB.BuildUI() end
-    local matFrame = _G["GalleonBridgeMatrixFrame"]
-    if matFrame and not SDB.MatrixBlocked() then
-        if matFrame:IsShown() then
-            matFrame:Hide()
-        else
-            SDB.DockMatrix() -- beside the main window if it is open, anchored to the screen (never to the main window)
-            matFrame:Show()
-        end
-    end
-end
-
 minimapBtn:SetScript("OnClick", function(self, button)
     if self.isDragging then return end
 
@@ -854,7 +839,7 @@ minimapBtn:SetScript("OnClick", function(self, button)
         PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPEN or 850)
         SDB.ToggleMainWindow() -- WindowToggle.lua: builds on first use, refuses what combat forbids
     elseif button == "RightButton" then
-        ToggleSpellPad()
+        SDB.ToggleSpellPad() -- WindowToggle.lua
     end
 end)
 
@@ -904,7 +889,7 @@ if LibStub then
                     PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPEN or 850)
                     SDB.ToggleMainWindow()
                 elseif button == "RightButton" then
-                    ToggleSpellPad()
+                    SDB.ToggleSpellPad() -- WindowToggle.lua
                 end
             end,
             OnTooltipShow = function(tooltip)
@@ -934,6 +919,7 @@ SDB.bridgeFrame:RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED")
 SDB.bridgeFrame:RegisterEvent("UPDATE_STEALTH")
 SDB.bridgeFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
 SDB.bridgeFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
+pcall(SDB.bridgeFrame.RegisterEvent, SDB.bridgeFrame, "PLAYER_UPDATE_RESTING")
 
 -- Support both Retail and Classic spec/talent switching
 if GetSpecialization then SDB.bridgeFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED") end
@@ -954,6 +940,7 @@ SDB.bridgeFrame:SetScript("OnEvent", function(self, event, arg1)
 
         -- Load the correct profile for this character/spec upon loading into the world
         SDB.LoadActiveProfile()
+        SDB.SeedMainPage() -- a main page is where a session starts
 
         -- Restore minimap status from profile setting
         if SDB.db.hideMinimap then
@@ -989,6 +976,7 @@ SDB.bridgeFrame:SetScript("OnEvent", function(self, event, arg1)
         local oldProfile = SDB.currentProfileName
         SDB.LoadActiveProfile()
         if oldProfile ~= SDB.currentProfileName then
+            SDB.ResetToMainPage()
             print("|cFFFFFF00[SpellPad Studio]|r Switched to profile '" .. (string.gsub(SDB.currentProfileName, "|", "||"))
                 .. "' for your new specialization.")
             if SDB.configWindow and SDB.configWindow.RefreshRows then SDB.configWindow.RefreshRows() end
@@ -1000,6 +988,10 @@ SDB.bridgeFrame:SetScript("OnEvent", function(self, event, arg1)
         -- combat is over: the "In Combat" context ends here, so the rules are always evaluated again
         SDB.inCombat = false
         SDB.pendingContextUpdate = false
+        if SDB.pendingMainPage then
+            SDB.pendingMainPage = false
+            SDB.GoToMainPage() -- the window closed or the profile changed during the fight
+        end
         if SDB.EvaluateContextState then SDB.EvaluateContextState() end
         if SDB.ApplyBindings then SDB.ApplyBindings() end
         -- Restore SpellPad if hidden for combat
@@ -1032,6 +1024,13 @@ SDB.bridgeFrame:SetScript("OnEvent", function(self, event, arg1)
 
     elseif event == "PLAYER_MOUNT_DISPLAY_CHANGED" or event == "UPDATE_STEALTH" or event == "GROUP_ROSTER_UPDATE" or event == "UPDATE_SHAPESHIFT_FORM" then
         if SDB.EvaluateContextState then SDB.EvaluateContextState() end
+
+    elseif event == "PLAYER_UPDATE_RESTING" then
+        -- IsResting can still show the old answer for a moment after this event, so look again shortly
+        if SDB.EvaluateContextState then
+            SDB.EvaluateContextState()
+            C_Timer.After(0.3, function() if SDB.EvaluateContextState then SDB.EvaluateContextState() end end)
+        end
     end
 end)
 
@@ -1132,6 +1131,11 @@ local function HandleSlash(msg)
     diagArg = Sub("combat")
     if diagArg and SDB.Diag and SDB.Diag.CombatSlash then
         SDB.Diag.CombatSlash(diagArg) -- nothing here builds a window, so it also works in combat
+        return
+    end
+    diagArg = Sub("contexts")
+    if diagArg and SDB.Diag and SDB.Diag.ContextsSlash then
+        SDB.Diag.ContextsSlash(diagArg)
         return
     end
     local cmd = string.lower(strtrim(msg or ""))

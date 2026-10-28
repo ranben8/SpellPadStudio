@@ -516,7 +516,9 @@ function SDB.ApplyImportData(data, asNewPage)
             print("|cFF00FF00[SpellPad Studio]|r Page '" .. (string.gsub(SDB.db.pageNames[nextIdx], "|", "||")) .. "' added as page " .. nextIdx .. ".")
         else
             local curP = SDB.db.activePage or 1
+            local wasMain = SDB.db.pages[curP] and SDB.db.pages[curP].main
             SDB.db.pages[curP] = data.slots
+            data.slots.main = wasMain -- the overwritten page stays the main page
             if data.name then
                 SDB.db.pageNames[curP] = data.name
             end
@@ -1683,6 +1685,7 @@ function SDB.BuildUI()
         local y = 0
         -- pages with edits that are not applied yet get the small orange square (SDB.Pending)
         local pendingByPage = (SDB.Pending and SDB.Pending.pageDirty) or {}
+        local mainPage = SDB.MainPage and SDB.MainPage()
         for _, p in ipairs(listed) do
             local btn = pageButtons[p]
             if not btn then
@@ -1704,7 +1707,7 @@ function SDB.BuildUI()
             local displayName = SDB.PageName(p)
 
             -- long names end in "..." instead of running off the row; the tooltip keeps the full name
-            local shown, wasCut = SDB.FitText(btn.label, displayName, 88)
+            local shown, wasCut = SDB.FitText(btn.label, displayName, (p == mainPage) and 76 or 88) -- the star takes room
             btn.fullName, btn.nameCut = displayName, wasCut
             btn.sdbPage = p
             if not btn.nameTipHooked then
@@ -1717,6 +1720,7 @@ function SDB.BuildUI()
                     SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Page " .. pg, "data")
                     local named = SDB.db.pageNames and SDB.db.pageNames[pg]
                     if named then SDB.Tip.Text((string.gsub(named, "|", "||"))) end
+                    if SDB.MainPage and SDB.MainPage() == pg then SDB.Tip.Colored("GOLD", "Main page") end
                     SDB.Tip.Hint("Use this number in !PAGE " .. pg .. ". Drag to reorder.")
                     SDB.Tip.Done()
                 end)
@@ -1726,6 +1730,7 @@ function SDB.BuildUI()
             btn:SetLabel(shown)
             btn:SetSelected(p == SDB.db.activePage)
             btn:SetDot((pendingByPage[p] or 0) > 0)
+            btn:SetStar(p == mainPage)
 
             btn:SetScript("OnClick", function(self, mouseButton)
                 if mouseButton == "RightButton" then
@@ -1955,7 +1960,7 @@ function SDB.BuildUI()
         local nextPageIndex = #SDB.db.pages + 1
         local slotCount = SDB.db.deckSize or 12
 
-        table.insert(SDB.db.pages, SDB.CreateBlankDeck(nextPageIndex, "", slotCount))
+        table.insert(SDB.db.pages, SDB.CreateBlankDeck(nextPageIndex, SDB.NewPagePrefix(), slotCount))
         if not SDB.db.pageNames then SDB.db.pageNames = {} end
         SDB.db.pageNames[nextPageIndex] = "Page " .. nextPageIndex
         SDB.db.activePage = nextPageIndex
@@ -2831,13 +2836,21 @@ function SDB.BuildUI()
     plPrefixClick:SetAllPoints(plPrefixBox)
     plPrefixClick:SetFrameLevel(plPrefixBox:GetFrameLevel() + 2)
     pageLogicWindow.prefixClick = plPrefixClick
-    plPrefixClick:SetScript("OnClick", function()
+    plPrefixClick:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    plPrefixClick:SetScript("OnClick", function(_, button)
         PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
-        if SDB.StartPrefixListen then SDB.StartPrefixListen() end
+        if button == "RightButton" then
+            if SDB.UnbindPrefix then SDB.UnbindPrefix() end
+        elseif SDB.StartPrefixListen then
+            SDB.StartPrefixListen()
+        end
     end)
     plPrefixClick:SetScript("OnEnter", function(self)
+        local global = SDB.PrefixIsGlobal and SDB.PrefixIsGlobal()
         SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Enter Prefix", "control")
         SDB.Tip.Text("Click to listen. Press the keys you want in your page prefix, then press Enter.")
+        if global then SDB.Tip.Text("Global prefix mode: this applies to every page.") end
+        SDB.Tip.Hint(global and "Right-click to remove the prefix from every page." or "Right-click to remove this page's prefix.")
         SDB.Tip.Done()
     end)
     plPrefixClick:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -2901,7 +2914,10 @@ function SDB.BuildUI()
         { name = "None", val = nil },
         { name = "In Combat", val = "COMBAT" },
         { name = "Mounted", val = "MOUNT" },
+        { name = "Flying", val = "FLYING" },
+        { name = "Swimming", val = "SWIMMING" },
         { name = "Stealthed / Invisible", val = "STEALTH" },
+        { name = "Resting (Town or Inn)", val = "RESTING" },
         { name = "In a Party (5-Man)", val = "PARTY" },
         { name = "In a Raid", val = "RAID" },
         { name = "In a Dungeon / Instance", val = "DUNGEON" },
@@ -3007,6 +3023,24 @@ function SDB.BuildUI()
     end)
     ctxPriorityCb:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
+    -- Main page: the page SpellPad returns to when nothing else applies. One page per profile; ticking it here
+    -- clears it from the page that had it.
+    do
+        local mainPageCb = SDB.UI.CheckButton(pageLogicWindow, "GalleonPageLogicMain", "Main page")
+        pageLogicWindow.mainPageCb = mainPageCb -- the OnShow code below reaches it here: BuildUI has no locals to spare
+        mainPageCb:SetScript("OnClick", function(self)
+            SDB.SetMainPage(SDB.db.activePage or 1, self:GetChecked())
+            PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+        end)
+        mainPageCb:SetScript("OnEnter", function(self)
+            SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Main Page", "control")
+            SDB.Tip.Line("The page SpellPad returns to when nothing else applies: when you close the main window, when a context ends, at login and when you switch profiles. Only one page can be the main page.")
+            SDB.Tip.Hint("Marked with a star in the Pages list.")
+            SDB.Tip.Done()
+        end)
+        mainPageCb:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end
+
     -- The Key Prefix box shows the ACTIVE page's real prefix: the same source as the "Prefix:" label
     -- (the first BOUND card of the page), with its trailing dash. A page with no bound key has no
     -- prefix, so the box is empty. Filled when the window opens and after a prefix capture (a method
@@ -3086,6 +3120,7 @@ function SDB.BuildUI()
 
         if not SDB.ctx.pagePriorities then SDB.ctx.pagePriorities = {} end
         ctxPriorityCb:SetChecked(SDB.ctx.pagePriorities[curP])
+        pageLogicWindow.mainPageCb:SetChecked(SDB.MainPage() == curP)
     end)
 
     -- three labelled groups (page name, key prefix, context switching)
@@ -3943,6 +3978,9 @@ function SDB.BuildUI()
     end
     -- every path that changes the active profile ends here (silent = the caller plays its own sound)
     SDB.AfterProfileSwitch = function(silent)
+        if SDB.ResetToMainPage() and SDB.ctx and SDB.ctx.autoSwitchContext then
+            SDB.EvaluateContextState() -- a context page that applies right now wins over the new profile's main page
+        end
         SDB.RefreshProfileUI()
         if configWindow.RefreshPageTabs then configWindow.RefreshPageTabs() end
         if configWindow.RefreshRows then configWindow.RefreshRows() end
@@ -5129,13 +5167,21 @@ function SDB.BuildUI()
         prefixClick:SetPoint("TOPLEFT", prefixLabel, "TOPLEFT", -3, 8)
         prefixClick:SetPoint("BOTTOMRIGHT", cap, "BOTTOMRIGHT", 3, -3)
         prefixClick:SetFrameLevel(cap:GetFrameLevel() + 2)
-        prefixClick:SetScript("OnClick", function()
+        prefixClick:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        prefixClick:SetScript("OnClick", function(_, button)
             PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
-            if SDB.StartPrefixListen then SDB.StartPrefixListen() end
+            if button == "RightButton" then
+                if SDB.UnbindPrefix then SDB.UnbindPrefix() end
+            elseif SDB.StartPrefixListen then
+                SDB.StartPrefixListen()
+            end
         end)
         prefixClick:SetScript("OnEnter", function(self)
-            SDB.Tip.Begin(self, "ANCHOR_BOTTOM", "Page Prefix")
-            SDB.Tip.Line("Click, then press the keys for this page's prefix. Enter applies, Esc cancels.")
+            local global = SDB.PrefixIsGlobal and SDB.PrefixIsGlobal()
+            SDB.Tip.Begin(self, "ANCHOR_BOTTOM", global and "Global Prefix" or "Page Prefix")
+            SDB.Tip.Line(global and "Click, then press the keys for the prefix of every page. Enter applies, Esc cancels."
+                or "Click, then press the keys for this page's prefix. Enter applies, Esc cancels.")
+            SDB.Tip.Hint(global and "Right-click to remove the prefix from every page." or "Right-click to remove this page's prefix.")
             SDB.Tip.Done()
         end)
         prefixClick:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -6008,6 +6054,9 @@ function SDB.BuildUI()
 
     RefreshPageTabs()
     RefreshRows()
+
+    -- Closing the main window returns to the main page (a context page that applies right now wins)
+    configWindow:HookScript("OnHide", function() SDB.GoToMainPage() end)
 
     -- Hide the other windows when the main window closes
     configWindow:HookScript("OnHide", function()

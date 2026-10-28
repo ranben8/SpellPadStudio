@@ -32,7 +32,7 @@ H.COMMANDS = {
     { "keytest", "write each key press into the chat (to check what your hardware sends)" },
     { "feedback", "show where to report a bug or leave a comment" },
 }
-H.DIAGNOSTICS = "perf, syntax, ranks, pad, padprobe, cursor, macros, builder, keyscan, retail, combat, ui, keys, mods, drag, dock, pending, watch, page, templates, merge"
+H.DIAGNOSTICS = "perf, syntax, ranks, pad, padprobe, cursor, macros, builder, keyscan, retail, combat, contexts, ui, keys, mods, drag, dock, pending, watch, page, templates, merge"
 
 function H.Show(unknown)
     if unknown and unknown ~= "" then

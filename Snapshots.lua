@@ -400,6 +400,7 @@ function S.Restore(entry)
         local n = #db.pages
         local idx
         if entry.deleted then
+            if copy.main and SDB.MainPage() then copy.main = nil end -- another page is the main page now
             idx = math.max(1, math.min(entry.page, n + 1))
             S.InsertPage(idx, copy, entry.pageName)
             if SDB.ctx then
@@ -415,6 +416,7 @@ function S.Restore(entry)
         else
             idx = math.min(entry.page, n + 1)
             if not db.pageNames then db.pageNames = {} end
+            copy.main = db.pages[idx] and db.pages[idx].main or nil -- main page status belongs to the position, not the snapshot
             db.pages[idx] = copy
             db.pageNames[idx] = entry.pageName
         end
