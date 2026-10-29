@@ -574,18 +574,23 @@ local function Build()
     return f
 end
 
-function S.Toggle()
+-- Opens the list (or refreshes and raises it when it is already open)
+function S.Open()
     local f = Build()
-    if f:IsShown() then
-        f:Hide()
-        return
-    end
     if SDB.db then
         f:SetAlpha(SDB.db.opacity or 1.0)
     end
     S.Refresh()
-    f:Show()
+    if not f:IsShown() then f:Show() end
     f:Raise() -- above other FULLSCREEN_DIALOG windows that were opened earlier
+end
+
+function S.Toggle()
+    if S.frame and S.frame:IsShown() then
+        S.frame:Hide()
+    else
+        S.Open()
+    end
 end
 
 -- -------------------------------------------------------------

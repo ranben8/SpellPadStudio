@@ -59,6 +59,22 @@ function P.IsDirty(page, slot)
     return (data.macro or "") ~= (app and app.m or "")
 end
 
+-- The cards that differ from what was last applied, page by page; `max` cuts the list, the second value is the total.
+function P.List(max)
+    local out, total = {}, 0
+    local pages = SDB.db and SDB.db.pages
+    if not pages then return out, 0 end
+    for p, slots in ipairs(pages) do
+        for s = 1, #slots do
+            if P.IsDirty(p, s) then
+                total = total + 1
+                if not max or #out < max then out[#out + 1] = { page = p, slot = s } end
+            end
+        end
+    end
+    return out, total
+end
+
 -- ---------------------------------------------------------------
 -- Glows
 -- ---------------------------------------------------------------

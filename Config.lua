@@ -2133,16 +2133,20 @@ function SDB.BuildUI()
     end
 
     -- "Manage Profiles..." in the profile dropdown: opens the Profiles window (import, export, rename, delete, links); never closes it
-    function configWindow.OpenProfiles()
+    -- `tab` (1 Profiles, 2 Share) picks the tab; an open window switches to it
+    function configWindow.OpenProfiles(tab)
         PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPEN or 850)
         local profWin = _G["GalleonBridgeProfilesFrame"]
         local optWin = _G["GalleonBridgeOptionsFrame"]
         local plWin = _G["GalleonBridgePageLogicFrame"]
 
         if profWin and not profWin:IsShown() then
+            if tab then SDB.profilesTab = tab end -- the window's OnShow selects the remembered tab
             if optWin and optWin:IsShown() then optWin:Hide() end
             if plWin and plWin:IsShown() then plWin:Hide() end
             profWin:Show() -- docks under the main window's title bar and closes the other docked windows (Dock.lua)
+        elseif profWin and tab and profWin.sdbTabBar then
+            profWin.sdbTabBar:Select(tab)
         end
     end
 
@@ -3735,6 +3739,15 @@ function SDB.BuildUI()
         status:SetPoint("LEFT", footer, "LEFT", 32, 0)
         status:SetJustifyH("LEFT")
 
+        -- the status text is a button while edits are pending: it lists those cards
+        local pendBtn = CreateFrame("Button", nil, footer)
+        pendBtn:SetHeight(24)
+        pendBtn:SetPoint("LEFT", footer, "LEFT", 6, 0)
+        pendBtn:SetWidth(120)
+        pendBtn:SetHighlightTexture("Interface\\Buttons\\WHITE8X8")
+        pendBtn:GetHighlightTexture():SetVertexColor(1, 1, 1, 0.08)
+        pendBtn:Hide()
+
         -- on a page with no macros at all the footer points at the setup guide instead
         local guideBtn = SDB.UI.Button(footer, "secondary", "Setup Guide...", 120, 22)
         guideBtn:SetPoint("LEFT", status, "RIGHT", 10, 0)
@@ -3758,10 +3771,13 @@ function SDB.BuildUI()
         function configWindow.UpdateFooterStatus()
             local n = (SDB.Pending and SDB.Pending.count) or 0
             guideBtn:Hide()
+            pendBtn:Hide()
             if n > 0 then
                 dot:Show()
                 check:Hide()
                 status:SetText("|cFFFF9900" .. n .. (n == 1 and " change not applied" or " changes not applied") .. "|r")
+                pendBtn:SetWidth(32 + status:GetStringWidth() + 8)
+                pendBtn:Show()
             elseif PageIsEmpty() then
                 dot:Hide()
                 check:Hide()
@@ -3789,6 +3805,104 @@ function SDB.BuildUI()
         end
         saveBtn:SetScript("OnClick", function() SDB.SaveAndApply() end)
         SDB.saveBtn = saveBtn -- Pending.lua makes this button pulse while edits are not applied
+
+        -- Pending list: click the status text, then a card to jump to it. The list is built every time it opens.
+        local PEND_MAX = 25
+        local pendMenu = CreateFrame("Frame", "GalleonPendingDropDown", footer, "UIDropDownMenuTemplate")
+        UIDropDownMenu_Initialize(pendMenu, function(self, level)
+            if (level or 1) ~= 1 then return end
+            local list, total = SDB.Pending.List(PEND_MAX)
+            local title = SafeCreateInfo()
+            title.text = "Changes not applied"
+            title.isTitle = true
+            title.notCheckable = true
+            SafeAddButton(title, 1)
+            for _, c in ipairs(list) do
+                local p, s = c.page, c.slot
+                local data = SDB.db.pages[p][s]
+                local name, kind = SDB.CardName(data, s)
+                local text = SDB.EscapePipes(SDB.PageName(p)) .. ", card " .. s
+                if kind ~= "default" then text = text .. ": " .. SDB.EscapePipes(name) end
+                local info = SafeCreateInfo()
+                info.text = text
+                info.notCheckable = true
+                info.func = function()
+                    if SDB.Audit then SDB.Audit.GoTo(p, s, SDB.currentProfileName) end
+                end
+                SafeAddButton(info, 1)
+            end
+            if total > #list then
+                local more = SafeCreateInfo()
+                more.text = "|cFF888888+" .. (total - #list) .. " more|r"
+                more.notCheckable = true
+                more.disabled = true
+                SafeAddButton(more, 1)
+            end
+        end, "MENU")
+        pendBtn:SetScript("OnClick", function(self)
+            PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+            SDB.UI.ToggleMenu(pendMenu, self)
+        end)
+        pendBtn:SetScript("OnEnter", function(self)
+            local n = (SDB.Pending and SDB.Pending.count) or 0
+            SDB.Tip.Begin(self, "ANCHOR_TOP", "Changes Not Applied Yet", "warn")
+            SDB.Tip.Line(n .. (n == 1 and " card has" or " cards have")
+                .. " changes that are saved but not applied to your keys.")
+            SDB.Tip.Hint("Click to see which cards, then click one to go to it.")
+            SDB.Tip.Done()
+        end)
+        pendBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+        -- Tools: the windows that used to sit behind the Options gear (Audit, Restore) plus import / export and the
+        -- setup guide. Every entry opens a window.
+        local toolsBtn = SDB.UI.Button(footer, "secondary", "Tools", 84, 24)
+        toolsBtn:SetPoint("RIGHT", saveBtn, "LEFT", -8, 0)
+        configWindow.toolsBtn = toolsBtn
+        do
+            local arrow = toolsBtn:CreateTexture(nil, "OVERLAY")
+            arrow:SetSize(16, 16)
+            arrow:SetPoint("RIGHT", toolsBtn, "RIGHT", -5, 0)
+            arrow:SetTexture("Interface\\ChatFrame\\ChatFrameExpandArrow")
+            if arrow.SetRotation then arrow:SetRotation(-math.pi / 2) end -- the game's arrow points right; turned clockwise it points down
+        end
+        local toolsMenu = CreateFrame("Frame", "GalleonToolsDropDown", footer, "UIDropDownMenuTemplate")
+        local TOOLS = {
+            { text = "Audit...", tip = "Lists every card with a problem, on every page. Click one to open it.",
+                run = function() if SDB.Audit then SDB.Audit.Open() end end, sound = true },
+            { text = "Restore...", tip = "Brings back an earlier snapshot of a page or profile.",
+                run = function() if SDB.Snapshots then SDB.Snapshots.Open() end end, sound = true },
+            { text = "Import / Export...", tip = "Share pages and profiles as text strings.",
+                run = function() configWindow.OpenProfiles(2) end },
+            { text = "Setup Guide...", tip = "Walks you through setting up your keypad.",
+                run = function() if SDB.Setup then SDB.Setup.Open() end end, sound = true },
+        }
+        UIDropDownMenu_Initialize(toolsMenu, function(self, level)
+            if (level or 1) ~= 1 then return end
+            for _, t in ipairs(TOOLS) do
+                local info = SafeCreateInfo()
+                info.text = t.text
+                info.notCheckable = true
+                info.tooltipTitle = (string.gsub(t.text, "%.%.%.$", ""))
+                info.tooltipText = t.tip
+                info.tooltipOnButton = true
+                info.func = function()
+                    if t.sound then PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPEN or 850) end
+                    t.run()
+                end
+                SafeAddButton(info, 1)
+            end
+        end, "MENU")
+        toolsBtn:SetScript("OnClick", function(self)
+            PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+            SDB.UI.ToggleMenu(toolsMenu, self)
+        end)
+        toolsBtn:HookScript("OnEnter", function(self)
+            SDB.Tip.Begin(self, "ANCHOR_TOP", "Tools")
+            SDB.Tip.Line("Audit, Restore, Import / Export and the Setup Guide.")
+            SDB.Tip.Done()
+        end)
+        toolsBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
+
         configWindow.UpdateFooterStatus()
     end
 
