@@ -1706,8 +1706,13 @@ function SDB.BuildUI()
 
             local displayName = SDB.PageName(p)
 
+            -- the star and the context glyph take room at the right edge
+            local hasContext = SDB.PaintPageContext(btn, p)
+            local maxName = 88
+            if p == mainPage then maxName = 76 end
+            if hasContext then maxName = maxName - ((p == mainPage) and 16 or 12) end
             -- long names end in "..." instead of running off the row; the tooltip keeps the full name
-            local shown, wasCut = SDB.FitText(btn.label, displayName, (p == mainPage) and 76 or 88) -- the star takes room
+            local shown, wasCut = SDB.FitText(btn.label, displayName, maxName)
             btn.fullName, btn.nameCut = displayName, wasCut
             btn.sdbPage = p
             if not btn.nameTipHooked then
@@ -1721,6 +1726,10 @@ function SDB.BuildUI()
                     local named = SDB.db.pageNames and SDB.db.pageNames[pg]
                     if named then SDB.Tip.Text((string.gsub(named, "|", "||"))) end
                     if SDB.MainPage and SDB.MainPage() == pg then SDB.Tip.Colored("GOLD", "Main page") end
+                    if self.sdbContextName then
+                        SDB.Tip.Colored("GOLD", "Context: " .. self.sdbContextName)
+                        if not self.sdbContextOn then SDB.Tip.Hint("Contextual page switching is off.") end
+                    end
                     SDB.Tip.Hint("Use this number in !PAGE " .. pg .. ". Drag to reorder.")
                     SDB.Tip.Done()
                 end)
@@ -2619,6 +2628,7 @@ function SDB.BuildUI()
         cb:SetScript("OnClick", function(self)
             if SDB.ctx then SDB.ctx.autoSwitchContext = self:GetChecked() end
             PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+            configWindow.RefreshPageContexts()
             if SDB.EvaluateContextState then SDB.EvaluateContextState() end
         end)
         cb:SetScript("OnEnter", function(self)
@@ -2670,6 +2680,7 @@ function SDB.BuildUI()
                     SDB.ctx.pageContexts[cp] = opt.val
                     SetCtxText(opt.name)
                     PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+                    configWindow.RefreshPageContexts()
                     if SDB.EvaluateContextState then SDB.EvaluateContextState() end
                 end
                 SafeAddButton(info, level)
@@ -2707,6 +2718,7 @@ function SDB.BuildUI()
                         SDB.ctx.pageContexts[cp] = formVal
                         SetCtxText(name)
                         PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+                        configWindow.RefreshPageContexts()
                         if SDB.EvaluateContextState then SDB.EvaluateContextState() end
                     end
                     SafeAddButton(info, level)
@@ -4826,6 +4838,8 @@ function SDB.BuildUI()
             title.notCheckable = true
             SafeAddButton(title, 1)
 
+            -- works with the main window closed: the builder only needs the card, which Select has just chosen
+            Add("Edit in Builder", function() if SDB.Builder then SDB.Builder.Open() end end)
             Add("Change Icon...", function() row.ChangeIcon() end)
             Add("Change Name...", function() row.ChangeName() end)
             Add("Arsenal...", function() if SDB.SpellBrowser then SDB.SpellBrowser.Open() end end)
@@ -4850,6 +4864,8 @@ function SDB.BuildUI()
             if sameSlot and (justClosed or isOpen) then return end
 
             if not MM.Select(slot) then return end
+            -- selecting a card here is not a request to move SpellPad Builder: only Edit in Builder asks
+            if SDB.Builder and SDB.Builder.IgnoreSelection then SDB.Builder.IgnoreSelection() end
             MM.slot = slot
             ToggleDropDownMenu(1, nil, MM.frame, "cursor", 0, 0)
         end
@@ -5870,6 +5886,10 @@ function SDB.BuildUI()
     function configWindow.RefreshPageDots()
         local pd = (SDB.Pending and SDB.Pending.pageDirty) or {}
         for p, b in pairs(pageButtons) do b:SetDot((pd[p] or 0) > 0) end
+    end
+    -- the context glyphs follow the rules and the master switch (Page Options); a redraw also re-cuts the names to fit
+    function configWindow.RefreshPageContexts()
+        RefreshPageTabs()
     end
     if SDB.Esc then SDB.Esc.RegisterAll() end -- ESC closes the windows, front-most first
 

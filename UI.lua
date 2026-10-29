@@ -11,7 +11,7 @@ local addonName, SDB = ...
 --   SDB.UI.Panel(parent, kind)                  "inset" (default) or "flat" (bar); put content INSIDE the panel
 --   SDB.UI.Button(parent, role, text, w, h)     role = "primary" (red) | "secondary"
 --   SDB.UI.ScrollBar(scrollFrame)               adds the bar to a scroll frame that already exists
---   SDB.UI.Row(parent, w, h, opts)              list row: :SetSelected(bool), :SetDot(bool), .label
+--   SDB.UI.Row(parent, w, h, opts)              list row: :SetSelected(bool), :SetDot(bool), :SetStar(bool), :SetContext(icon, active), .label
 --   SDB.UI.StyleSearch(editBox, hint, clear)    the search-box look for an existing edit box
 --   SDB.UI.Check / Slider / Dropdown            Settings-style looks (the dropdown is only the look; the menu is the caller's)
 --   SDB.UI.Divider / KeyCap / Glyph / Dashed
@@ -817,8 +817,18 @@ function U.Row(parent, w, h, opts)
         if self.label then self.label:SetFontObject(on and "GameFontNormal" or "GameFontHighlight") end
     end
     function b:SetDot(on) dot:SetShown(on and true or false) end
-    -- the main page's star sits at the right edge; the dot then moves to its left
-    local star
+    -- Right edge, from the right: the main page's star, the dot, the context glyph. The dot's place is kept free
+    -- even while it is hidden, so the glyph does not jump when an edit makes the dot appear.
+    local star, ctxGlyph
+    local function PlaceRight()
+        local dotX = b.sdbStar and 26 or 10
+        dot:ClearAllPoints()
+        dot:SetPoint("RIGHT", b, "RIGHT", -dotX, 0)
+        if ctxGlyph then
+            ctxGlyph:ClearAllPoints()
+            ctxGlyph:SetPoint("RIGHT", b, "RIGHT", -(dotX + 11), 0)
+        end
+    end
     function b:SetStar(on)
         on = on and true or false
         if on and not star then
@@ -828,9 +838,26 @@ function U.Row(parent, w, h, opts)
             star:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcon_1")
         end
         if star then star:SetShown(on) end
-        dot:ClearAllPoints()
-        dot:SetPoint("RIGHT", b, "RIGHT", on and -26 or -10, 0)
         self.sdbStar = on
+        PlaceRight()
+    end
+    -- the page's context rule as a small icon (icon nil = no rule); dimmed when `active` is false
+    function b:SetContext(icon, active)
+        if not icon then
+            if ctxGlyph then ctxGlyph:Hide() end
+            self.sdbContext = false
+            return
+        end
+        if not ctxGlyph then
+            ctxGlyph = b:CreateTexture(nil, "ARTWORK")
+            ctxGlyph:SetSize(14, 14)
+            ctxGlyph:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- a plain file icon: trims its rounded border
+        end
+        ctxGlyph:SetTexture(icon)
+        ctxGlyph:SetAlpha(active and 0.9 or 0.35)
+        ctxGlyph:Show()
+        self.sdbContext = true
+        PlaceRight()
     end
     -- a row that is only a heading (the Spell Browser's category lines) shows no hover look
     function b:SetHover(on) hover:SetAlpha(on and 1 or 0) end

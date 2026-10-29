@@ -26,7 +26,8 @@ local addonName, SDB = ...
 -- taken first) and leaves it as a pending change (Save & Apply glows), like the Spell Browser. While the window
 -- is open a click in the Spell Browser adds the spell here (SDB.Builder.AddEntry) instead of writing into the
 -- card. The window stays on the card it was opened for; choosing another card asks first.
---   SDB.Builder.Open()          open for the selected card (or ask to switch when it is open for another)
+--   SDB.Builder.Open()          open for the selected card (or ask to switch when it is open for another); the main
+--                               window may be closed (the SpellPad menu's Edit in Builder)
 --   SDB.Builder.IsOpen()        window shown?
 --   SDB.Builder.AddEntry(e)     { name, kind = "spell"|"item" } from the Spell Browser
 --   SDB.Builder.CardLabel()     "Main, card 3" for the Spell Browser's target line
@@ -2169,10 +2170,6 @@ end
 -- Opening
 -- ---------------------------------------------------------------
 function B.Open()
-    if not SDB.configWindow or not SDB.configWindow:IsShown() then
-        Chat("Open the main window first.", "bad")
-        return false
-    end
     local sig, p, i = SelectedCard()
     if not sig then
         Chat("Click a card first so its border highlights gold, then open SpellPad Builder.", "bad")
@@ -2193,9 +2190,22 @@ function B.Open()
     f:Raise()
     M.Changed()
     M.ScrollToSel()
-    if SDB.SpellBrowser and SDB.SpellBrowser.OpenForBuilder then SDB.SpellBrowser.OpenForBuilder() end
+    -- the Arsenal docks to the main window and opening it shows that window, so with the main window closed
+    -- (the SpellPad's Edit in Builder) it stays shut; the builder's Arsenal button opens both
+    local main = SDB.configWindow
+    if main and main:IsShown() and SDB.SpellBrowser and SDB.SpellBrowser.OpenForBuilder then
+        SDB.SpellBrowser.OpenForBuilder()
+    end
     M.PaintBrowserButton()
     return true
+end
+
+-- The SpellPad's right-click menu selects a card without asking to move an open builder: the poll in M.Tick would
+-- otherwise show the switch popup before Edit in Builder was chosen. Choosing that entry (B.Open) still asks.
+function B.IgnoreSelection()
+    if not (W.f and W.f:IsShown() and S.card) then return end
+    local sig = SelectedCard()
+    if sig and sig ~= S.cardSig then S.askedSig = sig end
 end
 
 -- ---------------------------------------------------------------

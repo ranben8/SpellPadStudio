@@ -124,6 +124,59 @@ function SDB.IsContextActive(trigger)
     return false
 end
 
+-- Name and icon of a context rule, for the glyph on a Pages list row. The names are the ones in the Select Context list.
+SDB.CONTEXT_INFO = {
+    COMBAT = { "In Combat", "Interface\\Icons\\INV_Sword_04" },
+    MOUNT = { "Mounted", "Interface\\Icons\\Ability_Mount_RidingHorse" },
+    FLYING = { "Flying", "Interface\\Icons\\Ability_Druid_FlightForm" },
+    SWIMMING = { "Swimming", "Interface\\Icons\\Ability_Druid_AquaticForm" },
+    STEALTH = { "Stealthed / Invisible", "Interface\\Icons\\Ability_Stealth" },
+    RESTING = { "Resting (Town or Inn)", "Interface\\Icons\\Spell_Nature_Sleep" },
+    PARTY = { "In a Party (5-Man)", "Interface\\Icons\\INV_Misc_GroupLooking" },
+    RAID = { "In a Raid", "Interface\\Icons\\INV_Misc_GroupNeedMore" },
+    DUNGEON = { "In a Dungeon / Instance", "Interface\\Icons\\Achievement_Dungeon_ClassicDungeonMaster" },
+    PVP = { "In PvP (BG / Arena)", "Interface\\Icons\\Achievement_PVP_A_01" },
+}
+
+-- Returns the name and icon of a page's context rule, or nil when the page has none. A form rule ("FORM:2") shows the
+-- form's own icon from the shapeshift bar.
+function SDB.ContextInfo(trigger)
+    if not trigger then return nil end
+    local info = SDB.CONTEXT_INFO[trigger]
+    if info then return info[1], info[2] end
+    local idx = tonumber(string.match(trigger, "^FORM:(%d+)") or "")
+    if not idx then return nil end
+    local icon, name
+    if GetShapeshiftFormInfo then
+        local ok, r1, r2, _, r4 = pcall(GetShapeshiftFormInfo, idx)
+        if ok then
+            icon = r1
+            if type(r2) == "string" then
+                name = r2
+            elseif type(r4) == "number" then
+                if C_Spell and C_Spell.GetSpellInfo then
+                    local s = C_Spell.GetSpellInfo(r4)
+                    name = s and s.name
+                elseif GetSpellInfo then
+                    name = GetSpellInfo(r4)
+                end
+            end
+        end
+    end
+    return name or "Unknown Form", icon or "Interface\\Icons\\INV_Misc_QuestionMark"
+end
+
+-- Puts the context glyph on a Pages list row (btn:SetContext, UI.lua). Dimmed while contextual page switching is off,
+-- because the rule does nothing then. Returns whether the page has a rule.
+function SDB.PaintPageContext(btn, p)
+    local rules = SDB.ctx and SDB.ctx.pageContexts
+    local name, icon = SDB.ContextInfo(rules and rules[p])
+    btn.sdbContextName = name
+    btn.sdbContextOn = (SDB.ctx and SDB.ctx.autoSwitchContext) and true or false
+    btn:SetContext(icon, btn.sdbContextOn)
+    return icon ~= nil
+end
+
 -- The first page set to the "In Combat" context while contextual page switching is on, or nil. Used by the
 -- combat-start hook (Init.lua) and /sps page.
 function SDB.CombatPageRule()
