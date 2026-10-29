@@ -6,7 +6,7 @@ local addonName, SDB = ...
 -- Every window that opens after the main window (the windows that go through SDB.Skin.Apply, except the main
 -- window itself) docks directly under the main window's brown title bar with its right edge flush with the main
 -- window's right edge, and closes the other docked windows, so they take turns in the same place. Audit and the
--- Spell Browser are the exceptions: they dock to the LEFT of the main window (the cards stay in view when you jump
+-- Arsenal (the Spell Browser) are the exceptions: they dock to the LEFT of the main window (the cards stay in view when you jump
 -- to one or drop a spell on one) and are not closed by the other windows, nor do they close them. Audit closes
 -- Options (its button is in there), and Audit and the Spell Browser replace each other in their shared column.
 -- While the main window is closed nothing is moved: a window opens where it did before.
@@ -45,8 +45,9 @@ D.CLOSES = {
     GalleonAuditFrame = { GalleonBridgeOptionsFrame = true, GalleonSpellBrowserFrame = true },
     GalleonSpellBrowserFrame = { GalleonAuditFrame = true },
 }
--- windows that are used together: opening one does not close the other (SpellPad Builder + Spell Browser).
--- While SpellPad Builder is open the Spell Browser docks to ITS left side instead of the main window's.
+-- windows that are used together: opening one does not close the other (SpellPad Builder + Arsenal). The Arsenal keeps
+-- its place beside the main window while the builder is open. SpellPad Builder opens the Arsenal when it is closed, and
+-- the two close together, except that a pinned Arsenal (its sidebar button is lit) stays open.
 D.BUILDER_NAME = "GalleonSpellPadBuilderFrame"
 D.BROWSER_NAME = "GalleonSpellBrowserFrame"
 D.TOGETHER = {
@@ -104,13 +105,6 @@ function D.PointFor(frame)
     local main = MainShown()
     if not main then return nil end
     local r = Ratio(main, frame)
-    if NameOf(frame) == D.BROWSER_NAME then
-        local b = _G[D.BUILDER_NAME]
-        if b and registered[b] and b.IsShown and b:IsShown() then
-            return "TOPRIGHT", b, "TOPLEFT", -D.SIDE_GAP * Ratio(b, frame), 0
-        end
-        -- otherwise it falls through to the left side of the main window, top-aligned, so the pad fits under it
-    end
     if D.Side(frame) == "left" then
         return "TOPRIGHT", main, "TOPLEFT", -D.SIDE_GAP * r, 0
     elseif D.Side(frame) == "right" then
@@ -148,17 +142,10 @@ end
 
 -- The Window scale slider: every registered window takes the value, then the open ones are docked again
 function D.ApplyScaleAll(scale)
-    -- two passes: a window docked to another window (the Spell Browser beside SpellPad Builder) needs that window's new scale first
     for _, w in ipairs(D.windows) do D.ApplyScale(w, scale) end
     for _, w in ipairs(D.windows) do
         if w:IsShown() then D.Place(w) end
     end
-end
-
--- the Spell Browser follows SpellPad Builder: dock it again when the builder opens or closes
-local function ReplaceBrowser()
-    local br = _G[D.BROWSER_NAME]
-    if br and registered[br] and br.IsShown and br:IsShown() then D.Place(br) end
 end
 
 -- The main window and the docked windows are both toplevel DIALOG windows (Options, Page Options and Profiles), so a
@@ -184,6 +171,13 @@ function D.RaiseDocked()
     end
 end
 
+-- A pinned Arsenal comes back when the main window opens and when the window that replaced it closes (a frame later, so
+-- the closing window has finished hiding)
+local function RestoreArsenal()
+    local SB = SDB.SpellBrowser
+    if SB and SB.RestorePinned and C_Timer and C_Timer.After then C_Timer.After(0, SB.RestorePinned) end
+end
+
 -- A skinned window was shown (called from Skin.lua's watch frame)
 function D.OnShow(frame)
     if D.IsMain(frame) then
@@ -192,6 +186,7 @@ function D.OnShow(frame)
             if w:IsShown() then D.Place(w) end
         end
         D.UpdateZ()
+        RestoreArsenal()
         return
     end
     if not registered[frame] then return end
@@ -211,26 +206,28 @@ function D.OnShow(frame)
         end
     end
     D.Place(frame)
-    if NameOf(frame) == D.BUILDER_NAME then ReplaceBrowser() end
     if not D.Side(frame) and frame.Raise then pcall(frame.Raise, frame) end
     D.UpdateZ()
 end
 
 function D.OnHide(frame)
     if registered[frame] or D.IsMain(frame) then D.UpdateZ() end
-    -- windows that are used together close together (SpellPad Builder + Spell Browser): whichever closes takes the
-    -- other with it, so a browser can't be left open at its normal place after the builder it served is gone
+    -- windows that are used together close together (SpellPad Builder + Arsenal): whichever closes takes the other with
+    -- it, except that a pinned Arsenal stays when the builder closes
     local partners = registered[frame] and D.TOGETHER[NameOf(frame) or ""]
     if partners and not D.noPair then
+        local SB = SDB.SpellBrowser
         for name in pairs(partners) do
             local w = _G[name]
-            if w and registered[w] and w.IsShown and w:IsShown() then w:Hide() end
+            local keep = name == D.BROWSER_NAME and SB and SB.Pinned and SB.Pinned()
+            if w and registered[w] and w.IsShown and w:IsShown() and not keep then w:Hide() end
         end
     end
-    if NameOf(frame) == D.BUILDER_NAME then ReplaceBrowser() end
+    local name = NameOf(frame)
+    if name == "GalleonAuditFrame" or name == D.BUILDER_NAME then RestoreArsenal() end
 end
 
--- Hides one window and leaves its partner open: SpellPad Builder's Spell Browser button turns the browser off while the
+-- Hides one window and leaves its partner open: SpellPad Builder's Arsenal button closes the Arsenal while the
 -- builder stays (a normal Hide would take the builder along, see D.OnHide).
 function D.HideAlone(frame)
     D.noPair = true
@@ -295,7 +292,7 @@ function D.Report(emit)
         main and (main:IsShown() and "open" or "closed") or "not built yet",
         main and main.GetScale and string.format("%.2f", main:GetScale() or 0) or "?",
         main and main.IsToplevel and tostring(main:IsToplevel()) or "?"))
-    emit(string.format("Docking: under the title bar %d units down, right edges flush; beside the main window %d units apart (left side: Audit and the Spell Browser, which replace each other; right side: Setup Guide).",
+    emit(string.format("Docking: under the title bar %d units down, right edges flush; beside the main window %d units apart (left side: Audit and the Arsenal, which replace each other; right side: Setup Guide).",
         D.TOP_GAP, D.SIDE_GAP))
     for _, w in ipairs(D.windows) do
         local line = string.format("%s: %s, scale %.2f, strata %s", NameOf(w) or "?", w:IsShown() and "OPEN" or "closed",

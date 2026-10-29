@@ -35,7 +35,7 @@ SpellPad Studio is a second set of action bars that lives inside the addon.
 **Build macros**
 - Ready-made macros for your class, travel and teleports, target markers, world markers, group tools and emotes. (Forever also has consumable and raid-prep sets.)
 - Macro text is colored and flags mistakes as you type. It suggests spell names too.
-- Spell Browser: click or drag a spell or item you know onto a card.
+- Arsenal: click or drag a spell or item you know onto a card.
 - SpellPad Builder: build a macro by clicking and dragging, with conditions like mouseover, focus and modifier keys.
 
 **The SpellPad (on-screen buttons)**
@@ -58,7 +58,7 @@ SpellPad Studio is a second set of action bars that lives inside the addon.
 1. Install the addon (below) and log in. A setup guide opens by itself the first time. To open it again, type `/sps setup`.
 2. Tell it how many buttons you have, and whether the pad is wider than tall or taller than wide.
 3. In your keypad app (Stream Deck, iCUE or another), make the top-left button send **Alt + 1**, the next one **Alt + 2**, and so on. The guide shows the key for every spot, and lights a spot up when the game receives it.
-4. Click a spell in the Spell Browser (or drag one onto card 1), then press the button.
+4. Click a spell in the Arsenal (or drag one onto card 1), then press the button.
 5. After you change a macro, press **Save & Apply** (or Ctrl+S).
 
 ## Install

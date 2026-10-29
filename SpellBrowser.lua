@@ -3,7 +3,7 @@ local addonName, SDB = ...
 -- -------------------------------------------------------------
 -- Spell / item browser panel + macro autocomplete
 -- -------------------------------------------------------------
--- 1. Spell Browser window (sidebar button "Spell Browser", card menu "Spell Browser...", /sps spells):
+-- 1. Arsenal window (the Spell Browser until it also held macros; sidebar button "Arsenal", card menu "Arsenal...", /sps spells):
 --    your castable spells grouped by spellbook tab, and the items in your bags (consumables first).
 --    Click an entry to put it in the selected card:
 --      * card has [DRAG_SPELL_HERE] -> replaces the placeholder
@@ -14,6 +14,7 @@ local addonName, SDB = ...
 --    "used" marks names that already appear in a /cast, /use, /castsequence ... line of any card in
 --    this profile; the tooltip says where. "Unused only" hides those.
 --    Right-click a spell = menu of the lower ranks you know (inserts "Name(Rank n)").
+--    The Macros tab lists the ready-made macros (SDB.Library) by category; a click replaces the selected card.
 -- 2. Autocomplete (SDB.SpellBrowser.AC): while typing after /cast, /castsequence, /castrandom, /spell,
 --    /use, /userandom or /equip a small list of matching spells/items appears under the card.
 --    Tab inserts the highlighted entry, Shift+Tab highlights the next one, clicking one inserts it.
@@ -510,6 +511,14 @@ local function BuilderCloseRequest()
 end
 
 function B.InsertEntry(e)
+    if e and e.kind == "macro" then
+        if BuilderOpen() then
+            Chat("Close SpellPad Builder to put a ready-made macro into a card.", true)
+        elseif SDB.Library and SDB.Library.Insert(e) then
+            B.Refresh()
+        end
+        return
+    end
     if e and BuilderOpen() then
         SDB.Builder.AddEntry(e)
         return
@@ -626,9 +635,22 @@ end
 -- ---------------------------------------------------------------
 -- Browser window
 -- ---------------------------------------------------------------
-local ROWS, ROWH = 15, 22
+local MAXROWS, ROWH = 17, 22
+local ROWS = 15 -- rows in use; the layout sets it so the list panel of every tab ends at the same place
+local WINDOW_H = 596 -- tall enough for the Easy Macros tab (two rows of chips above the list); every tab uses it
+local LIST_BOTTOM = 530 -- the list panel always ends here, in units below the window's top
 local INFO_CARD = "Click replaces the selected card; drag onto any card. Right-click a spell for lower ranks."
 local INFO_BUILDER = "Click adds the spell or item to SpellPad Builder. Right-click a spell for lower ranks."
+local INFO_MACRO = "Click replaces the selected card; drag onto any card or SpellPad button. Press Save & Apply to make it live."
+
+-- the two macro tabs: Easy Macros (ready-made, key "macros") and My Macros (the game's saved ones, key "mine")
+local function MacroTab() return B.tab == "macros" or B.tab == "mine" end
+local HINTS = { spells = "Search spells...", items = "Search items...", macros = "Search macros...", mine = "Search macros..." }
+
+local function InfoText()
+    if BuilderOpen() then return INFO_BUILDER end
+    return MacroTab() and INFO_MACRO or INFO_CARD
+end
 
 local function TargetText()
     if BuilderOpen() then
@@ -647,7 +669,7 @@ local function BuildWindow()
     if B.frame then return B.frame end
 
     local f = CreateFrame("Frame", "GalleonSpellBrowserFrame", UIParent, "BackdropTemplate")
-    f:SetSize(330, 524) -- room for the list panel (15 rows + 12) and the "n entries" line under it
+    f:SetSize(330, WINDOW_H)
     if SDB.configWindow then
         f:SetPoint("TOPLEFT", SDB.configWindow, "TOPRIGHT", 14, 0) -- 14: the skin's metal frame overhangs the window by a few pixels
     else
@@ -671,12 +693,12 @@ local function BuildWindow()
 
     local title = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
     title:SetPoint("TOP", 0, -14)
-    title:SetText("Spell Browser")
+    title:SetText("Arsenal")
 
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -4, -4)
-    close:SetScript("OnClick", function() if not BuilderCloseRequest() then f:Hide() end end)
-    f.sdbCloseRequest = BuilderCloseRequest -- ESC asks the same way (EscClose.lua)
+    close:SetScript("OnClick", function() if not B.UserClose() then f:Hide() end end)
+    f.sdbCloseRequest = B.UserClose -- ESC asks the same way (EscClose.lua)
     if SDB.Skin then SDB.Skin.Apply(f, { title = title, close = close }) end
 
     f.target = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -688,44 +710,51 @@ local function BuildWindow()
     -- tabs
     f.tabs = {}
     -- the two tabs are a segmented choice: the open one has the gold outline
+    -- four near-square keys, like the buttons of a macro pad
     local function MakeTab(key, label, x)
-        local b = SDB.UI.ChoiceChip(f, label, 92, 22)
+        local b = SDB.UI.ChoiceChip(f, label, 72, 40)
         b:SetPoint("TOPLEFT", x, -58)
         b.tabLabel = label
         b:SetScript("OnClick", function() B.SetTab(key) end)
         f.tabs[key] = b
     end
-    MakeTab("spells", "Spells", 20)
-    MakeTab("items", "Items", 116)
+    MakeTab("spells", "Spells", 14)
+    MakeTab("items", "Items", 91)
+    MakeTab("macros", "Easy\nMacros", 168)
+    MakeTab("mine", "My\nMacros", 245)
 
-    -- search
-    local box = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
-    box:SetSize(150, 22)
-    box:SetPoint("TOPLEFT", 26, -88)
-    box:SetAutoFocus(false)
-    box:SetMaxLetters(60)
-    box:SetFontObject("GameFontHighlightSmall")
-    f.search = box
-    local hint = box:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    hint:SetPoint("LEFT", box, "LEFT", 2, 0)
-    hint:SetText("Search...")
-    SDB.UI.StyleSearch(box, hint, nil) -- the game's search border and magnifier; the box keeps its own scripts
-    local function UpdateHint()
-        if box:GetText() == "" and not box:HasFocus() then hint:Show() else hint:Hide() end
+    -- the Macros tab's categories: two rows of three chips (shown on that tab only)
+    f.cats = {}
+    for i, c in ipairs(SDB.Library and SDB.Library.CATEGORIES or {}) do
+        local chip = SDB.UI.ChoiceChip(f, c.label, 98, 22)
+        chip:SetPoint("TOPLEFT", 14 + ((i - 1) % 3) * 101, -134 - math.floor((i - 1) / 3) * 26)
+        chip:SetScript("OnClick", function() B.SetCat(c.key) end)
+        chip:Hide()
+        f.cats[c.key] = chip
     end
-    box:SetScript("OnEditFocusGained", function() hint:Hide() end)
-    box:SetScript("OnEditFocusLost", UpdateHint)
-    box:SetScript("OnEscapePressed", function(self) self:SetText(""); self:ClearFocus() end)
-    box:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-    box:SetScript("OnTextChanged", function(self)
-        B.searchText = strtrim(self:GetText() or ""):lower()
-        UpdateHint()
+
+    -- the My Macros tab's source chips: one row
+    f.mineChips = {}
+    for i, c in ipairs(SDB.Library and SDB.Library.MINE or {}) do
+        local chip = SDB.UI.ChoiceChip(f, c.label, 98, 22)
+        chip:SetPoint("TOPLEFT", 14 + (i - 1) * 101, -134)
+        chip:SetScript("OnClick", function() B.SetMine(c.key) end)
+        chip:Hide()
+        f.mineChips[c.key] = chip
+    end
+
+    -- search: the shared search box (grey hint, an x that clears it, Esc clears, Enter leaves it); the hint follows the tab
+    local box = SDB.UI.SearchBox(f, nil, 150, "Search...", function(_, text)
+        B.searchText = text
         f.scroll:SetVerticalScroll(0)
         B.Refresh()
     end)
+    box:SetPoint("TOPLEFT", 26, -106)
+    f.search = box
 
     -- unused only
     local cb = SDB.UI.Check(f, "Unused only") -- the Settings checkbox; its click toggles first, then calls OnToggle
+    f.unusedCb = cb
     cb:SetPoint("LEFT", box, "RIGHT", 10, 0)
     cb.OnToggle = function(self, checked)
         B.hideUsed = checked and true or false
@@ -741,7 +770,7 @@ local function BuildWindow()
 
     -- list: an inset panel with calm rows and the thin scroll bar
     local panel = SDB.UI.Panel(f, "inset")
-    panel:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -116)
+    panel:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -134)
     panel:SetSize(306, ROWS * ROWH + 12)
     f.listPanel = panel
     local scroll = CreateFrame("ScrollFrame", "GalleonSpellBrowserScroll", panel, "FauxScrollFrameTemplate")
@@ -753,7 +782,7 @@ local function BuildWindow()
     f.scroll = scroll
 
     f.rows = {}
-    for i = 1, ROWS do
+    for i = 1, MAXROWS do
         -- a calm shared row on the dark list panel (its text stays bright on every Window style)
         local r = SDB.UI.Row(panel, 272, ROWH, { label = false })
         r:SetPoint("TOPLEFT", scroll, "TOPLEFT", 0, -(i - 1) * ROWH)
@@ -768,12 +797,21 @@ local function BuildWindow()
         r.tag = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         r.tag:SetPoint("RIGHT", -6, 0)
         r.tag:SetJustifyH("RIGHT")
+        -- the gold rule above a group heading (it sits on the line between the two rows)
+        r.sep = SDB.UI.Divider(r)
+        r.sep:SetPoint("LEFT", r, "TOPLEFT", 2, 0)
+        r.sep:SetPoint("RIGHT", r, "TOPRIGHT", -2, 0)
+        r.sep:Hide()
         r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
         -- drag an entry: onto the lines list of SpellPad Builder while it is open, else onto the cursor (a card,
         -- a SpellPad button or an action bar takes it from there); a plain click still adds / inserts it
         r:RegisterForDrag("LeftButton")
         r:SetScript("OnDragStart", function(self)
             if not self.entry then return end
+            if self.entry.kind == "macro" then
+                if SDB.Library then SDB.Library.BeginDrag(self.entry) end
+                return
+            end
             if BuilderOpen() then
                 if SDB.Builder.BeginDrag then SDB.Builder.BeginDrag(self.entry) end
             else
@@ -781,6 +819,7 @@ local function BuildWindow()
             end
         end)
         r:SetScript("OnDragStop", function()
+            if SDB.Library then SDB.Library.EndDrag(true) end
             if SDB.Builder and SDB.Builder.EndDrag then SDB.Builder.EndDrag() end
         end)
         r:SetScript("OnClick", function(self, button)
@@ -794,6 +833,15 @@ local function BuildWindow()
         r:SetScript("OnEnter", function(self)
             local e = self.entry
             if not e then return end
+            if e.kind == "macro" then
+                SDB.Tip.Begin(self, "ANCHOR_RIGHT", e.name, "data")
+                SDB.Tip.Text(Esc(e.macro))
+                SDB.Tip.Hint(e.game and "Click to replace the selected card with a copy of this macro."
+                    or "Click to replace the selected card with this macro.")
+                SDB.Tip.Hint("Drag onto a card or SpellPad button.")
+                SDB.Tip.Done()
+                return
+            end
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             local ok = false
             -- Forever lists ranks lowest first, so the entry's own id is Rank 1: show the highest rank,
@@ -851,7 +899,7 @@ local function BuildWindow()
     info:SetJustifyH("LEFT")
     info:SetTextColor(0.7, 0.7, 0.7)
     f.infoText = info
-    info:SetText(BuilderOpen() and INFO_BUILDER or INFO_CARD)
+    info:SetText(InfoText())
     info:SetHeight(26)
 
     -- keeps the "Replacing" label current (the selected card changes without any event)
@@ -864,7 +912,7 @@ local function BuildWindow()
         if t ~= self.lastTarget then
             self.lastTarget = t
             self.target:SetText(t)
-            if self.infoText then self.infoText:SetText(BuilderOpen() and INFO_BUILDER or INFO_CARD) end
+            if self.infoText then self.infoText:SetText(InfoText()) end
         end
     end)
     f:SetScript("OnShow", function() B.Refresh() end)
@@ -887,13 +935,53 @@ local function PaintTabs(f)
     for k, b in pairs(f.tabs) do
         b:SetSelected(k == B.tab)
     end
+    for k, b in pairs(f.cats) do
+        b:SetSelected(k == (B.cat or "class"))
+    end
+    for k, b in pairs(f.mineChips) do
+        b:SetSelected(k == (B.mineCat or "all"))
+    end
+end
+
+-- The window is always the same height. Easy Macros has two rows of category chips above the list and My Macros one, so
+-- its list starts lower and shows fewer rows; the other tabs use the room for more rows.
+local function ApplyLayout(f)
+    local extra = (B.tab == "macros" and 54) or (B.tab == "mine" and 28) or 0
+    f:SetHeight(WINDOW_H)
+    local panelH = LIST_BOTTOM - (134 + extra)
+    ROWS = math.min(MAXROWS, math.floor((panelH - 12) / ROWH))
+    f.listPanel:ClearAllPoints()
+    f.listPanel:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -134 - extra)
+    f.listPanel:SetSize(306, panelH)
+    f.scroll:SetHeight(ROWS * ROWH)
+    f.search.sdbHint:SetText(HINTS[B.tab] or "Search...")
+    for _, chip in pairs(f.cats) do chip:SetShown(B.tab == "macros") end
+    for _, chip in pairs(f.mineChips) do chip:SetShown(B.tab == "mine") end
+    f.unusedCb:SetShown(not MacroTab())
 end
 
 function B.SetTab(key)
     B.tab = key
     local f = B.frame
     if not f then return end
+    ApplyLayout(f)
     PaintTabs(f)
+    f.scroll:SetVerticalScroll(0)
+    B.Refresh()
+end
+
+function B.SetCat(key)
+    B.cat = key
+    local f = B.frame
+    if not f then return end
+    f.scroll:SetVerticalScroll(0)
+    B.Refresh()
+end
+
+function B.SetMine(key)
+    B.mineCat = key
+    local f = B.frame
+    if not f then return end
     f.scroll:SetVerticalScroll(0)
     B.Refresh()
 end
@@ -905,11 +993,23 @@ function B.Refresh()
     B.usage = B.BuildUsage()
     PaintTabs(f)
 
-    local src = (B.tab == "items") and B.CollectItems() or B.CollectSpells()
     local q = B.searchText or ""
+    local src
+    if B.tab == "macros" then
+        -- a search looks through every category; without one the chosen category shows
+        local L = SDB.Library
+        src = L and ((q ~= "") and L.CollectAll() or L.Collect(B.cat or "class")) or {}
+    elseif B.tab == "mine" then
+        -- a search looks through all of the game's macros
+        local L = SDB.Library
+        src = L and L.CollectMine(q ~= "" and "all" or (B.mineCat or "all")) or {}
+    else
+        src = (B.tab == "items") and B.CollectItems() or B.CollectSpells()
+    end
     local out, lastCat, n = {}, nil, 0
     for _, e in ipairs(src) do
-        if (q == "" or e.lname:find(q, 1, true)) and not (B.hideUsed and B.usage[e.lname]) then
+        local hit = (q == "") or e.lname:find(q, 1, true) or (e.mlname and e.mlname:find(q, 1, true))
+        if hit and not (not MacroTab() and B.hideUsed and B.usage[e.lname]) then
             if e.cat ~= lastCat then
                 out[#out + 1] = { header = e.cat }
                 lastCat = e.cat
@@ -922,7 +1022,12 @@ function B.Refresh()
 
     if n == 0 then
         if #src == 0 then
-            f.empty:SetText(B.tab == "items" and "No items found in your bags." or "No spells found in your spellbook.")
+            if B.tab == "mine" then
+                f.empty:SetText((B.mineCat or "all") == "all" and "You have no saved game macros yet." or "No macros in this group.")
+            else
+                f.empty:SetText(B.tab == "items" and "No items found in your bags."
+                    or (B.tab == "macros" and "No macros in this category." or "No spells found in your spellbook."))
+            end
         else
             f.empty:SetText("No matches")
         end
@@ -933,7 +1038,7 @@ function B.Refresh()
     f.count:SetText(n .. (n == 1 and " entry" or " entries") .. ".")
     f.lastTarget = TargetText()
     f.target:SetText(f.lastTarget)
-    if f.infoText then f.infoText:SetText(BuilderOpen() and INFO_BUILDER or INFO_CARD) end
+    if f.infoText then f.infoText:SetText(InfoText()) end
     B.UpdateList()
 end
 
@@ -944,14 +1049,16 @@ function B.UpdateList()
     FauxScrollFrame_Update(f.scroll, #list, ROWS, ROWH)
     if f.scroll.sdbBar then f.scroll.sdbBar.Update() end -- the thin bar follows the stock bar's new range
     local offset = FauxScrollFrame_GetOffset(f.scroll)
-    for i = 1, ROWS do
+    for i = 1, MAXROWS do
         local r = f.rows[i]
-        local e = list[offset + i]
+        local e = (i <= ROWS) and list[offset + i] or nil
         if not e then
             r.entry = nil
+            r.sep:Hide()
             r:Hide()
         elseif e.header then
             r.entry = nil
+            r.sep:SetShown(offset + i > 1)
             r:SetHover(false) -- a heading shows no hover look
             r.icon:Hide()
             r.text:SetText("|cFFFFD100" .. Esc(e.header) .. "|r")
@@ -959,11 +1066,12 @@ function B.UpdateList()
             r:Show()
         else
             r.entry = e
+            r.sep:Hide()
             r:SetHover(true)
             r.icon:Show()
             r.icon:SetTexture(e.icon)
             r.text:SetText(Esc(e.name))
-            r.tag:SetText((B.usage and B.usage[e.lname]) and "|cFF00FF00used|r" or "")
+            r.tag:SetText((e.kind ~= "macro" and B.usage and B.usage[e.lname]) and "|cFF00FF00used|r" or "")
             r:Show()
         end
     end
@@ -979,40 +1087,124 @@ function B.Open()
     B.SetTab(B.tab or "spells")
 end
 
+-- the + on an empty card
+function B.OpenMacros()
+    B.tab = "macros"
+    B.Open()
+end
+
+-- ---------------------------------------------------------------
+-- The pin
+-- ---------------------------------------------------------------
+-- The sidebar button is a switch, saved account-wide (GalleonBridgeDB.arsenalPinned): ON = the button glows gold (as the
+-- SpellPad button does while the pad is up) and the window opens and closes with the main window; it is only ever opened
+-- while the main window is open. Windows that take its place (Audit, SpellPad Builder's pair rule) hand it back when they
+-- close (B.RestorePinned, called from Dock.lua). Closing it on purpose (X, ESC, the button) turns the pin off.
+function B.Pinned()
+    return (GalleonBridgeDB and GalleonBridgeDB.arsenalPinned == true) and true or false
+end
+
+function B.PaintButton()
+    local b = B.sidebarBtn
+    if not b then return end
+    if B.Pinned() then
+        b:LockHighlight()
+        b:SetText("|cFFFFD100Arsenal|r")
+    else
+        b:UnlockHighlight()
+        b:SetText("Arsenal")
+    end
+end
+
+local function StorePin(on)
+    if GalleonBridgeDB then GalleonBridgeDB.arsenalPinned = on and true or nil end
+    B.PaintButton()
+end
+
+function B.SetPinned(on)
+    if on then
+        StorePin(true)
+        if B.frame and B.frame:IsShown() then B.frame:Raise() else B.Open() end
+    else
+        StorePin(false)
+        if B.frame and B.frame:IsShown() and not BuilderCloseRequest() then B.frame:Hide() end
+    end
+end
+
+-- Closes the Arsenal and turns the pin off without taking SpellPad Builder along (the builder's Arsenal button).
+function B.CloseAlone()
+    StorePin(false)
+    local f = B.frame
+    if f and f:IsShown() then
+        if SDB.Dock and SDB.Dock.HideAlone then SDB.Dock.HideAlone(f) else f:Hide() end
+    end
+end
+
+-- Opens the Arsenal for SpellPad Builder: on the Spells tab, since a ready-made macro can't go into the builder.
+function B.OpenForBuilder()
+    if B.frame and B.frame:IsShown() then return end
+    if MacroTab() then B.tab = "spells" end
+    B.Open()
+end
+
+-- The window is being closed on purpose. Returns true when SpellPad Builder is asking about unapplied changes first,
+-- so the caller must not hide the window.
+function B.UserClose()
+    StorePin(false)
+    return BuilderCloseRequest()
+end
+
+-- Brings a pinned Arsenal back after something that replaced it closed, or when the main window opens. Never opens the
+-- main window, and leaves an open Audit window alone (they share the same place).
+function B.RestorePinned()
+    if not B.Pinned() then return end
+    local cfg = SDB.configWindow
+    if not (cfg and cfg:IsShown()) then return end
+    if B.frame and B.frame:IsShown() then return end
+    local audit = _G["GalleonAuditFrame"]
+    if audit and audit:IsShown() then return end
+    B.Open()
+end
+
 function B.Toggle()
     if B.frame and B.frame:IsShown() then
-        if not BuilderCloseRequest() then B.frame:Hide() end
+        if not B.UserClose() then B.frame:Hide() end
     else
         B.Open()
     end
 end
 
 function B.CreateSidebarButton(sidebar, y)
-    local b = SDB.UI.Button(sidebar, "secondary", "Spell Browser", 138, 22)
+    local b = SDB.UI.Button(sidebar, "secondary", "Arsenal", 138, 22)
     b:SetPoint("TOP", 0, y)
+    B.sidebarBtn = b
     b:SetScript("OnClick", function()
         PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPEN or 850)
-        B.Toggle()
+        B.SetPinned(not B.Pinned())
     end)
     -- hooks, not SetScript: the secondary button draws its hover look from its own OnEnter / OnLeave
     b:HookScript("OnEnter", function(self)
-        SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Spell Browser")
-        SDB.Tip.Line("Pick spells and bag items and insert them into the selected card.")
+        SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Arsenal")
+        SDB.Tip.Line("Your spells, items and ready-made macros. Click to insert them into the selected card.")
+        SDB.Tip.Hint(B.Pinned() and "Click to close it." or "Click to keep it open beside the main window.")
         SDB.Tip.Done()
     end)
     b:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    B.PaintButton()
     return b
 end
 
 -- caches: rebuilt when the spellbook or the bags change
 do
     local ev = CreateFrame("Frame")
-    for _, name in ipairs({ "SPELLS_CHANGED", "BAG_UPDATE_DELAYED" }) do
+    for _, name in ipairs({ "SPELLS_CHANGED", "BAG_UPDATE_DELAYED", "UPDATE_MACROS" }) do
         pcall(ev.RegisterEvent, ev, name)
     end
     ev:SetScript("OnEvent", function(_, event)
         if event == "BAG_UPDATE_DELAYED" then
             B.itemCache = nil
+        elseif event == "UPDATE_MACROS" then
+            -- nothing is cached: the My Macros list is read again below
         else
             B.spellCache, B.rankCache, B.rankBook = nil, nil, nil
         end

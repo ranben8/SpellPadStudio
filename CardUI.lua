@@ -202,7 +202,7 @@ function C.UpdateGrip(row, empty)
     if row.grip then row.grip:SetAlpha(empty and 0.25 or 1) end
 end
 
--- A compact card is one big drop target: the key cap, the name field, the Builder button and the grip (all of which sit
+-- A compact card is one big drop target: the key cap, the name field, the Builder button, the + and the grip (all of which sit
 -- on top of the row and take the mouse) pass a drop on to the card's own drop handler, and show the drop cursor
 function C.DropTarget(row, f)
     if not f then return end
@@ -219,6 +219,7 @@ end
 
 -- Parts that only a full card shows. The key cap, the grip, the name field and the Builder button stay in both.
 local function ShowFullParts(row, full)
+    if row.plusBtn then row.plusBtn:SetShown(not full) end
     if row.macroFrame then row.macroFrame:SetShown(full) end
     if row.iconBtn then row.iconBtn:SetShown(full) end
     if row.undoBtn then row.undoBtn:SetShown(full) end
@@ -471,6 +472,15 @@ function C.Build(row)
     builder:HookScript("OnLeave", function() GameTooltip:Hide() end)
     row.builderBtn = builder
 
+    -- an empty (compact) card gets a +: it selects the card and opens the macro library aimed at it
+    local plus = U.GlyphButton(row, "plus", C.HEADER_H, "secondary")
+    plus:SetPoint("TOPRIGHT", row, "TOPRIGHT", -14, top)
+    if row.OnPlusClick then plus:SetScript("OnClick", row.OnPlusClick) end
+    if row.OnPlusEnter then plus:HookScript("OnEnter", row.OnPlusEnter) end
+    plus:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    plus:SetShown(row.sdbCompact and true or false)
+    row.plusBtn = plus
+
     row.undoBtn:ClearAllPoints()
     row.undoBtn:SetPoint("TOPRIGHT", row, "TOPRIGHT", -32, top - 3)
     row.clearBtn:ClearAllPoints()
@@ -525,6 +535,7 @@ function C.Build(row)
     -- Config.lua after it has set its own scripts)
     C.DropTarget(row, row.bindBtn)
     C.DropTarget(row, builder)
+    C.DropTarget(row, plus)
     C.DropTarget(row, row.dragHandle)
 
     C.SetLook(row, "normal")

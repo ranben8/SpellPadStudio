@@ -737,6 +737,8 @@ function U.FauxBar(sf)
     Hide(true)
     local ad = {
         range = function()
+            -- FauxScrollFrame_Update hides the scroll frame when the list fits and leaves the old range on the stock bar
+            if not sf:IsShown() then return 0 end
             local _, mx = stock:GetMinMaxValues()
             return mx
         end,
@@ -914,6 +916,7 @@ function U.SearchBox(parent, name, w, hintText, onChange, onEnter)
     hint:SetPoint("LEFT", box, "LEFT", 4, 0)
     hint:SetText(hintText)
     hint:SetTextColor(0.5, 0.5, 0.5)
+    box.sdbHint = hint -- a window can change the hint (the Arsenal's follows its tab)
 
     local clear = CreateFrame("Button", nil, box)
     clear:SetSize(16, 16)

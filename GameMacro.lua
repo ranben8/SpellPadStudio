@@ -95,6 +95,14 @@ local function ReadMacro(i)
     if ok and name ~= nil then return name, icon, body end
 end
 
+-- name, icon and text of the game macro at `index`, or nil (used by the Arsenal's My Macros tab)
+G.Read = ReadMacro
+
+-- the index before this character's first macro (the general macros come first)
+function G.CharBase()
+    return (G.Limits()) or ACCT_BASE
+end
+
 -- index, icon and text of the macro called `name` on the chosen tab, or nil. Case-insensitive: the game lets
 -- duplicate names exist but then looks them up unreliably, so a name that differs only in case counts as taken.
 function G.Find(name, perChar)

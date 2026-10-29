@@ -166,101 +166,14 @@ local function Visible(e)
     end
     return T.Expand(e) ~= nil
 end
-
--- Adds one dropdown button per visible entry. Returns how many were added. withIcons = true also shows the
--- entry's spell / item icon to the right of its name (the Raid Prep lists).
-function T.AddEntries(list, level, create, add, paste, withIcons)
-    local n = 0
-    for _, e in ipairs(list or {}) do
-        if Visible(e) then
-            n = n + 1
-            local info = create()
-            info.text = e.text
-            if withIcons then info.icon = T.IconFor(e) end
-            info.notCheckable = true
-            info.func = function()
-                local m = T.Expand(e)
-                if m then paste(m) end
-            end
-            add(info, level)
-        end
-    end
-    if n == 0 then
-        local info = create()
-        info.text = "|cFF888888No templates available|r"
-        info.notCheckable = true
-        add(info, level)
-    end
-    return n
-end
+T.Visible = Visible -- used by Library.lua
 
 -- ---------------------------------------------------------------
--- Class menu. Level 1: your class, then "Browse other classes".
+-- Class order (the Class category of the Macros tab lists your class first, then these)
 -- ---------------------------------------------------------------
 T.CLASS_ORDER = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID" }
 if SDB.Client.isRetail then
     for _, cf in ipairs({ "DEATHKNIGHT", "DEMONHUNTER", "MONK", "EVOKER" }) do T.CLASS_ORDER[#T.CLASS_ORDER + 1] = cf end
-end
-
-local function ClassLabel(cf)
-    local name = (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[cf]) or cf
-    local col = RAID_CLASS_COLORS and RAID_CLASS_COLORS[cf]
-    local hex = col and (col.colorStr or string.format("ff%02x%02x%02x", col.r * 255, col.g * 255, col.b * 255))
-    if hex then return "|c" .. hex .. name .. "|r" end
-    return name
-end
-
-function T.InitClassMenu(level, value, create, add, paste)
-    local _, myClass = UnitClass("player")
-    if level == 1 then
-        local info = create()
-        info.text = ClassLabel(myClass) .. " Macros"
-        info.isTitle = true
-        info.notCheckable = true
-        add(info, level)
-        T.AddEntries(T.CLASS[myClass], level, create, add, paste)
-
-        info = create()
-        info.text = "Browse Other Classes"
-        info.hasArrow = true
-        info.notCheckable = true
-        info.value = "OTHER"
-        add(info, level)
-    elseif level == 2 and value == "OTHER" then
-        for _, cf in ipairs(T.CLASS_ORDER) do
-            if cf ~= myClass then
-                local info = create()
-                info.text = ClassLabel(cf)
-                info.hasArrow = true
-                info.notCheckable = true
-                info.value = cf
-                add(info, level)
-            end
-        end
-    elseif level == 3 and T.CLASS[value] then
-        T.AddEntries(T.CLASS[value], level, create, add, paste)
-    end
-end
-
--- Raid Prep (Group & Raid menu): level 2 = categories, level 3 = entries.
-function T.AddRaidPrepCategories(level, create, add)
-    for i, cat in ipairs(T.RAID_PREP) do
-        local info = create()
-        info.text = cat.name
-        info.hasArrow = true
-        info.notCheckable = true
-        info.value = "RAIDPREP:" .. i
-        add(info, level)
-    end
-end
-
-function T.AddRaidPrepEntries(value, level, create, add, paste)
-    local i = tonumber(tostring(value):match("^RAIDPREP:(%d+)$"))
-    if i and T.RAID_PREP[i] then
-        T.AddEntries(T.RAID_PREP[i].entries, level, create, add, paste, true) -- with the item's icon
-        return true
-    end
-    return false
 end
 
 -- ---------------------------------------------------------------

@@ -166,7 +166,7 @@ function D.Perf(emit, arg)
         end)())
         Add("SpellPad window and buttons", FrameCPU(_G["GalleonBridgeMatrixFrame"], true))
         Add("event frame", FrameCPU(SDB.bridgeFrame, false))
-        Add("Spell Browser", FrameCPU(SDB.SpellBrowser and SDB.SpellBrowser.frame, true))
+        Add("Arsenal", FrameCPU(SDB.SpellBrowser and SDB.SpellBrowser.frame, true))
         table.sort(lines, function(a, b) return a[2] > b[2] end)
         if #lines > 0 then
             emit("Per frame since the last /reload (ms, biggest first):")
@@ -182,7 +182,7 @@ function D.Perf(emit, arg)
     local pages, cards, withMacro, chars = ProfileSize()
     emit("Open now: main window " .. ((SDB.configWindow and SDB.configWindow:IsShown()) and "shown" or "hidden")
         .. ", SpellPad " .. ((_G["GalleonBridgeMatrixFrame"] and _G["GalleonBridgeMatrixFrame"]:IsShown()) and "shown" or "hidden")
-        .. ", Spell Browser " .. ((SDB.SpellBrowser and SDB.SpellBrowser.frame and SDB.SpellBrowser.frame:IsShown()) and "shown" or "hidden") .. ".")
+        .. ", Arsenal " .. ((SDB.SpellBrowser and SDB.SpellBrowser.frame and SDB.SpellBrowser.frame:IsShown()) and "shown" or "hidden") .. ".")
     emit("Card rows built: " .. Count(SDB.rows) .. "; SpellPad buttons: "
         .. Count(_G["GalleonBridgeMatrixFrame"] and _G["GalleonBridgeMatrixFrame"].matrixButtons) .. "; secure buttons: " .. Count(SDB.secureButtons) .. ".")
     emit("Active profile '" .. tostring(SDB.currentProfileName) .. "': " .. pages .. " pages, " .. cards .. " cards, "
@@ -1057,7 +1057,7 @@ function D.Retail(emit, arg)
             { "Page Options", "GalleonBridgePageLogicFrame", function() local f = _G.GalleonBridgePageLogicFrame if f then f:Show() end end },
             { "Profiles", "GalleonBridgeProfilesFrame", function() local f = _G.GalleonBridgeProfilesFrame if f then f:Show() end end },
             { "Icon Picker", "GalleonIconPickerFrame", function() local f = _G.GalleonIconPickerFrame if f then f:Show() end end },
-            { "Spell Browser", "GalleonSpellBrowserFrame", function() if SDB.SpellBrowser and SDB.SpellBrowser.Toggle and not (_G.GalleonSpellBrowserFrame and _G.GalleonSpellBrowserFrame:IsShown()) then SDB.SpellBrowser.Toggle() end end },
+            { "Arsenal", "GalleonSpellBrowserFrame", function() if SDB.SpellBrowser and SDB.SpellBrowser.Toggle and not (_G.GalleonSpellBrowserFrame and _G.GalleonSpellBrowserFrame:IsShown()) then SDB.SpellBrowser.Toggle() end end },
             { "Audit", "GalleonAuditFrame", function() if SDB.Audit and SDB.Audit.Toggle and not (_G.GalleonAuditFrame and _G.GalleonAuditFrame:IsShown()) then SDB.Audit.Toggle() end end },
             { "Restore", "GalleonBridgeRestoreFrame", function() if SDB.Snapshots and SDB.Snapshots.Toggle and not (_G.GalleonBridgeRestoreFrame and _G.GalleonBridgeRestoreFrame:IsShown()) then SDB.Snapshots.Toggle() end end },
             { "Copy window", "GalleonCopyFrame", function() if SDB.CopyWindow and SDB.CopyWindow.Show then SDB.CopyWindow.Show("Window test", "test") end end },

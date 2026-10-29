@@ -930,7 +930,7 @@ local function Build()
     end)
     f.midBtn:HookScript("OnEnter", function(self)
         if st.step == 4 then
-            SDB.Tip.Begin(self, "ANCHOR_TOP", "Spell Browser", "control")
+            SDB.Tip.Begin(self, "ANCHOR_TOP", "Arsenal", "control")
             SDB.Tip.Line("Opens the list of your spells and items beside the cards.")
         else
             SDB.Tip.Begin(self, "ANCHOR_TOP", "Show SpellPad", "control")
@@ -1119,14 +1119,14 @@ function G.Refresh()
         elseif not slot then
             f.body:SetText("Click a card in SpellPad Studio to choose where the spell goes.")
         else
-            f.body:SetText("Card " .. slot .. " is selected (gold border). Click a spell in the Spell Browser, or drag one onto any card.")
+            f.body:SetText("Card " .. slot .. " is selected (gold border). Click a spell in the Arsenal, or drag one onto any card.")
         end
         local note = GREY .. "As soon as the card holds a spell, the guide makes it live and moves on.|r"
         if data and not SDB.IsCardBlank(data.macro, nil) and data.macro == (st.baseline and st.baseline[slot] or "") then
             note = "Card " .. slot .. " already holds a macro. Click Next to use it, or pick a spell to replace it."
         end
         f.s4.note:SetText(note)
-        f.midBtn:SetText("Spell Browser")
+        f.midBtn:SetText("Arsenal")
         f.midBtn:SetShown(not BrowserShown())
         f.nextBtn:SetEnabled(data and not SDB.IsCardBlank(data.macro, nil) and not InCombat() or false)
         DrawPad(f, keys, PreviewCols(), nil, slot)
@@ -1158,7 +1158,7 @@ function G.Refresh()
         local key = p1[slot] and p1[slot].key or ""
         f.head:SetText("Your keypad is set up")
         f.body:SetText((key ~= "" and ("Card " .. slot .. " runs when your keypad sends " .. G.Human(key) .. ". ") or "")
-            .. "To fill more cards, click a card and pick a spell in the Spell Browser, or drag one onto it.\n\n"
+            .. "To fill more cards, click a card and pick a spell in the Arsenal, or drag one onto it.\n\n"
             .. "When you type or change a macro yourself, press Save & Apply (or Ctrl+S) to make it live.\n\n"
             .. "Open this guide again any time with /sps setup, from Options > General, or from the game's Settings > AddOns > SpellPad Studio.")
         f.nextBtn:SetText("Done")

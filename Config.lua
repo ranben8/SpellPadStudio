@@ -1619,7 +1619,7 @@ function SDB.BuildUI()
     -- whole list fits.
     local pageScroll = CreateFrame("ScrollFrame", "GalleonPageScroll", sidebar)
     pageScroll:SetPoint("TOPLEFT", 6, -28)
-    pageScroll:SetPoint("BOTTOMRIGHT", -24, 156)
+    pageScroll:SetPoint("BOTTOMRIGHT", -24, 130)
 
     local pageContent = CreateFrame("Frame", nil, pageScroll)
     pageContent:SetSize(124, 100)
@@ -1873,18 +1873,18 @@ function SDB.BuildUI()
     end
 
     -- =========================================================
-    -- Actions: Spell Browser, SpellPad and Easy Macros. Options is the gear in the sidebar footer,
+    -- Workshop (the Arsenal and SpellPad buttons). Options is the gear in the sidebar footer,
     -- Profiles the profile dropdown's first entry, Page Options the gear by the Pages header.
     -- =========================================================
     do
         local d = SDB.UI.Divider(sidebar)
-        d:SetPoint("TOPLEFT", sidebar, "TOPLEFT", 6, -460)
-        d:SetPoint("TOPRIGHT", sidebar, "TOPRIGHT", -6, -460)
+        d:SetPoint("TOPLEFT", sidebar, "TOPLEFT", 6, -486)
+        d:SetPoint("TOPRIGHT", sidebar, "TOPRIGHT", -6, -486)
     end
 
     local actionsTitle = sidebar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    actionsTitle:SetPoint("TOPLEFT", 10, -470)
-    actionsTitle:SetText("|cFFFFD100Actions|r")
+    actionsTitle:SetPoint("TOPLEFT", 10, -496)
+    actionsTitle:SetText("|cFFFFD100Workshop|r")
 
     -- Page Options: a small gear in the top right corner of the sidebar, level with the "Pages" header and above the
     -- list's scroll bar, next to the page controls it acts on; it opens and closes the Page Options window
@@ -1987,288 +1987,8 @@ function SDB.BuildUI()
     -- upvalues for the menu code. Rename Page and Copy Page are added by the Page Options window code.
     configWindow.pageActionBtns = { logic = prefixBtn }
 
-    -- Spell Browser button (SpellBrowser.lua), first in Actions
-    if SDB.SpellBrowser then SDB.SpellBrowser.CreateSidebarButton(sidebar, -486) end
-
-    local function PasteIntoActiveMacro(textToPaste)
-        if not SDB.activeSlotIndex then
-            print("|cFFFF4444[SpellPad Studio]|r Click a card first so its border highlights gold.")
-            return
-        end
-        local curP = SDB.db.activePage or 1
-        if SDB.db.pages[curP] and SDB.db.pages[curP][SDB.activeSlotIndex] then
-            if SDB.Snapshots then SDB.Snapshots.Take("Before Easy Macro Insert", "page", { page = curP, slot = SDB.activeSlotIndex }) end
-            if SDB.Undo then SDB.Undo.Remember(SDB.rows[SDB.activeSlotIndex], SDB.db.pages[curP][SDB.activeSlotIndex].macro or "") end
-            SDB.db.pages[curP][SDB.activeSlotIndex].macro = textToPaste
-            if configWindow and configWindow.RefreshRows then configWindow.RefreshRows() end
-            if SDB.ApplyBindings then SDB.ApplyBindings() end
-            PlaySound(SOUNDKIT and SOUNDKIT.IG_QUEST_LIST_OPEN or 875)
-        end
-    end
-
-    local emoteDropDownFrame = CreateFrame("Frame", "GalleonEmoteDropDown", sidebar, "UIDropDownMenuTemplate")
-    local function InitEmoteDropDown(self, level)
-        level = level or 1
-        if level == 1 then
-            for catIdx, category in ipairs(SDB.EMOTE_CATEGORIES) do
-                local info = SafeCreateInfo()
-                info.text = category.name
-                info.hasArrow = true
-                info.notCheckable = true
-                info.value = catIdx
-                SafeAddButton(info, level)
-            end
-        elseif level == 2 then
-            local catIdx = UIDROPDOWNMENU_MENU_VALUE
-            local category = SDB.EMOTE_CATEGORIES[catIdx]
-            if category then
-                for _, emote in ipairs(category.emotes) do
-                    local info = SafeCreateInfo()
-                    info.text = emote.text
-                    info.notCheckable = true
-                    info.func = function()
-                        PasteIntoActiveMacro(emote.macro)
-                    end
-                    SafeAddButton(info, level)
-                end
-            end
-        end
-    end
-    UIDropDownMenu_Initialize(emoteDropDownFrame, InitEmoteDropDown, "MENU")
-
-    -- =========================================================
-    -- Group & Raid menu (two levels; also holds Target Markers and World Markers)
-    -- =========================================================
-    local groupDropDownFrame = CreateFrame("Frame", "GalleonGroupDropDown", sidebar, "UIDropDownMenuTemplate")
-    local function InitGroupDropDown(self, level)
-        level = level or 1
-        if level == 1 then
-            local info = SafeCreateInfo()
-            info.text = "Group Management"
-            info.hasArrow = true
-            info.notCheckable = true
-            info.value = "MANAGE"
-            SafeAddButton(info, level)
-
-            if not (SDB.Templates and SDB.Templates.RAID_PREP and #SDB.Templates.RAID_PREP == 0) then
-                info = SafeCreateInfo()
-                info.text = "Raid Prep"
-                info.hasArrow = true
-                info.notCheckable = true
-                info.value = "RAIDPREP"
-                SafeAddButton(info, level)
-            end
-
-            info = SafeCreateInfo()
-            info.text = "Target Markers"
-            info.hasArrow = true
-            info.notCheckable = true
-            info.value = "TARGET"
-            SafeAddButton(info, level)
-
-            info = SafeCreateInfo()
-            info.text = "World Markers (Flares)"
-            info.hasArrow = true
-            info.notCheckable = true
-            info.value = "WORLD"
-            SafeAddButton(info, level)
-        elseif level == 3 then
-            if SDB.Templates then
-                SDB.Templates.AddRaidPrepEntries(UIDROPDOWNMENU_MENU_VALUE, level, SafeCreateInfo, SafeAddButton, PasteIntoActiveMacro)
-            end
-        elseif level == 2 and UIDROPDOWNMENU_MENU_VALUE == "RAIDPREP" then
-            if SDB.Templates then SDB.Templates.AddRaidPrepCategories(level, SafeCreateInfo, SafeAddButton) end
-        elseif level == 2 and (UIDROPDOWNMENU_MENU_VALUE == "TARGET" or UIDROPDOWNMENU_MENU_VALUE == "WORLD") then
-            local list = (UIDROPDOWNMENU_MENU_VALUE == "TARGET") and SDB.TARGET_MARKERS or SDB.WORLD_MARKERS
-            for _, cmd in ipairs(list) do
-                local info = SafeCreateInfo()
-                info.text = cmd.text
-                info.icon = cmd.icon
-                info.notCheckable = true
-                info.func = function() PasteIntoActiveMacro(cmd.macro) end
-                SafeAddButton(info, level)
-            end
-        elseif level == 2 and UIDROPDOWNMENU_MENU_VALUE == "MANAGE" then
-            for _, cmd in ipairs(SDB.GROUP_COMMANDS) do
-                local info = SafeCreateInfo()
-                info.text = cmd.text
-                if cmd.icon then
-                    info.icon = cmd.icon
-                end
-                info.notCheckable = true
-                info.func = function() PasteIntoActiveMacro(cmd.macro) end
-                SafeAddButton(info, level)
-            end
-        end
-    end
-    UIDropDownMenu_Initialize(groupDropDownFrame, InitGroupDropDown, "MENU")
-
-    -- =========================================================
-    -- Class menu
-    -- =========================================================
-    local systemDropDownFrame = CreateFrame("Frame", "GalleonSystemDropDown", sidebar, "UIDropDownMenuTemplate")
-    local function InitSystemDropDown(self, level)
-        level = level or 1
-        if SDB.Templates then
-            SDB.Templates.InitClassMenu(level, UIDROPDOWNMENU_MENU_VALUE, SafeCreateInfo, SafeAddButton, PasteIntoActiveMacro)
-        end
-    end
-    UIDropDownMenu_Initialize(systemDropDownFrame, InitSystemDropDown, "MENU")
-
-    -- =========================================================
-    -- Advanced menu (InitPowerUserDropDown; "Power User" is its old name)
-    -- =========================================================
-    local powerUserDropDownFrame = CreateFrame("Frame", "GalleonPowerUserDropDown", sidebar, "UIDropDownMenuTemplate")
-    local function InitPowerUserDropDown(self, level)
-        level = level or 1
-        -- The submenus in their order. A `list` is pasted entry by entry; `icon` says where an entry's icon comes
-        -- from ("own" = its icon field, "category" = the category icon the card shows).
-        local subs = {
-            { "Class Specializations", "SPECS", list = SDB.SPEC_COMMANDS, icon = "own" },
-            { "Equipment Sets", "SETS" },
-            { "Targeting & Focus", "TARGET_ADV", list = SDB.TARGET_ADV_COMMANDS, icon = "own" },
-            { "Movement & Interaction", "MOVEMENT", list = SDB.MOVEMENT_COMMANDS, icon = "own" },
-            { "Crowd Control & Interrupts", "CC_INTERRUPTS", list = SDB.CC_INTERRUPTS, icon = "category" },
-            { "Party Utility", "PARTY_UTILITY", list = SDB.PARTY_UTILITY, icon = "category" },
-            { "Broadcaster Utility", "BROADCASTER_UTILITY", list = SDB.BROADCASTER_COMMANDS, icon = "category" },
-            { "Consumables", "CONSUMABLES", template = "CONSUMABLES" },
-            { "Travel", "TRAVEL", template = "TRAVEL" },
-            { "Interface", "INTERFACE", list = SDB.INTERFACE_ELEMENTS, icon = "own" },
-            { "System & Utility", "SYSTEM", list = SDB.SYSTEM_COMMANDS, icon = "own" },
-        }
-        if level == 1 then
-            for _, s in ipairs(subs) do
-                local tpl = s.template and SDB.Templates and SDB.Templates[s.template]
-                if not (s.list and #s.list == 0) and not (tpl and #tpl == 0) then
-                    local info = SafeCreateInfo()
-                    info.text = s[1]
-                    info.hasArrow = true
-                    info.notCheckable = true
-                    info.value = s[2]
-                    SafeAddButton(info, level)
-                end
-            end
-            return
-        end
-        if level ~= 2 then return end
-        local value = UIDROPDOWNMENU_MENU_VALUE
-        if value == "SETS" then
-            local setsFound = false
-            if C_EquipmentSet and C_EquipmentSet.GetEquipmentSetIDs then
-                local ids = C_EquipmentSet.GetEquipmentSetIDs()
-                for _, id in ipairs(ids) do
-                    local name, icon = C_EquipmentSet.GetEquipmentSetInfo(id)
-                    if name then
-                        setsFound = true
-                        local info = SafeCreateInfo()
-                        info.text = name
-                        info.icon = icon
-                        info.notCheckable = true
-                        info.func = function() PasteIntoActiveMacro("/equipset " .. name) end
-                        SafeAddButton(info, level)
-                    end
-                end
-            elseif GetNumEquipmentSets then
-                for i = 1, GetNumEquipmentSets() do
-                    local name, icon = GetEquipmentSetInfo(i)
-                    if name then
-                        setsFound = true
-                        local info = SafeCreateInfo()
-                        info.text = name
-                        info.icon = icon
-                        info.notCheckable = true
-                        info.func = function() PasteIntoActiveMacro("/equipset " .. name) end
-                        SafeAddButton(info, level)
-                    end
-                end
-            end
-
-            if not setsFound then
-                local info = SafeCreateInfo()
-                info.text = "|cFF888888No equipment sets found|r"
-                info.notCheckable = true
-                SafeAddButton(info, level)
-            end
-            return
-        end
-        for _, s in ipairs(subs) do
-            if s[2] == value then
-                if s.list then
-                    for _, cmd in ipairs(s.list) do
-                        local info = SafeCreateInfo()
-                        info.text = cmd.text
-                        info.notCheckable = true
-                        if s.icon == "own" then
-                            info.icon = cmd.icon
-                        else
-                            info.icon = SDB.ContextIcons and SDB.ContextIcons[strtrim(cmd.macro)]
-                        end
-                        info.func = function() PasteIntoActiveMacro(cmd.macro) end
-                        SafeAddButton(info, level)
-                    end
-                elseif s.template and SDB.Templates then
-                    SDB.Templates.AddEntries(SDB.Templates[s.template], level, SafeCreateInfo, SafeAddButton, PasteIntoActiveMacro, true)
-                end
-                return
-            end
-        end
-    end
-    UIDropDownMenu_Initialize(powerUserDropDownFrame, InitPowerUserDropDown, "MENU")
-
-    -- =========================================================
-    -- Easy Macros: one button in Actions. It opens a short list (Class, Group & Raid, Emotes, Advanced),
-    -- and choosing an entry opens that menu where this list was, so each of the four keeps its own
-    -- dropdown frame and depth.
-    -- =========================================================
-    local easyBtn = SDB.UI.Button(sidebar, "secondary", "Easy Macros", 138, 22)
-    easyBtn:SetPoint("TOP", 0, -538)
-    configWindow.easyBtn = easyBtn
-    do
-        local arrow = easyBtn:CreateTexture(nil, "OVERLAY")
-        arrow:SetSize(16, 16)
-        arrow:SetPoint("RIGHT", easyBtn, "RIGHT", -5, 0)
-        arrow:SetTexture("Interface\\ChatFrame\\ChatFrameExpandArrow")
-
-        local easyFrame = CreateFrame("Frame", "GalleonEasyMacrosDropDown", sidebar, "UIDropDownMenuTemplate")
-        local subs = {
-            { "Class", systemDropDownFrame },
-            { "Group & Raid", groupDropDownFrame },
-            { "Emotes", emoteDropDownFrame },
-            { "Advanced", powerUserDropDownFrame },
-        }
-        -- menus open to the right of the button, their top edge level with it
-        local function OpenMenu(frame)
-            CloseDropDownMenus()
-            ToggleDropDownMenu(1, nil, frame, easyBtn, 142, 22)
-        end
-        UIDropDownMenu_Initialize(easyFrame, function(self, level)
-            if (level or 1) ~= 1 then return end
-            for _, s in ipairs(subs) do
-                local info = SafeCreateInfo()
-                info.text = s[1]
-                info.notCheckable = true
-                info.func = function()
-                    -- the game closes the list right after this function returns, so the next menu opens a frame later
-                    C_Timer.After(0, function() OpenMenu(s[2]) end)
-                end
-                SafeAddButton(info, 1)
-            end
-        end, "MENU")
-
-        local function Mine(frame)
-            if frame == easyFrame then return true end
-            for _, s in ipairs(subs) do
-                if frame == s[2] then return true end
-            end
-            return false
-        end
-        easyBtn:SetScript("OnClick", function()
-            PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
-            -- a second click on the button closes whichever of the five menus is open (same pattern as the other dropdowns)
-            local justClosed, isOpen = SDB.UI.MenuState(Mine)
-            if not justClosed and not isOpen then OpenMenu(easyFrame) end
-        end)
-    end
+    -- Arsenal button (SpellBrowser.lua), first in the Workshop
+    if SDB.SpellBrowser then SDB.SpellBrowser.CreateSidebarButton(sidebar, -512) end
 
     -- =========================================================
     -- Sidebar footer: the profile dropdown and the Options gear. The dropdown's first entry, in
@@ -2369,7 +2089,7 @@ function SDB.BuildUI()
     -- =========================================================
     local matrixDropBtn = SDB.UI.Button(sidebar, "secondary", "SpellPad", 138, 22)
     configWindow.matrixDropBtn = matrixDropBtn
-    matrixDropBtn:SetPoint("TOP", 0, -512) -- second in Actions, under Spell Browser
+    matrixDropBtn:SetPoint("TOP", 0, -538) -- second in the Workshop, under Arsenal
 
     local matFrame = _G["GalleonBridgeMatrixFrame"]
     if matFrame and matFrame:IsShown() then
@@ -4826,7 +4546,7 @@ function SDB.BuildUI()
 
             Add("Change Icon...", function() row.ChangeIcon() end)
             Add("Change Name...", function() row.ChangeName() end)
-            Add("Spell Browser...", function() if SDB.SpellBrowser then SDB.SpellBrowser.Open() end end)
+            Add("Arsenal...", function() if SDB.SpellBrowser then SDB.SpellBrowser.Open() end end)
             Sep()
 
             Group("Copy and Move", "COPYMOVE")
@@ -4917,8 +4637,8 @@ function SDB.BuildUI()
         -- selected card, redraw the cards (and the SpellPad), then scroll the list to the row's real
         -- anchor a moment later (the scroll range only updates on the next frame).
         -- keepFilter (left-click on the SpellPad): a filter that hides the card is NOT cleared; the card is
-        -- simply not selected then (returns false).
-        function MM.Select(slot, keepFilter)
+        -- simply not selected then (returns false). noScroll leaves the card list where it is.
+        function MM.Select(slot, keepFilter, noScroll)
             local data = CardData(slot)
             if not data then return false end
             if SDB.Search and SDB.Search.IsActive() and SDB.Search.box and not SDB.Search.Matches(data) then
@@ -4928,6 +4648,7 @@ function SDB.BuildUI()
             SDB.activeSlotIndex = slot
             if configWindow.RefreshRows then configWindow.RefreshRows() end
             UpdateActiveSlotHighlight()
+            if noScroll then return true end
             C_Timer.After(0.05, function()
                 local row = SDB.rows and SDB.rows[slot]
                 local bar = _G["GalleonScrollFrameScrollBar"]
@@ -4993,7 +4714,7 @@ function SDB.BuildUI()
 
             Add("Change Icon...", function() row.ChangeIcon() end)
             Add("Change Name...", function() row.ChangeName() end)
-            Add("Spell Browser...", function() if SDB.SpellBrowser then SDB.SpellBrowser.Open() end end)
+            Add("Arsenal...", function() if SDB.SpellBrowser then SDB.SpellBrowser.Open() end end)
             if UIDropDownMenu_AddSeparator then UIDropDownMenu_AddSeparator(1) end
             Add("Open SpellPad Studio", function() if SDB.OpenMainWindow then SDB.OpenMainWindow() end end)
             Add("Open SpellPad Options",function() MM.OpenMatrixOptions() end)
@@ -5509,7 +5230,7 @@ function SDB.BuildUI()
                         local spellName = nil
                         if C_Spell and C_Spell.GetSpellInfo and (arg3 or type(arg1) == "number" or type(arg2) == "number") then
                             -- the spell id is the third value from the spellbook, but a spell put on the cursor by
-                            -- id (the Spell Browser drag) may carry it in another position: try each number
+                            -- id (the Arsenal drag) may carry it in another position: try each number
                             for _, cand in ipairs(arg3 and { arg3 } or { arg1 or false, arg2 or false }) do
                                 if type(cand) == "number" then
                                     local ok, sInfo = pcall(C_Spell.GetSpellInfo, cand)
@@ -5639,6 +5360,20 @@ function SDB.BuildUI()
                     SDB.Tip.Begin(self, "ANCHOR_RIGHT", "SpellPad Builder", "feature")
                     SDB.Tip.Text("Opens SpellPad Builder for this card.")
                     SDB.Tip.Hint("Right click to insert specific modifications directly.")
+                    SDB.Tip.Done()
+                end
+
+                -- the + on an empty card: select it and open the macro library aimed at it
+                function row.OnPlusClick()
+                    PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+                    SDB.activeSlotIndex = row.slotIndex
+                    UpdateActiveSlotHighlight()
+                    SDB.UI.CloseMenus()
+                    if SDB.SpellBrowser then SDB.SpellBrowser.OpenMacros() end
+                end
+                function row.OnPlusEnter(self)
+                    SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Add a Macro", "feature")
+                    SDB.Tip.Text("Opens the macro library for this card.")
                     SDB.Tip.Done()
                 end
 

@@ -26,7 +26,7 @@ H.COMMANDS = {
     { "reset", "move every window back to its default place (SpellPad stays where it is)" },
     { "settings", "open this addon's page in the game's Settings > AddOns list" },
     { "restore", "open the list of snapshots" },
-    { "spells", "open the Spell Browser" },
+    { "spells", "open the Arsenal" },
     { "autocomplete", "turn macro suggestions on or off" },
     { "skin", "list the window styles; \"skin <name>\" changes the style" },
     { "keytest", "write each key press into the chat (to check what your hardware sends)" },

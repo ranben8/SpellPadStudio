@@ -1219,7 +1219,7 @@ local function InsertActionIntoActiveSlot(targetText, isItem, opts)
 
     -- Safety net: snapshot the page and remember this slot's text for the card Undo
     if SDB.Snapshots then
-        SDB.Snapshots.Take(opts and "Before Spell Browser Insert" or "Before Shift-Click Insert", "page", { page = curP, slot = SDB.activeSlotIndex })
+        SDB.Snapshots.Take(opts and "Before Arsenal Insert" or "Before Shift-Click Insert", "page", { page = curP, slot = SDB.activeSlotIndex })
     end
     if SDB.Undo then
         SDB.Undo.Remember(activeRow, SDB.db.pages[curP][SDB.activeSlotIndex].macro or "")

@@ -1557,12 +1557,12 @@ local function RowText(e)
         return "|cFFFFD100/castsequence|r", "|cFF888888" .. Esc(info) .. "|r"
     elseif e.kind == "clause" then
         local nm = Trim(n.name or "")
-        return nm ~= "" and Esc(nm) or "|cFF888888(type a name, or click a spell in the Spell Browser)|r",
+        return nm ~= "" and Esc(nm) or "|cFF888888(type a name, or click a spell in the Arsenal)|r",
             "|cFF888888" .. Esc(B.GroupsSummary(n.groups)) .. "|r"
     elseif e.kind == "step" then
         local idx = IndexOf(L.steps, n) or 0
         local nm = Trim(n.name or "")
-        return idx .. ". " .. (nm ~= "" and Esc(nm) or "|cFF888888(type a name, or click a spell in the Spell Browser)|r"), ""
+        return idx .. ". " .. (nm ~= "" and Esc(nm) or "|cFF888888(type a name, or click a spell in the Arsenal)|r"), ""
     end
     return "|cFF888888" .. Esc(Trim(L.raw or "")) .. "|r", "|cFF888888kept as written|r"
 end
@@ -1748,7 +1748,7 @@ function M.RefreshEditor()
             .. Esc(Trim(sel.line.raw or "")) .. "\n\n|cFF888888Why: " .. Esc(sel.line.why or "unknown") .. ".|r")
     elseif mode == "none" then
         W.info:SetText("|cFF888888Select a line to edit it, or add one with Add Cast Line or Add Sequence. "
-            .. "With the Spell Browser open, click a spell to add it.|r")
+            .. "With the Arsenal open, click a spell to add it.|r")
     end
 end
 
@@ -1768,6 +1768,7 @@ end
 -- Polling: the card can change under the window
 -- ---------------------------------------------------------------
 function M.Tick()
+    if W.f and W.f:IsShown() then M.PaintBrowserButton() end
     local card = S.card
     if not card or not W.f or not W.f:IsShown() then return end
     local db = SDB.db
@@ -1931,7 +1932,7 @@ local function Build()
     W.empty = W.left:CreateFontString(nil, "OVERLAY", "GameFontDisable")
     W.empty:SetPoint("TOP", W.left, "TOP", 0, -60)
     W.empty:SetWidth(250)
-    W.empty:SetText("No lines yet. Add a cast line or a sequence, or click a spell in the Spell Browser.")
+    W.empty:SetText("No lines yet. Add a cast line or a sequence, or click a spell in the Arsenal.")
     W.left:EnableMouseWheel(true)
     W.left:SetScript("OnMouseWheel", function(self, delta)
         local bar = _G["GalleonBuilderScrollScrollBar"] or W.scroll.ScrollBar
@@ -1981,7 +1982,7 @@ local function Build()
     end)
     W.nameBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     W.nameBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-    Tip(W.nameBox, "Spell or Item", "Type a name, or click a spell or item in the Spell Browser. A rank is written like Frostbolt(Rank 3).")
+    Tip(W.nameBox, "Spell or Item", "Type a name, or click a spell or item in the Arsenal. A rank is written like Frostbolt(Rank 3).")
 
     W.tabs = CreateFrame("Frame", nil, W.right)
     W.tabs:SetSize(PANEL_W, 30)
@@ -2055,7 +2056,7 @@ local function Build()
     W.explain:SetJustifyV("TOP")
 
     -- ----- bottom row -----
-    W.browser = Btn(f, "Spell Browser", 110)
+    W.browser = Btn(f, "Arsenal", 110)
     W.browser:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 22, 16)
     -- the shared button has no "lit" picture, so the switch shows a gold line under the text while it is on
     local lit = W.browser:CreateTexture(nil, "OVERLAY")
@@ -2067,10 +2068,10 @@ local function Build()
     W.browser.sdbLit = lit
     W.browser:SetScript("OnClick", function()
         PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPEN or 850)
-        M.SetPinned(not B.BrowserPinned())
+        M.ToggleArsenal()
     end)
-    Tip(W.browser, "Spell Browser", "Opens the Spell Browser next to this window. Click a spell or item there to add it here. "
-        .. "While it is on, the browser opens and closes with SpellPad Builder.", "Glows while it is on. Click again to turn it off.")
+    Tip(W.browser, "Arsenal", "Shows or hides the Arsenal. Click a spell or item there to add it here. "
+        .. "It opens with SpellPad Builder.", "Glows while the Arsenal is open.")
     -- (no Close button: the title-bar X and ESC close the window, and Apply to Card closes it too)
 
     -- polling (the card can change under the window) and housekeeping
@@ -2132,56 +2133,36 @@ local function Build()
 end
 
 -- ---------------------------------------------------------------
--- The Spell Browser button (pinned browser)
+-- The Arsenal button
 -- ---------------------------------------------------------------
--- A switch, saved account-wide (GalleonBridgeDB.builderBrowser): ON = the Spell Browser opens and closes with
--- SpellPad Builder and the button glows (gold text and a lit button, as the sidebar's SpellPad button does while the
--- SpellPad is open); OFF = the browser is not part of the builder: it doesn't open with it and the button is plain.
--- (While both windows happen to be open they still close together, see Dock.lua.)
-function B.BrowserPinned()
-    return (GalleonBridgeDB and GalleonBridgeDB.builderBrowser == true) and true or false
-end
-
+-- SpellPad Builder opens the Arsenal beside the main window when it is closed (Arsenal pinned or not, it stays where it
+-- is). The button shows a gold line under its text while the Arsenal is open; clicking it closes the Arsenal (the
+-- builder stays) or opens it again.
 function M.PaintBrowserButton()
     local btn = W.browser
     if not btn then return end
-    local on = B.BrowserPinned()
+    local SBr = SDB.SpellBrowser
+    local on = SBr and SBr.frame and SBr.frame:IsShown() and true or false
     btn.sdbOn = on
     if btn.sdbLit then btn.sdbLit:SetShown(on) end
     if on then
         btn:LockHighlight()
-        btn:SetText("|cFFFFD100Spell Browser|r")
+        btn:SetText("|cFFFFD100Arsenal|r")
     else
         btn:UnlockHighlight()
-        btn:SetText("Spell Browser")
+        btn:SetText("Arsenal")
     end
 end
 
--- shows the Spell Browser (or raises it when it is open)
-function M.OpenBrowser()
+function M.ToggleArsenal()
     local SBr = SDB.SpellBrowser
     if not SBr then return end
-    local bf = SBr.frame
-    if bf and bf:IsShown() then
-        if bf.Raise then bf:Raise() end
-    elseif SBr.Open then
-        SBr.Open()
-    end
-end
-
-function M.SetPinned(on)
-    if GalleonBridgeDB then GalleonBridgeDB.builderBrowser = on and true or nil end
-    M.PaintBrowserButton()
-    if on then
-        M.OpenBrowser()
+    if SBr.frame and SBr.frame:IsShown() then
+        SBr.CloseAlone()
     else
-        -- turned off: the browser goes, the builder stays (the pair rule would take the builder with it)
-        local SBr = SDB.SpellBrowser
-        local bf = SBr and SBr.frame
-        if bf and bf:IsShown() then
-            if SDB.Dock and SDB.Dock.HideAlone then SDB.Dock.HideAlone(bf) else bf:Hide() end
-        end
+        SBr.OpenForBuilder()
     end
+    M.PaintBrowserButton()
 end
 
 -- ---------------------------------------------------------------
@@ -2212,8 +2193,8 @@ function B.Open()
     f:Raise()
     M.Changed()
     M.ScrollToSel()
+    if SDB.SpellBrowser and SDB.SpellBrowser.OpenForBuilder then SDB.SpellBrowser.OpenForBuilder() end
     M.PaintBrowserButton()
-    if B.BrowserPinned() then M.OpenBrowser() end
     return true
 end
 
