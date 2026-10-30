@@ -341,11 +341,33 @@ function SDB.NoPageInCombat()
     print("|cFFFF4444[SpellPad Studio]|r Can't change page in combat.")
 end
 
+-- What a "!PAGE ..." card asks for: a page number ("!PAGE 3" -> "3"), or "forward" / "backward" for
+-- "!PAGE Forward" / "!PAGE Backward" (the word in any case). Nil for any other text.
+function SDB.PageCommand(text)
+    local trimmed = strtrim(text or "")
+    local number = string.match(trimmed, "^!PAGE%s+(%d+)")
+    if number then return number end
+    local word = string.match(trimmed, "^!PAGE%s+(%a+)")
+    word = word and string.lower(word)
+    if word == "forward" or word == "backward" then return word end
+    return nil
+end
+
+-- The page after (or before) the active one in list order; the ends wrap around.
+local function StepPage(direction)
+    local count = SDB.db and SDB.db.pages and #SDB.db.pages or 0
+    if count < 1 then return nil end
+    local current = SDB.db.activePage or 1
+    if direction == "forward" then return current % count + 1 end
+    return (current - 2) % count + 1
+end
+
 function SDB.ChangePage(pageNum)
     if InCombatLockdown() then
         SDB.NoPageInCombat()
         return
     end
+    if pageNum == "forward" or pageNum == "backward" then pageNum = StepPage(pageNum) end
     local targetPage = tonumber(pageNum)
     if targetPage and SDB.db.pages[targetPage] then
         -- what the last page jump did (read by /sps page)
@@ -801,6 +823,7 @@ local CONTEXT_ICON_LISTS = {
     { "SPEC_COMMANDS" },
     { "TARGET_ADV_COMMANDS" },
     { "MOVEMENT_COMMANDS" },
+    { "PAGE_NAVIGATION" },
     { "TARGET_MARKERS" },
     { "WORLD_MARKERS" },
     { "CC_INTERRUPTS", ICONS .. "Ability_Kick" },
@@ -892,7 +915,7 @@ function SDB.ResolveMacroAction(macroText, live)
     for line in string.gmatch(macroText, "[^\r\n]+") do
         local trimmed = strtrim(line)
         local stTarget = string.match(trimmed, "^#showtooltip%s+(.+)")
-        local pageTarget = string.match(trimmed, "^!PAGE%s+(%d+)")
+        local pageTarget = SDB.PageCommand(trimmed)
 
         if pageTarget then
             return "page", pageTarget
@@ -941,6 +964,12 @@ local EXIT_ICON = "Interface\\Vehicles\\UI-Vehicles-Button-Exit-Up"
 local ICON_CROP = {
     [EXIT_ICON] = { 0.145, 0.835, 0.15, 0.85 },
 }
+
+-- "!PAGE Forward" / "!PAGE Backward" show the spellbook's page-turn arrows (round art with a margin, cropped like the exit icon)
+local PREV_ARROW = "Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Up"
+local PAGE_ARROWS = { forward = PREV_ARROW .. SDB.ICON_FLIP, backward = PREV_ARROW }
+ICON_CROP[PREV_ARROW] = { 0.08, 0.92, 0.08, 0.92 }
+local PAGE_TITLES = { forward = "Next Page", backward = "Previous Page" }
 
 -- A macro whose action lines are all /dismount or /leavevehicle (any conditions, either order) gets the exit icon.
 local function IsExitMacro(text)
@@ -1045,18 +1074,31 @@ function SDB.UpdateSlotIconAndTooltip(iconFrame, macroText, customIcon)
         texture = randomMountIcon
     -- 2. Page navigation icon
     elseif actType == "page" then
-        texture = "Interface\\Icons\\INV_Misc_Note_01"
+        texture = PAGE_ARROWS[target] or "Interface\\Icons\\INV_Misc_Note_01"
     -- 3. Standard spell and item lookup
     elseif stdTexture then
         texture = stdTexture
     end
 
+    -- an icon string ending in SDB.ICON_FLIP is the same file mirrored left to right
+    local flip = type(texture) == "string" and string.sub(texture, -#SDB.ICON_FLIP) == SDB.ICON_FLIP
+    if flip then texture = string.sub(texture, 1, -#SDB.ICON_FLIP - 1) end
     iconFrame.texture:SetTexture(texture)
     -- most icons fill their whole file; a few leave a transparent margin and are shown cropped to their art
     local crop = ICON_CROP[texture]
-    if crop then iconFrame.texture:SetTexCoord(crop[1], crop[2], crop[3], crop[4]) else iconFrame.texture:SetTexCoord(0, 1, 0, 1) end
+    if crop then
+        if flip then
+            iconFrame.texture:SetTexCoord(crop[2], crop[1], crop[3], crop[4])
+        else
+            iconFrame.texture:SetTexCoord(crop[1], crop[2], crop[3], crop[4])
+        end
+    elseif flip then
+        iconFrame.texture:SetTexCoord(1, 0, 0, 1)
+    else
+        iconFrame.texture:SetTexCoord(0, 1, 0, 1)
+    end
     iconFrame.spellID = spellID
-    iconFrame.targetName = target
+    iconFrame.targetName = (actType == "page" and PAGE_TITLES[target]) or target
     iconFrame.invSlot = invSlot
 
     -- SpellPad buttons: a card with no macro text and no icon is drawn as a calm empty square instead of a
@@ -1132,7 +1174,7 @@ function SDB.ApplyBindings(opts)
                     end
                     local macroText = strtrim(data.macro or "")
                     local bindAction = string.match(macroText, "^!BIND%s+(.+)")
-                    local pageAction = string.match(macroText, "^!PAGE%s+(%d+)")
+                    local pageAction = SDB.PageCommand(macroText)
 
                     if bindAction then
                         SetOverrideBinding(SDB.bridgeFrame, true, cleanKey, strtrim(bindAction))
@@ -1159,7 +1201,7 @@ function SDB.ApplyBindings(opts)
                                 if not pageData then return end
                                 local sData = pageData[self.slotIndex]
                                 if sData and sData.macro then
-                                    local pAct = string.match(strtrim(sData.macro), "^!PAGE%s+(%d+)")
+                                    local pAct = SDB.PageCommand(sData.macro)
                                     if pAct then
                                         if InCombatLockdown() then
                                             SDB.NoPageInCombat() -- tell the player instead of doing nothing

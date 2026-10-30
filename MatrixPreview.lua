@@ -692,7 +692,7 @@ function SDB.RefreshMatrixGrid()
                 local cPage = SDB.db.activePage or 1
                 local sData = SDB.db.pages[cPage] and SDB.db.pages[cPage][slot]
                 if sData and sData.macro then
-                    local pAct = string.match(strtrim(sData.macro), "^!PAGE%s+(%d+)")
+                    local pAct = SDB.PageCommand(sData.macro)
                     if pAct then
                         if not InCombatLockdown() then
                             SDB.ChangePage(pAct) -- handles the grid and row refreshing

@@ -656,26 +656,27 @@ local function HasShowLine(body)
     return false
 end
 
--- { { name, icon, body }, ... } for one list; empty macros are counted in `skipped`
-local function ReadRange(first, last, out, skipped)
+-- { { index, name, icon, body }, ... } for one list; empty macros are counted in `skipped`. `only` (optional) is a
+-- set of macro indexes: just those are read.
+local function ReadRange(first, last, out, skipped, only)
     for i = first, last do
         local name, icon, body = ReadMacro(i)
-        if name then
+        if name and (not only or only[i]) then
             body = tostring(body or "")
             body = string.gsub(body, "\r\n", "\n")
             body = string.gsub(body, "\r", "\n")
             if strtrim(body) == "" then
                 skipped.n = skipped.n + 1
             else
-                out[#out + 1] = { name = tostring(name), icon = icon, body = body }
+                out[#out + 1] = { index = i, name = tostring(name), icon = icon, body = body }
             end
         end
     end
 end
 
 -- Builds the import data, or nil and a reason. The data is shaped like a profile string's contents; the caller
--- runs it through SDB.ImportPreview.Validate.
-function G.BuildImport()
+-- runs it through SDB.ImportPreview.Validate. `only` (optional) is a set of macro indexes: just those are imported.
+function G.BuildImport(only)
     if type(GetNumMacros) ~= "function" or type(GetMacroInfo) ~= "function" then
         return nil, "This client has no macro functions."
     end
@@ -684,9 +685,9 @@ function G.BuildImport()
 
     local skipped = { n = 0 }
     local general, character = {}, {}
-    ReadRange(1, nGen, general, skipped)
+    ReadRange(1, nGen, general, skipped, only)
     local base = G.CharBase()
-    ReadRange(base + 1, base + nChar, character, skipped)
+    ReadRange(base + 1, base + nChar, character, skipped, only)
     if #general + #character == 0 then
         return nil, "You have no game macros with text to import."
     end
@@ -739,14 +740,14 @@ function G.HasImportable()
     return Any(1, nGen) or Any(base + 1, base + nChar)
 end
 
--- opens the Import Preview for the game's macros
-function G.StartImport()
+-- opens the Import Preview for the chosen game macros (a set of macro indexes, nil = all of them)
+function G.RunImport(only)
     if InCombatLockdown() then
         Chat("Can't import in combat.", true)
         return
     end
     if not (SDB.ImportPreview and SDB.db) then return end
-    local data, extra = G.BuildImport()
+    local data, extra = G.BuildImport(only)
     if not data then
         Chat(extra, extra == "You have no game macros with text to import." and "warn" or true)
         return
@@ -757,7 +758,7 @@ function G.StartImport()
         return
     end
     clean.fromGame = true -- Validate drops unknown fields, so only this code can set it: exact page names
-    if extra > 0 then
+    if extra > 0 and not only then
         clean.notes[#clean.notes + 1] = SDB.Plural(extra, "game macro") .. " with no text skipped"
     end
     SDB.ImportPreview.Open(clean, "addpages")
@@ -812,4 +813,321 @@ function G.Report(emit, arg)
             Dump((la or ACCT_BASE) + 1, (la or ACCT_BASE) + (nC or 0), "character")
         end
     end
+end
+
+-- ---------------------------------------------------------------
+-- The macro picker (Tools > Import Game Macros...): the game's macros as a grid of icons, six to a row like the
+-- game's own Macros window, with a General and a Character tab. Only macros that exist are drawn. A click selects a
+-- macro for the import (gold card, a check badge, a bright icon); the hover shows the macro text.
+-- ---------------------------------------------------------------
+local P = { pick = {}, tab = 1 }
+G.Picker = P
+
+local COLS, CELL_W, CELL_H, CELL_GAP = 6, 70, 80, 5
+local LOOK = {
+    normal   = { bg = { 0.085, 0.085, 0.10, 1 }, line = { 0.30, 0.30, 0.35, 1 } },
+    hover    = { bg = { 0.115, 0.115, 0.135, 1 }, line = { 0.55, 0.55, 0.62, 1 } },
+    selected = { bg = { 0.14, 0.12, 0.05, 1 }, line = { 0.95, 0.75, 0.20, 1 } },
+}
+
+-- the macros that have text, one list per tab: { { index, name, icon, body, shownIcon }, ... }
+local function ScanMacros()
+    local out = { {}, {} }
+    local nGen, nChar = G.Counts()
+    if not nGen then return out end
+    local skipped = { n = 0 }
+    ReadRange(1, nGen, out[1], skipped)
+    local base = G.CharBase()
+    ReadRange(base + 1, base + nChar, out[2], skipped)
+    local lib = SDB.Library
+    for _, list in ipairs(out) do
+        for _, m in ipairs(list) do
+            m.shownIcon = (lib and lib.MacroIcon and lib.MacroIcon(m.icon, m.body)) or m.icon or QUESTION
+        end
+    end
+    return out
+end
+
+local function PaintCell(c)
+    local m = c.macro
+    if not m then return end
+    local sel = P.pick[m.index] and true or false
+    local look = sel and LOOK.selected or (c.over and LOOK.hover or LOOK.normal)
+    c:SetBackdropColor(look.bg[1], look.bg[2], look.bg[3], look.bg[4])
+    c:SetBackdropBorderColor(look.line[1], look.line[2], look.line[3], look.line[4])
+    c.glow:SetShown(sel)
+    c.band:SetShown(sel)
+    c.badge:SetShown(sel)
+    c.check:SetShown(sel)
+    if c.icon.SetDesaturated then c.icon:SetDesaturated(not sel) end
+    c.icon:SetAlpha(sel and 1 or 0.6)
+    if sel then c.name:SetTextColor(1, 0.82, 0) else c.name:SetTextColor(0.8, 0.8, 0.8) end
+end
+
+local function MakeCell(parent)
+    local U = SDB.UI
+    local c = CreateFrame("Button", nil, parent, "BackdropTemplate")
+    c:SetSize(CELL_W, CELL_H)
+    U.FlatBackdrop(c, LOOK.normal.bg, LOOK.normal.line, U.OnePixel(c))
+
+    -- the gold look of a selected macro: a wash fading down from the top edge and a band on the top edge
+    c.glow = c:CreateTexture(nil, "BACKGROUND", nil, 2)
+    c.glow:SetPoint("TOPLEFT", c, "TOPLEFT", 1, -1)
+    c.glow:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -1, 1)
+    local gradient = pcall(function()
+        c.glow:SetColorTexture(1, 0.82, 0, 1)
+        c.glow:SetGradient("VERTICAL", CreateColor(1, 0.82, 0, 0), CreateColor(1, 0.82, 0, 0.22))
+    end)
+    if not gradient then c.glow:SetColorTexture(1, 0.82, 0, 0.10) end
+    c.glow:Hide()
+    c.band = c:CreateTexture(nil, "OVERLAY")
+    c.band:SetColorTexture(1, 0.82, 0, 1)
+    c.band:SetPoint("TOPLEFT", c, "TOPLEFT", 3, -2)
+    c.band:SetPoint("TOPRIGHT", c, "TOPRIGHT", -3, -2)
+    c.band:SetHeight(3)
+    c.band:Hide()
+
+    local edge = c:CreateTexture(nil, "ARTWORK", nil, 0)
+    edge:SetColorTexture(0.22, 0.22, 0.25, 1)
+    edge:SetSize(44, 44)
+    edge:SetPoint("TOP", c, "TOP", 0, -9)
+    c.icon = c:CreateTexture(nil, "ARTWORK", nil, 1)
+    c.icon:SetPoint("TOPLEFT", edge, "TOPLEFT", 2, -2)
+    c.icon:SetPoint("BOTTOMRIGHT", edge, "BOTTOMRIGHT", -2, 2)
+    c.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+
+    c.name = c:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    c.name:SetPoint("TOP", edge, "BOTTOM", 0, -4)
+    c.name:SetWidth(CELL_W - 6)
+    c.name:SetHeight(22)
+    c.name:SetJustifyH("CENTER")
+    c.name:SetJustifyV("TOP")
+    c.name:SetWordWrap(true)
+
+    -- the check badge of a selected macro (state is never colour only)
+    c.badge = U.Dot(c, 16, 1, 0.82, 0, true)
+    c.badge:SetPoint("TOPRIGHT", c, "TOPRIGHT", -3, -5)
+    c.check = c:CreateTexture(nil, "OVERLAY", nil, 1)
+    c.check:SetSize(12, 12)
+    c.check:SetPoint("CENTER", c.badge, "CENTER", 0, 0)
+    if not pcall(c.check.SetAtlas, c.check, "common-icon-checkmark") then c.check:SetColorTexture(0.1, 0.08, 0, 1) end
+    c.check:SetVertexColor(0.1, 0.08, 0, 1)
+    c.badge:Hide()
+    c.check:Hide()
+
+    c:SetScript("OnClick", function(self)
+        local m = self.macro
+        if not m then return end
+        P.pick[m.index] = not P.pick[m.index] or nil
+        PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+        P.Update()
+    end)
+    c:SetScript("OnEnter", function(self)
+        self.over = true
+        PaintCell(self)
+        local m = self.macro
+        if not m then return end
+        SDB.Tip.Begin(self, "ANCHOR_RIGHT", Esc(m.name), "data", true)
+        local n = 0
+        for line in string.gmatch(m.body, "[^\n]+") do
+            n = n + 1
+            if n > 10 then SDB.Tip.Hint("...") break end
+            SDB.Tip.Text(Esc(line))
+        end
+        SDB.Tip.Hint(P.pick[m.index] and "Click to leave this macro out." or "Click to import this macro.")
+        SDB.Tip.Done()
+    end)
+    c:SetScript("OnLeave", function(self)
+        self.over = false
+        PaintCell(self)
+        GameTooltip:Hide()
+    end)
+    return c
+end
+
+-- repaints the cells and the header controls
+function P.Update()
+    local f = P.frame
+    if not f then return end
+    for _, c in ipairs(f.cells) do
+        if c:IsShown() then PaintCell(c) end
+    end
+    local chosen, total = 0, 0
+    for _, list in ipairs(P.scan or {}) do
+        for _, m in ipairs(list) do
+            total = total + 1
+            if P.pick[m.index] then chosen = chosen + 1 end
+        end
+    end
+    f.count:SetText(chosen .. " of " .. total .. (total == 1 and " macro" or " macros") .. " selected")
+    local list = (P.scan or {})[P.tab] or {}
+    local onTab = 0
+    for _, m in ipairs(list) do
+        if P.pick[m.index] then onTab = onTab + 1 end
+    end
+    f.selectAll:SetText((#list > 0 and onTab == #list) and "Deselect All" or "Select All")
+    if #list > 0 then f.selectAll:Enable() else f.selectAll:Disable() end
+    if chosen > 0 then f.importBtn:Enable() else f.importBtn:Disable() end
+end
+
+-- reads the macros again and lays out the open tab
+function P.Refresh()
+    local f = P.frame
+    if not f then return end
+    P.scan = ScanMacros()
+    local list = P.scan[P.tab] or {}
+    for i, m in ipairs(list) do
+        local c = f.cells[i]
+        if not c then
+            c = MakeCell(f.content)
+            f.cells[i] = c
+        end
+        c.macro = m
+        c:ClearAllPoints()
+        c:SetPoint("TOPLEFT", f.content, "TOPLEFT",
+            ((i - 1) % COLS) * (CELL_W + CELL_GAP), -math.floor((i - 1) / COLS) * (CELL_H + CELL_GAP))
+        SDB.SetIconTexture(c.icon, m.shownIcon)
+        c.name:SetText(Esc(m.name))
+        c:Show()
+    end
+    for i = #list + 1, #f.cells do
+        f.cells[i].macro = nil
+        f.cells[i]:Hide()
+    end
+    local rows = math.ceil(#list / COLS)
+    f.content:SetHeight(math.max(10, rows * (CELL_H + CELL_GAP)))
+    f.empty:SetShown(#list == 0)
+    f.scroll:SetVerticalScroll(0)
+    P.Update()
+end
+
+local function BuildPicker()
+    if P.frame then return P.frame end
+    local U = SDB.UI
+
+    local f = CreateFrame("Frame", "GalleonMacroPickerFrame", UIParent, "BackdropTemplate")
+    f:SetSize(520, 560)
+    f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    f:SetFrameStrata("FULLSCREEN_DIALOG")
+    f:SetToplevel(true)
+    f:SetClampedToScreen(true)
+    f:EnableMouse(true)
+    f:SetMovable(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", function(self) if self:IsMovable() then self:StartMoving() end end)
+    f:SetScript("OnDragStop", f.StopMovingOrSizing)
+    f:Hide()
+    f:SetBackdrop({
+        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true, tileSize = 32, edgeSize = 24,
+        insets = { left = 6, right = 6, top = 6, bottom = 6 },
+    })
+
+    local title = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+    title:SetPoint("TOP", 0, -14)
+    title:SetText("Import Game Macros")
+    local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+    close:SetPoint("TOPRIGHT", -4, -4)
+    close:SetScript("OnClick", function() f:Hide() end)
+    if SDB.Skin then SDB.Skin.Apply(f, { title = title, close = close }) end
+
+    -- General and Character tabs under the title, with the gold rule the Options tabs have
+    f.tabs = U.Tabs(f, { "General", "Character" }, function(i)
+        P.tab = i
+        P.Refresh()
+    end)
+    f.tabs:SetPoint("TOPLEFT", f, "TOPLEFT", 16, -31)
+    local rule = U.Divider(f)
+    rule:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -65)
+    rule:SetPoint("TOPRIGHT", f, "TOPRIGHT", -12, -65)
+
+    f.selectAll = U.Button(f, "secondary", "Select All", 110, 24)
+    f.selectAll:SetPoint("TOPLEFT", 20, -76)
+    f.selectAll:SetScript("OnClick", function()
+        local list = (P.scan or {})[P.tab] or {}
+        local onTab = 0
+        for _, m in ipairs(list) do
+            if P.pick[m.index] then onTab = onTab + 1 end
+        end
+        local want = onTab < #list -- not all of this tab is selected yet: select it all
+        for _, m in ipairs(list) do P.pick[m.index] = want or nil end
+        PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+        P.Update()
+    end)
+
+    f.importBtn = U.Button(f, "primary", "Import", 110, 24)
+    f.importBtn:SetPoint("TOPRIGHT", -20, -76)
+    f.importBtn:SetScript("OnClick", function()
+        local only, n = {}, 0
+        for _, list in ipairs(P.scan or {}) do
+            for _, m in ipairs(list) do
+                if P.pick[m.index] then only[m.index] = true; n = n + 1 end
+            end
+        end
+        if n == 0 then return end
+        PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPEN or 850)
+        f:Hide()
+        G.RunImport(only)
+    end)
+
+    f.count = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.count:SetPoint("LEFT", f.selectAll, "RIGHT", 10, 0)
+    f.count:SetPoint("RIGHT", f.importBtn, "LEFT", -10, 0)
+    f.count:SetJustifyH("CENTER")
+    f.count:SetTextColor(0.7, 0.7, 0.7)
+
+    -- 492 wide panel: 6 + 445 for the six columns + 6 + the bar; 436 high: 6 + 424 + 6
+    local panel = U.Panel(f, "inset")
+    panel:SetPoint("TOPLEFT", 14, -110)
+    panel:SetPoint("BOTTOMRIGHT", -14, 14)
+    local scroll = CreateFrame("ScrollFrame", "GalleonMacroPickerScroll", panel)
+    scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 6, -6)
+    scroll:SetSize(COLS * CELL_W + (COLS - 1) * CELL_GAP, 424)
+    U.ScrollBar(scroll)
+    local content = CreateFrame("Frame", nil, scroll)
+    content:SetSize(COLS * CELL_W + (COLS - 1) * CELL_GAP, 10)
+    scroll:SetScrollChild(content)
+
+    f.empty = panel:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    f.empty:SetPoint("CENTER", panel, "CENTER", 0, 0)
+    f.empty:SetText("No macros with text on this tab.")
+    f.empty:Hide()
+
+    f.cells = {}
+    f.scroll, f.content = scroll, content
+
+    f:SetScript("OnShow", function() f.tabs:Select(P.tab) end)
+    f:SetScript("OnHide", function() GameTooltip:Hide() end)
+    if SDB.Esc then SDB.Esc.Register(f) end
+
+    P.frame = f
+    return f
+end
+
+-- Tools > Import Game Macros...
+function G.OpenPicker()
+    if type(GetNumMacros) ~= "function" or type(GetMacroInfo) ~= "function" then
+        Chat("This client has no macro functions.", true)
+        return
+    end
+    if not G.HasImportable() then
+        Chat("You have no game macros with text to import.", "warn")
+        return
+    end
+    local f = BuildPicker()
+    P.pick = {}
+    local scan = ScanMacros()
+    P.tab = (#scan[1] > 0 or #scan[2] == 0) and 1 or 2 -- start on the tab that has something
+    if f:IsShown() then f.tabs:Select(P.tab) else f:Show() end
+    f:Raise()
+end
+
+function G.StartImport()
+    if InCombatLockdown() then
+        Chat("Can't import in combat.", true)
+        return
+    end
+    if not (SDB.ImportPreview and SDB.db) then return end
+    G.OpenPicker()
 end

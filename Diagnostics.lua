@@ -374,7 +374,7 @@ local RT_WINDOW_NAMES = {
     "GalleonBridgeProfilesFrame", "GalleonIconPickerFrame",
     "GalleonSpellBrowserFrame", "GalleonSpellPadBuilderFrame",
     "GalleonImportPreviewFrame", "GalleonCardTargetFrame", "GalleonAuditFrame",
-    "GalleonBridgeRestoreFrame", "GalleonCopyFrame", "GalleonGameMacroFrame", "GalleonSetupGuideFrame",
+    "GalleonBridgeRestoreFrame", "GalleonCopyFrame", "GalleonGameMacroFrame", "GalleonSetupGuideFrame", "GalleonBarPickerFrame", "GalleonMacroPickerFrame",
     "GalleonBridgeMatrixFrame",
 }
 

@@ -103,6 +103,7 @@ end
 
 function BUILD.advanced(out)
     AddList(out, "Class Specializations", SDB.SPEC_COMMANDS)
+    AddList(out, "Page Navigation", SDB.PAGE_NAVIGATION)
     EquipmentSets(out, "Equipment Sets")
     AddList(out, "Targeting & Focus", SDB.TARGET_ADV_COMMANDS)
     AddList(out, "Movement & Interaction", SDB.MOVEMENT_COMMANDS)
@@ -173,6 +174,7 @@ local function MacroIcon(icon, body)
     end)
     return shown or icon
 end
+L.MacroIcon = MacroIcon -- the game-macro picker (GameMacro.lua) shows the same icon
 
 -- The game's saved macros: key = "all" | "general" | "character". Headings read "General (3 of 120)" and
 -- "Character (2 of 30)". Only the macros of the character that is logged in can be read; a macro with no text is left out.
@@ -328,7 +330,7 @@ function L.BeginDrag(e)
     drag = { entry = e }
     PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
     local g = GetGhost()
-    g.icon:SetTexture(e.icon or QUESTION)
+    SDB.SetIconTexture(g.icon, e.icon or QUESTION)
     g.sdbOk = nil
     SetGhostLook(g, false)
     g:Show()

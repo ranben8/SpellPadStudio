@@ -189,7 +189,8 @@ function B.HasActions()
 end
 
 -- Builds the import data, or nil and a reason; the second result is the list of notes for the preview.
-function B.Build()
+-- `only` (optional) is a set of B.BARS indexes: just those bars are imported.
+function B.Build(only)
     if type(GetActionInfo) ~= "function" then return nil, "This client has no action bar functions." end
 
     local size = tonumber(SDB.db and SDB.db.deckSize) or SDB.DEFAULT_CARDS or 15
@@ -199,9 +200,9 @@ function B.Build()
 
     local skipped = {}
     local data = { type = "ALL", pages = {}, pageNames = {}, pageCols = {}, deckSize = size }
-    for _, bar in ipairs(B.BARS) do
+    for barIndex, bar in ipairs(B.BARS) do
         local entries, filled = ReadBar(bar, skipped)
-        if filled > 0 then
+        if filled > 0 and (not only or only[barIndex]) then
             -- a keypad with fewer than 12 keys gets the bar over several pages
             local count = math.ceil(BAR_SLOTS / size)
             for n = 1, count do
@@ -250,21 +251,21 @@ function B.Build()
     return data, notes, skipped
 end
 
--- opens the Import Preview for the action bars
-function B.StartImport(retried)
+-- opens the Import Preview for the chosen bars (a set of B.BARS indexes)
+function B.RunImport(only, retried)
     if InCombatLockdown() then
         Chat("Can't import in combat.", true)
         return
     end
     if not (SDB.ImportPreview and SDB.db) then return end
-    local data, notes, skipped = B.Build()
+    local data, notes, skipped = B.Build(only)
     if not data then
         Chat(notes, notes == "Your action bars have nothing to import." and "warn" or true)
         return
     end
     -- item names load in the background after they are asked for: look again once before giving up on them
     if (skipped.itemdata or 0) > 0 and not retried and C_Timer and C_Timer.After then
-        C_Timer.After(1, function() B.StartImport(true) end)
+        C_Timer.After(1, function() B.RunImport(only, true) end)
         return
     end
     local clean, err = SDB.ImportPreview.Validate(data)
@@ -275,4 +276,387 @@ function B.StartImport(retried)
     clean.fromGame = "bars" -- Validate drops unknown fields, so only this code can set it
     for _, n in ipairs(notes) do clean.notes[#clean.notes + 1] = n end
     SDB.ImportPreview.Open(clean, "addpages")
+end
+
+-- ---------------------------------------------------------------
+-- The bar picker (Tools > Import Action Bars...): one ghost row per action bar, Action Bar 1 first, each drawn as a
+-- horizontal line of its 12 slots. A click selects a bar for the import (gold card, a check in the round badge);
+-- bars with nothing to import are grey and can't be selected.
+-- ---------------------------------------------------------------
+local P = { pick = {} }
+B.Picker = P
+
+local ROW_W, ROW_H, ROW_GAP = 445, 62, 4
+local SLOT, SLOT_GAP, SLOTS_X = 30, 3, 40
+local LOOK = {
+    normal   = { bg = { 0.085, 0.085, 0.10, 1 }, line = { 0.30, 0.30, 0.35, 1 } },
+    hover    = { bg = { 0.115, 0.115, 0.135, 1 }, line = { 0.55, 0.55, 0.62, 1 } },
+    selected = { bg = { 0.14, 0.12, 0.05, 1 }, line = { 0.95, 0.75, 0.20, 1 } },
+    empty    = { bg = { 0.07, 0.07, 0.08, 1 }, line = { 0.22, 0.22, 0.25, 1 } },
+}
+
+-- what each bar holds right now, in B.BARS order: { name, filled, blocked, slots = { [i] = { icon, importable } } }
+local function ScanBars()
+    local out, skipped = {}, {}
+    for index, bar in ipairs(B.BARS) do
+        local entries, filled = ReadBar(bar, skipped)
+        local first = FirstSlot(bar)
+        local slots, blocked = {}, 0
+        for i = 1, BAR_SLOTS do
+            local slot = first + i - 1
+            local okInfo, kind = pcall(GetActionInfo, slot)
+            if okInfo and kind ~= nil then
+                local icon
+                if type(GetActionTexture) == "function" then
+                    local okTex, tex = pcall(GetActionTexture, slot)
+                    if okTex and not (issecretvalue and issecretvalue(tex)) then icon = tex end
+                end
+                local importable = entries[i] ~= nil
+                if not importable then blocked = blocked + 1 end
+                slots[i] = { icon = icon or QUESTION, importable = importable, slot = slot, kind = kind, entry = entries[i] }
+            end
+        end
+        out[index] = { name = bar.name, filled = filled, blocked = blocked, slots = slots }
+    end
+    return out
+end
+
+local function Selectable(d) return d and d.filled > 0 end
+
+local function PaintRow(r)
+    local d = r.data
+    if not d then return end
+    local sel = P.pick[r.index] and Selectable(d)
+    local state = not Selectable(d) and "empty" or (sel and "selected") or (r.over and "hover") or "normal"
+    local look = LOOK[state]
+    r:SetBackdropColor(look.bg[1], look.bg[2], look.bg[3], look.bg[4])
+    r:SetBackdropBorderColor(look.line[1], look.line[2], look.line[3], look.line[4])
+    r.glow:SetShown(sel and true or false)
+    r.band:SetShown(sel and true or false)
+    r.ring:SetShown(not sel)
+    r.ringInner:SetShown(not sel)
+    r.goldDot:SetShown(sel and true or false)
+    r.check:SetShown(sel and true or false)
+    r:SetAlpha(Selectable(d) and 1 or 0.55)
+
+    if sel then r.name:SetTextColor(1, 0.82, 0)
+    elseif Selectable(d) then r.name:SetTextColor(0.9, 0.9, 0.9)
+    else r.name:SetTextColor(0.5, 0.5, 0.5) end
+
+    if not Selectable(d) then
+        r.count:SetText("Empty")
+    else
+        local text = d.filled .. (d.filled == 1 and " action" or " actions")
+        if d.blocked > 0 then text = text .. ", " .. d.blocked .. " can't be imported" end
+        r.count:SetText(text)
+    end
+
+    -- the ghost slots: dim and grey until the bar is selected, then in colour
+    for i = 1, BAR_SLOTS do
+        local s = r.slots[i]
+        local info = d.slots[i]
+        if info then
+            s.icon:SetTexture(info.icon)
+            s.icon:Show()
+            local ghost = not sel
+            if s.icon.SetDesaturated then s.icon:SetDesaturated(ghost or not info.importable) end
+            s.icon:SetAlpha(info.importable and (ghost and 0.55 or 1) or 0.25)
+            s.hit:Show()
+        else
+            s.icon:Hide()
+            s.hit:Hide()
+        end
+    end
+end
+
+-- The hover tooltip of one slot: the game's own tooltip for a spell, item or mount, our own title and the macro text
+-- for a game macro; a grey line says whether the action comes across.
+function P.SlotTip(frame, info)
+    local native = false
+    if info.kind ~= "macro" and GameTooltip.SetAction then
+        GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
+        native = pcall(GameTooltip.SetAction, GameTooltip, info.slot) and (GameTooltip:NumLines() or 0) > 0
+    end
+    if native then
+        GameTooltip:AddLine(" ")
+        if info.importable then
+            GameTooltip:AddLine("Imports as a card.", 0.53, 0.53, 0.53)
+        else
+            GameTooltip:AddLine("Can't be imported.", 1, 0.27, 0.27)
+        end
+        GameTooltip:Show()
+        return
+    end
+    local entry = info.entry
+    SDB.Tip.Begin(frame, "ANCHOR_RIGHT", (entry and entry.name) or "Action", "data", true)
+    if entry and entry.text then
+        local n = 0
+        for line in string.gmatch(entry.text, "[^\n]+") do
+            n = n + 1
+            if n > 8 then SDB.Tip.Hint("...") break end
+            SDB.Tip.Text(SDB.EscapePipes(line))
+        end
+    end
+    SDB.Tip.Hint(info.importable and "Imports as a card." or "Can't be imported.")
+    SDB.Tip.Done()
+end
+
+local function MakeRow(parent, index)
+    local U = SDB.UI
+    local r = CreateFrame("Button", nil, parent, "BackdropTemplate")
+    r.index = index
+    r:SetSize(ROW_W, ROW_H)
+    r:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -(index - 1) * (ROW_H + ROW_GAP))
+    U.FlatBackdrop(r, LOOK.normal.bg, LOOK.normal.line, U.OnePixel(r))
+
+    -- the gold glow of a selected bar: a gold wash fading down from the top edge, and a band on the top edge
+    r.glow = r:CreateTexture(nil, "BACKGROUND", nil, 2)
+    r.glow:SetPoint("TOPLEFT", r, "TOPLEFT", 1, -1)
+    r.glow:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", -1, 1)
+    local gradient = pcall(function()
+        r.glow:SetColorTexture(1, 0.82, 0, 1)
+        r.glow:SetGradient("VERTICAL", CreateColor(1, 0.82, 0, 0), CreateColor(1, 0.82, 0, 0.22))
+    end)
+    if not gradient then r.glow:SetColorTexture(1, 0.82, 0, 0.10) end
+    r.glow:Hide()
+    r.band = r:CreateTexture(nil, "OVERLAY")
+    r.band:SetColorTexture(1, 0.82, 0, 1)
+    r.band:SetPoint("TOPLEFT", r, "TOPLEFT", 3, -2)
+    r.band:SetPoint("TOPRIGHT", r, "TOPRIGHT", -3, -2)
+    r.band:SetHeight(3)
+    r.band:Hide()
+
+    -- the round badge: an empty ring, or a gold disc with a check mark (state is never colour only)
+    r.ring = U.Dot(r, 18, 0.55, 0.55, 0.58, true)
+    r.ring:SetPoint("LEFT", r, "LEFT", 11, 0)
+    r.ringInner = U.Dot(r, 16, 0.07, 0.07, 0.08, true)
+    r.ringInner:SetPoint("CENTER", r.ring, "CENTER", 0, 0)
+    r.goldDot = U.Dot(r, 18, 1, 0.82, 0, true)
+    r.goldDot:SetPoint("LEFT", r, "LEFT", 11, 0)
+    r.check = r:CreateTexture(nil, "OVERLAY", nil, 1)
+    r.check:SetSize(14, 14)
+    r.check:SetPoint("CENTER", r.goldDot, "CENTER", 0, 0)
+    if not pcall(r.check.SetAtlas, r.check, "common-icon-checkmark") then r.check:SetColorTexture(0.1, 0.08, 0, 1) end
+    r.check:SetVertexColor(0.1, 0.08, 0, 1)
+
+    r.name = r:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    r.name:SetPoint("TOPLEFT", r, "TOPLEFT", SLOTS_X, -6)
+    r.name:SetJustifyH("LEFT")
+    r.count = r:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    r.count:SetPoint("TOPRIGHT", r, "TOPRIGHT", -10, -7)
+    r.count:SetJustifyH("RIGHT")
+
+    r.slots = {}
+    for i = 1, BAR_SLOTS do
+        local x = SLOTS_X + (i - 1) * (SLOT + SLOT_GAP)
+        local edge = r:CreateTexture(nil, "ARTWORK", nil, 0)
+        edge:SetColorTexture(0.22, 0.22, 0.25, 1)
+        edge:SetSize(SLOT, SLOT)
+        edge:SetPoint("TOPLEFT", r, "TOPLEFT", x, -24)
+        local inner = r:CreateTexture(nil, "ARTWORK", nil, 1)
+        inner:SetColorTexture(0.05, 0.05, 0.06, 1)
+        inner:SetPoint("TOPLEFT", edge, "TOPLEFT", 1, -1)
+        inner:SetPoint("BOTTOMRIGHT", edge, "BOTTOMRIGHT", -1, 1)
+        local icon = r:CreateTexture(nil, "ARTWORK", nil, 2)
+        icon:SetPoint("TOPLEFT", edge, "TOPLEFT", 2, -2)
+        icon:SetPoint("BOTTOMRIGHT", edge, "BOTTOMRIGHT", -2, 2)
+        icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+        icon:Hide()
+        -- an invisible button over the slot: the hover tooltip, and a click goes on to the row (it selects the bar)
+        local hit = CreateFrame("Button", nil, r)
+        hit:SetAllPoints(edge)
+        hit:SetScript("OnClick", function() r:GetScript("OnClick")(r) end)
+        hit:SetScript("OnEnter", function(self)
+            r.over = true
+            PaintRow(r)
+            local info = r.data and r.data.slots[i]
+            if info then P.SlotTip(self, info) end
+        end)
+        hit:SetScript("OnLeave", function()
+            r.over = false
+            PaintRow(r)
+            GameTooltip:Hide()
+        end)
+        r.slots[i] = { icon = icon, hit = hit }
+    end
+
+    r:SetScript("OnClick", function(self)
+        if not Selectable(self.data) then return end
+        P.pick[self.index] = not P.pick[self.index] or nil
+        PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+        P.Update()
+    end)
+    r:SetScript("OnEnter", function(self)
+        self.over = true
+        PaintRow(self)
+        local d = self.data
+        if not d then return end
+        SDB.Tip.Begin(self, "ANCHOR_RIGHT", d.name, "data")
+        if Selectable(d) then
+            SDB.Tip.Line("Click to " .. (P.pick[self.index] and "leave this bar out." or "import this bar."))
+            if d.blocked > 0 then
+                SDB.Tip.Hint("Faded slots can't be imported (flyouts, the Single-Button Assistant, unreadable actions).")
+            end
+        else
+            SDB.Tip.Hint("Nothing on this bar can be imported.")
+        end
+        SDB.Tip.Done()
+    end)
+    r:SetScript("OnLeave", function(self)
+        self.over = false
+        PaintRow(self)
+        GameTooltip:Hide()
+    end)
+    return r
+end
+
+-- repaints every row and the three header controls
+function P.Update()
+    local f = P.frame
+    if not f then return end
+    local selectable, chosen = 0, 0
+    for i, r in ipairs(f.rows) do
+        PaintRow(r)
+        if Selectable(r.data) then
+            selectable = selectable + 1
+            if P.pick[i] then chosen = chosen + 1 end
+        end
+    end
+    f.count:SetText(chosen .. " of " .. selectable .. (selectable == 1 and " bar" or " bars") .. " selected")
+    f.selectAll:SetText((selectable > 0 and chosen == selectable) and "Deselect All" or "Select All")
+    if selectable > 0 then f.selectAll:Enable() else f.selectAll:Disable() end
+    if chosen > 0 then f.importBtn:Enable() else f.importBtn:Disable() end
+end
+
+-- reads the bars again and redraws
+function P.Refresh()
+    local f = P.frame
+    if not f then return end
+    P.scan = ScanBars()
+    for i, r in ipairs(f.rows) do
+        r.data = P.scan[i]
+        r:SetShown(r.data ~= nil)
+    end
+    f.content:SetHeight(math.max(10, #P.scan * (ROW_H + ROW_GAP)))
+    P.Update()
+end
+
+local function Build()
+    if P.frame then return P.frame end
+    local U = SDB.UI
+
+    local f = CreateFrame("Frame", "GalleonBarPickerFrame", UIParent, "BackdropTemplate")
+    f:SetSize(520, 480)
+    f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    f:SetFrameStrata("FULLSCREEN_DIALOG")
+    f:SetToplevel(true)
+    f:SetClampedToScreen(true)
+    f:EnableMouse(true)
+    f:SetMovable(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", function(self) if self:IsMovable() then self:StartMoving() end end)
+    f:SetScript("OnDragStop", f.StopMovingOrSizing)
+    f:Hide()
+    f:SetBackdrop({
+        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true, tileSize = 32, edgeSize = 24,
+        insets = { left = 6, right = 6, top = 6, bottom = 6 },
+    })
+
+    local title = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+    title:SetPoint("TOP", 0, -14)
+    title:SetText("Import Action Bars")
+    local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+    close:SetPoint("TOPRIGHT", -4, -4)
+    close:SetScript("OnClick", function() f:Hide() end)
+    if SDB.Skin then SDB.Skin.Apply(f, { title = title, close = close }) end
+
+    f.selectAll = U.Button(f, "secondary", "Select All", 110, 24)
+    f.selectAll:SetPoint("TOPLEFT", 20, -40)
+    f.selectAll:SetScript("OnClick", function()
+        local selectable, chosen = 0, 0
+        for i, r in ipairs(f.rows) do
+            if Selectable(r.data) then
+                selectable = selectable + 1
+                if P.pick[i] then chosen = chosen + 1 end
+            end
+        end
+        local all = selectable > 0 and chosen < selectable -- not everything is selected yet: select it all
+        P.pick = {}
+        if all then
+            for i, r in ipairs(f.rows) do
+                if Selectable(r.data) then P.pick[i] = true end
+            end
+        end
+        PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+        P.Update()
+    end)
+
+    f.importBtn = U.Button(f, "primary", "Import", 110, 24)
+    f.importBtn:SetPoint("TOPRIGHT", -20, -40)
+    f.importBtn:SetScript("OnClick", function()
+        local only, n = {}, 0
+        for i, r in ipairs(f.rows) do
+            if P.pick[i] and Selectable(r.data) then only[i] = true; n = n + 1 end
+        end
+        if n == 0 then return end
+        PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPEN or 850)
+        f:Hide()
+        B.RunImport(only)
+    end)
+
+    f.count = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.count:SetPoint("LEFT", f.selectAll, "RIGHT", 10, 0)
+    f.count:SetPoint("RIGHT", f.importBtn, "LEFT", -10, 0)
+    f.count:SetJustifyH("CENTER")
+    f.count:SetTextColor(0.7, 0.7, 0.7)
+
+    -- 492 wide panel: 6 + 445 for the rows + 6 + the bar; 392 high: 6 + 380 + 6
+    local panel = U.Panel(f, "inset")
+    panel:SetPoint("TOPLEFT", 14, -74)
+    panel:SetPoint("BOTTOMRIGHT", -14, 14)
+    local scroll = CreateFrame("ScrollFrame", "GalleonBarPickerScroll", panel)
+    scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 6, -6)
+    scroll:SetSize(ROW_W, 380)
+    U.ScrollBar(scroll)
+    local content = CreateFrame("Frame", nil, scroll)
+    content:SetSize(ROW_W, 10)
+    scroll:SetScrollChild(content)
+
+    f.rows = {}
+    for i = 1, #B.BARS do f.rows[i] = MakeRow(content, i) end
+    f.scroll, f.content = scroll, content
+
+    f:SetScript("OnShow", function() P.Refresh() end)
+    f:SetScript("OnHide", function() GameTooltip:Hide() end)
+    if SDB.Esc then SDB.Esc.Register(f) end
+
+    P.frame = f
+    return f
+end
+
+-- Tools > Import Action Bars...
+function B.OpenPicker()
+    if type(GetActionInfo) ~= "function" then
+        Chat("This client has no action bar functions.", true)
+        return
+    end
+    if not B.HasActions() then
+        Chat("Your action bars have nothing to import.", "warn")
+        return
+    end
+    local f = Build()
+    P.pick = {}
+    if f:IsShown() then P.Refresh() else f:Show() end
+    f:Raise()
+end
+
+function B.StartImport()
+    if InCombatLockdown() then
+        Chat("Can't import in combat.", true)
+        return
+    end
+    if not (SDB.ImportPreview and SDB.db) then return end
+    B.OpenPicker()
 end

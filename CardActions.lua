@@ -188,7 +188,7 @@ function C.TransferFrom(srcProfile, sp, ss, dp, ds)
     Chat("Card " .. ss .. " of page " .. PageTag(sp, srcDb) .. " in profile '" .. Esc(srcProfile)
         .. "' copied to page " .. PageTag(dp) .. ", card " .. ds .. ". Keys stay in place; Restore can undo it.")
     -- !PAGE n is a page NUMBER, and the numbers belong to the other profile
-    if string.find(string.upper(src.macro or ""), "!PAGE", 1, true) then
+    if tonumber(SDB.PageCommand(src.macro)) then
         Chat("This card changes page with !PAGE. Page numbers belong to the profile it came from, so check the number.", "warn")
     end
     return true

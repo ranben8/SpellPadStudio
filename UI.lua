@@ -166,6 +166,23 @@ local function Fill(parent, layer, r, g, b, a)
     return t
 end
 
+-- A small flashing dot (the unapplied-edits marker): the pulse of the Save & Apply glow, run while the dot is shown.
+-- It is round through a mask; a client that refuses the mask keeps it a square. `still` = a plain round dot that does not flash.
+function U.Dot(parent, size, r, g, b, still)
+    local t = Fill(parent, "ARTWORK", r, g, b, 1)
+    t:SetSize(size, size)
+    if parent.CreateMaskTexture and t.AddMaskTexture then
+        pcall(function()
+            local mask = parent:CreateMaskTexture()
+            mask:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+            mask:SetAllPoints(t)
+            t:AddMaskTexture(mask)
+        end)
+    end
+    if SDB.Motion and not still then SDB.Motion.Pulse(t, 0.35) end
+    return t
+end
+
 -- ---------------------------------------------------------------
 -- Panels (inset, flat bar)
 -- ---------------------------------------------------------------
@@ -803,11 +820,42 @@ function U.Row(parent, w, h, opts)
         b.label = fs
     end
 
-    -- the unapplied-edits dot: a small orange square (a letter "o" read as a typo in game)
-    local dot = Fill(b, "ARTWORK", 1, 0.6, 0, 1)
-    dot:SetSize(8, 8)
-    dot:SetPoint("RIGHT", b, "RIGHT", -10, 0)
+    -- Right edge, from the right: the context glyph hard against the edge, then the slot of the main page's star, and the
+    -- unapplied-edits dot in that same slot (left of the star when the page is also the main page). The slots are
+    -- fixed, so the glyphs of all rows line up, and the name may run up to the leftmost thing a row shows.
+    local GLYPH_RIGHT, GLYPH_SIZE = 4, 14
+    local STAR_RIGHT, STAR_SIZE = 24, 13
+    local DOT_SIZE, DOT_GAP = 8, 3
+    local DOT_ALONE = STAR_RIGHT + (STAR_SIZE - DOT_SIZE) / 2 -- centred where the star would be
+    local DOT_BESIDE = STAR_RIGHT + STAR_SIZE + DOT_GAP       -- beside a star
+
+    -- the unapplied-edits dot: a small flashing orange circle
+    local dot = U.Dot(b, DOT_SIZE, 1, 0.6, 0)
+    dot:SetPoint("RIGHT", b, "RIGHT", -DOT_ALONE, 0)
     dot:Hide()
+
+    -- how far in from the right edge the leftmost shown thing starts
+    function b:Reach()
+        local reach = 0
+        if self.sdbContext then reach = GLYPH_RIGHT + GLYPH_SIZE + 3 end
+        if self.sdbStar then reach = math.max(reach, STAR_RIGHT + STAR_SIZE) end
+        if self.sdbDotOn then
+            reach = math.max(reach, (self.sdbStar and DOT_BESIDE or DOT_ALONE) + DOT_SIZE)
+        end
+        return reach
+    end
+    -- the page's name, cut with "..." to the room that is left (it grows back when the dot or star goes away)
+    function b:SetName(full)
+        self.sdbFull = full
+        return self:Refit()
+    end
+    function b:Refit()
+        if not (self.label and self.sdbFull and SDB.FitText) then return end
+        local shown, cut = SDB.FitText(self.label, self.sdbFull, w - 10 - self:Reach() - 4)
+        self.label:SetText(shown)
+        self.nameCut = cut
+        return shown, cut
+    end
 
     function b:SetSelected(on)
         on = on and true or false
@@ -816,49 +864,64 @@ function U.Row(parent, w, h, opts)
         if flatBar then flatBar:SetShown(on) end
         if self.label then self.label:SetFontObject(on and "GameFontNormal" or "GameFontHighlight") end
     end
-    function b:SetDot(on) dot:SetShown(on and true or false) end
-    -- Right edge, from the right: the main page's star, the dot, the context glyph. The dot's place is kept free
-    -- even while it is hidden, so the glyph does not jump when an edit makes the dot appear.
-    local star, ctxGlyph
-    local function PlaceRight()
-        local dotX = b.sdbStar and 26 or 10
+    function b:SetDot(on)
+        on = on and true or false
+        self.sdbDotOn = on
         dot:ClearAllPoints()
-        dot:SetPoint("RIGHT", b, "RIGHT", -dotX, 0)
-        if ctxGlyph then
-            ctxGlyph:ClearAllPoints()
-            ctxGlyph:SetPoint("RIGHT", b, "RIGHT", -(dotX + 11), 0)
-        end
+        dot:SetPoint("RIGHT", b, "RIGHT", -(self.sdbStar and DOT_BESIDE or DOT_ALONE), 0)
+        dot:SetShown(on)
+        self:Refit()
     end
+
+    -- the main page's star
+    local star
     function b:SetStar(on)
         on = on and true or false
         if on and not star then
             star = b:CreateTexture(nil, "ARTWORK")
-            star:SetSize(13, 13)
-            star:SetPoint("RIGHT", b, "RIGHT", -8, 0)
+            star:SetSize(STAR_SIZE, STAR_SIZE)
+            star:SetPoint("RIGHT", b, "RIGHT", -STAR_RIGHT, 0)
             star:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcon_1")
         end
         if star then star:SetShown(on) end
         self.sdbStar = on
-        PlaceRight()
+        dot:ClearAllPoints()
+        dot:SetPoint("RIGHT", b, "RIGHT", -(on and DOT_BESIDE or DOT_ALONE), 0)
+        self:Refit()
     end
-    -- the page's context rule as a small icon (icon nil = no rule); dimmed when `active` is false
+
+    -- the page's context rule as a small icon with a thin grey border (icon nil = no rule); dimmed when `active` is false.
+    -- The border is a grey square behind the icon, one physical pixel larger on each side: a solid fill blends at
+    -- fractional positions, where four 1 pixel lines would drop out.
+    local ctxGlyph, ctxBorder
     function b:SetContext(icon, active)
         if not icon then
-            if ctxGlyph then ctxGlyph:Hide() end
+            if ctxGlyph then ctxGlyph:Hide() ctxBorder:Hide() end
             self.sdbContext = false
+            self:Refit()
             return
         end
         if not ctxGlyph then
-            ctxGlyph = b:CreateTexture(nil, "ARTWORK")
-            ctxGlyph:SetSize(14, 14)
+            ctxBorder = b:CreateTexture(nil, "ARTWORK", nil, 0)
+            ctxBorder:SetColorTexture(0.40, 0.40, 0.40, 1)
+            ctxBorder:SetPoint("RIGHT", b, "RIGHT", -GLYPH_RIGHT, 0)
+            ctxGlyph = b:CreateTexture(nil, "ARTWORK", nil, 1)
+            ctxGlyph:SetSize(GLYPH_SIZE, GLYPH_SIZE)
+            ctxGlyph:SetPoint("CENTER", ctxBorder, "CENTER", 0, 0)
             ctxGlyph:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- a plain file icon: trims its rounded border
         end
+        local edge = GLYPH_SIZE + 2 * OnePixel(b)
+        ctxBorder:SetSize(edge, edge)
         ctxGlyph:SetTexture(icon)
-        ctxGlyph:SetAlpha(active and 0.9 or 0.35)
+        local alpha = active and 0.9 or 0.35
+        ctxGlyph:SetAlpha(alpha)
+        ctxBorder:SetAlpha(alpha)
         ctxGlyph:Show()
+        ctxBorder:Show()
         self.sdbContext = true
-        PlaceRight()
+        self:Refit()
     end
+
     -- a row that is only a heading (the Spell Browser's category lines) shows no hover look
     function b:SetHover(on) hover:SetAlpha(on and 1 or 0) end
     function b:SetLabel(text) if self.label then self.label:SetText(text or "") end end

@@ -1,4 +1,4 @@
-# SpellPad Studio 1.4.0 (beta)
+# SpellPad Studio 1.4.0
 
 Most things now take two clicks. Ready-made macros, your game macros and the new import tools live in one place, and the footer has a Tools menu.
 
@@ -7,11 +7,14 @@ Most things now take two clicks. Ready-made macros, your game macros and the new
 - **The Arsenal has four tabs: Spells, Items, Easy Macros and My Macros.** Easy Macros replaces the old Easy Macros menus (Class, Group & Raid, Emotes, Advanced) with one searchable list, in categories: Class, Group & Raid, Emotes, Advanced, Travel, Interface. Search looks through every category. My Macros lists the macros saved in the game's own Macros window. On both tabs a click puts the macro on the selected card, and you can drag one onto any card or SpellPad button. The card is left waiting for Save & Apply, and a snapshot is taken first.
 - **A + button on every empty card.** It selects the card and opens the Arsenal on the Easy Macros tab.
 - **A Tools menu in the footer** next to Save & Apply: Audit, Restore, Import / Export, Import Game Macros, Import Action Bars and the Setup Guide.
-- **Import Game Macros.** Copies the macros from the game's Macros window onto new pages, named after each macro. Nothing is replaced: you see the Import Preview first.
-- **Import Action Bars.** Copies the spells, items, mounts and macros on your action bars onto new pages, slot for slot, so button 5 of a bar becomes card 5. Flyouts, the Single-Button Assistant and the stance and vehicle bars are skipped, and the preview says how many. `/sps bars` shows what the import would write.
+- **Import Game Macros.** A picker shows your macros as icons, six to a row like the game's own Macros window, with General and Character tabs. Hover one to read its text, click the ones you want (or Select All) and press Import: they are copied onto new pages, named after each macro. Nothing is replaced: you see the Import Preview first.
+- **Import Action Bars.** A picker shows your action bars as ghost rows, Action Bar 1 first. Hover a slot to see what it holds, click the bars you want (or Select All) and press Import: they are copied onto new pages, slot for slot, so button 5 of a bar becomes card 5. Flyouts, the Single-Button Assistant and the stance and vehicle bars are skipped, and the preview says how many. `/sps bars` shows what the import would write.
 - **Offers when you start.** On a page with no macros the footer offers the Setup Guide and, when the game has something to bring over, the two imports. The Setup Guide's finish screen offers them too. Nothing is shown when there is nothing to import.
+- **The unapplied-edits marker is a flashing circle** (Pages list and footer), like the Save & Apply glow.
 - **Click "N changes not applied" in the footer** to see which cards, then click one to go to it.
 - **Context icons in the Pages list.** A page that switches by itself shows a small icon for its context (a sword for In Combat, a horse for Mounted, and so on). The icon is dimmed while contextual page switching is off.
+- **Next Page and Previous Page cards.** `!PAGE Forward` goes to the next page in the Pages list and `!PAGE Backward` to the one before; the ends wrap around. They keep working when pages are reordered. Insert them from the Builder button's right-click menu or from Easy Macros > Advanced > Page Navigation; they show the spellbook's page-turn arrows.
+- The Pages list packs its icons against the scroll bar: the context icon (with a thin grey border) in a fixed column at the far right, the main-page star to its left, and the unapplied-edits circle in the star's spot (or left of the star on the main page). Page names run as far as the icons allow.
 - **Edit in Builder** in the SpellPad's right-click menu opens SpellPad Builder for that button's card. It works with the main window closed.
 - **Window style and Colors presets are now clickable tiles and chips** instead of drop-down lists: one click from Options.
 - **The Arsenal button is a pin.** Click it and the Arsenal stays open and comes back after Audit or SpellPad Builder closes.

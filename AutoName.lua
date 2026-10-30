@@ -9,7 +9,7 @@ local strtrim, ipairs, string = strtrim, ipairs, string
 -- The preset lists of the Easy Macros menus (Init.lua), already cut down to this client
 local LISTS = {
     "INTERFACE_ELEMENTS", "GROUP_COMMANDS", "SYSTEM_COMMANDS", "SPEC_COMMANDS", "TARGET_ADV_COMMANDS",
-    "MOVEMENT_COMMANDS", "TARGET_MARKERS", "WORLD_MARKERS", "CC_INTERRUPTS", "PARTY_UTILITY", "BROADCASTER_COMMANDS",
+    "MOVEMENT_COMMANDS", "PAGE_NAVIGATION", "TARGET_MARKERS", "WORLD_MARKERS", "CC_INTERRUPTS", "PARTY_UTILITY", "BROADCASTER_COMMANDS",
 }
 
 -- A menu text can carry colour codes; the card name is plain

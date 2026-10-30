@@ -1696,6 +1696,10 @@ function SDB.BuildUI()
                 btn = SDB.UI.Row(pageContent, 124, 26)
                 btn:RegisterForClicks("LeftButtonUp", "RightButtonUp") -- right-click opens SDB.PageMenu
                 btn.GetFontString = function(self) return self.label end -- SDB.FitText and the page report read the label
+                -- the name may run right up to the icons at the right edge (Row:Refit cuts it)
+                btn.label:ClearAllPoints()
+                btn.label:SetPoint("LEFT", btn, "LEFT", 10, 0)
+                btn.label:SetPoint("RIGHT", btn, "RIGHT", -4, 0)
                 -- drag a page to a new place in the list (SDB.PageDrag, below RefreshRows' drag engine); btn.sdbPage is set on every refresh
                 btn:RegisterForDrag("LeftButton")
                 btn:SetScript("OnDragStart", function(self) if SDB.PageDrag then SDB.PageDrag.Start(self.sdbPage) end end)
@@ -1709,14 +1713,10 @@ function SDB.BuildUI()
 
             local displayName = SDB.PageName(p)
 
-            -- the star and the context glyph take room at the right edge
-            local hasContext = SDB.PaintPageContext(btn, p)
-            local maxName = 88
-            if p == mainPage then maxName = 76 end
-            if hasContext then maxName = maxName - ((p == mainPage) and 16 or 12) end
-            -- long names end in "..." instead of running off the row; the tooltip keeps the full name
-            local shown, wasCut = SDB.FitText(btn.label, displayName, maxName)
-            btn.fullName, btn.nameCut = displayName, wasCut
+            -- the context glyph, the star and the dot have fixed places at the right edge (UI.lua Row); the name
+            -- is cut with "..." to the room that is left, so it is as long as the row allows
+            SDB.PaintPageContext(btn, p)
+            btn.fullName = displayName
             btn.sdbPage = p
             if not btn.nameTipHooked then
                 btn.nameTipHooked = true
@@ -1739,10 +1739,10 @@ function SDB.BuildUI()
                 btn:HookScript("OnLeave", function() GameTooltip:Hide() end)
             end
 
-            btn:SetLabel(shown)
             btn:SetSelected(p == SDB.db.activePage)
             btn:SetDot((pendingByPage[p] or 0) > 0)
             btn:SetStar(p == mainPage)
+            btn:SetName(displayName)
 
             btn:SetScript("OnClick", function(self, mouseButton)
                 if mouseButton == "RightButton" then
@@ -3742,10 +3742,8 @@ function SDB.BuildUI()
         footer:SetPoint("BOTTOMRIGHT", configWindow, "BOTTOMRIGHT", -12, 18) -- lines up with the card panel's right edge
         configWindow.footerBar = footer
 
-        local dot = footer:CreateTexture(nil, "ARTWORK")
-        dot:SetSize(8, 8)
+        local dot = SDB.UI.Dot(footer, 8, 1, 0.6, 0)
         dot:SetPoint("LEFT", footer, "LEFT", 14, 0)
-        dot:SetColorTexture(1, 0.6, 0, 1)
         local check = footer:CreateTexture(nil, "ARTWORK")
         check:SetSize(12, 12)
         check:SetPoint("CENTER", dot, "CENTER", 0, 0)
@@ -4034,6 +4032,9 @@ function SDB.BuildUI()
             elseif menuVal == "Pages" then
                 -- one entry per page of the active profile
                 if SDB.db and SDB.db.pages then
+                    -- these two follow the page list, so they never need rewording when pages move
+                    table.insert(list, { text = "Next Page", val = "!PAGE Forward" })
+                    table.insert(list, { text = "Previous Page", val = "!PAGE Backward" })
                     for pIdx, _ in ipairs(SDB.db.pages) do
                         local pName = SDB.PageName(pIdx)
                         table.insert(list, { text = "Switch to " .. (string.gsub(pName, "|", "||")), val = "!PAGE " .. pIdx })

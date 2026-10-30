@@ -326,9 +326,29 @@ SDB.MOVEMENT_COMMANDS = {
     { text = "Dismount / Leave Vehicle", macro = "/dismount\n/leavevehicle", icon = "Interface\\Vehicles\\UI-Vehicles-Button-Exit-Up" },
 }
 
+-- An icon string may end in SDB.ICON_FLIP: the same file drawn mirrored left to right. SDB.SetIconTexture puts such an
+-- icon on a texture (and resets the texture coordinates for any other icon, so a reused texture never stays mirrored).
+SDB.ICON_FLIP = "|flip"
+function SDB.SetIconTexture(tex, icon)
+    local flip = SDB.ICON_FLIP
+    if type(icon) == "string" and string.sub(icon, -#flip) == flip then
+        tex:SetTexture(string.sub(icon, 1, -#flip - 1))
+        tex:SetTexCoord(1, 0, 0, 1)
+    else
+        tex:SetTexture(icon)
+        tex:SetTexCoord(0, 1, 0, 1)
+    end
+end
+
+-- "Next Page" shows the backward arrow mirrored, so the two icons always point in opposite directions
+SDB.PAGE_NAVIGATION = {
+    { text = "Next Page", macro = "!PAGE Forward", icon = "Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Up" .. SDB.ICON_FLIP },
+    { text = "Previous Page", macro = "!PAGE Backward", icon = "Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Up" },
+}
+
 -- Keep only what this client has, so every menu, the card icons and the reports see the same lists.
 for _, name in ipairs({ "INTERFACE_ELEMENTS", "GROUP_COMMANDS", "SYSTEM_COMMANDS", "SPEC_COMMANDS", "TARGET_ADV_COMMANDS",
-        "MOVEMENT_COMMANDS", "CC_INTERRUPTS", "PARTY_UTILITY", "BROADCASTER_COMMANDS", "TARGET_MARKERS", "WORLD_MARKERS" }) do
+        "MOVEMENT_COMMANDS", "PAGE_NAVIGATION", "CC_INTERRUPTS", "PARTY_UTILITY", "BROADCASTER_COMMANDS", "TARGET_MARKERS", "WORLD_MARKERS" }) do
     SDB[name] = SDB.ForClient(SDB[name])
 end
 for _, cat in ipairs(SDB.EMOTE_CATEGORIES) do cat.emotes = SDB.ForClient(cat.emotes) end

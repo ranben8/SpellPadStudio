@@ -348,10 +348,13 @@ function IP.Analyze(data, mode)
                 macro = macro, flags = {}, kinds = {}, rank = 0 }
 
             local bindAction = string.match(trimmed, "^!BIND%s+(.+)")
-            local pageAction = string.match(trimmed, "^!PAGE%s+(%d+)")
+            local pageAction = SDB.PageCommand(trimmed)
             if bindAction then
                 AddFlag(res, e, "bind", "orange",
                     "Rebinds the key to a game action: " .. Pipes(Cut(strtrim(bindAction), 50)))
+            elseif pageAction and not tonumber(pageAction) then
+                AddFlag(res, e, "page", "info", "Switches to the " .. (pageAction == "forward" and "next" or "previous")
+                    .. " page in the list.")
             elseif pageAction then
                 AddFlag(res, e, "page", "info", "Switches to page " .. pageAction .. ". "
                     .. (mode == "newprofile" and "That is page " .. pageAction .. " of the new profile."
