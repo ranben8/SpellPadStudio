@@ -2298,7 +2298,7 @@ function SDB.BuildUI()
     optionsWindow.fontSlider = SDB.MacroFont.BuildSlider(optionsWindow)
 
     -- Window style dropdown (Skin.lua builds it, account-wide)
-    optionsWindow.styleDropDown = SDB.Skin.BuildDropdown(optionsWindow)
+    optionsWindow.styleSwatches = SDB.Skin.BuildSwatches(optionsWindow)
     optionsWindow.thickCheck = SDB.Skin.BuildThickCheck(optionsWindow)
 
     local minimapToggle = SDB.UI.CheckButton(optionsWindow, "GalleonMinimapToggle", "Show minimap button")

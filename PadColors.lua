@@ -136,12 +136,17 @@ end
 -- Controls
 -- ---------------------------------------------------------------
 PC.rows = {}
-PC.presetButtons = {}
+PC.presetChips = {}
+
+local PRESET_NOTE = "Sets all four colors together. Two presets are made for color blindness."
 
 function PC.RefreshAll()
     for _, row in pairs(PC.rows) do row:Refresh() end
     local name = PC.PresetName()
-    for _, b in ipairs(PC.presetButtons) do b:SetText(name) end
+    for _, c in ipairs(PC.presetChips) do c:SetSelected(c.presetName == name) end
+    if PC.presetNote then
+        PC.presetNote:SetText(name == "Custom" and (PRESET_NOTE .. " Your colors are custom now.") or PRESET_NOTE)
+    end
 end
 
 -- One row of the Colors tab: swatch, name, hex box and Reset (24 high, as wide as its parent allows)
@@ -229,33 +234,42 @@ function PC.Row(parent, kind)
     return row
 end
 
--- The preset dropdown (a button that shows the current preset and opens the list)
-function PC.PresetButton(parent, w)
-    local menu = CreateFrame("Frame", "GalleonPadColorPresetDropDown", parent, "UIDropDownMenuTemplate")
-    local btn = SDB.UI.Dropdown(parent, w, PC.PresetName())
-    UIDropDownMenu_Initialize(menu, function(self, level)
-        local current = PC.PresetName()
-        for _, p in ipairs(PC.PRESETS) do
-            local info = SDB.SafeCreateInfo()
-            info.text = p.name
-            info.checked = (current == p.name)
-            info.func = function()
-                PC.ApplyPreset(p)
-                if CloseDropDownMenus then CloseDropDownMenus() end
-                PC.RefreshAll()
-            end
-            SDB.SafeAddButton(info, level or 1)
-        end
-    end, "MENU")
-    SDB.UI.AttachMenu(btn, menu)
-    btn:HookScript("OnEnter", function(self)
-        SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Color Preset", "control")
-        SDB.Tip.Line("Sets all four colors together. Change any color afterwards and this reads Custom.")
-        SDB.Tip.Done()
-    end)
-    btn:HookScript("OnLeave", function() GameTooltip:Hide() end)
-    PC.presetButtons[#PC.presetButtons + 1] = btn
-    return btn
+-- The presets as chips, two per row, the one the colors add up to outlined in gold (none while they are custom).
+-- `w` is the width of the whole block; returns the block and its height.
+local CHIP_H, CHIP_GAP = 22, 4
+
+function PC.PresetChips(parent, w)
+    local f = CreateFrame("Frame", nil, parent)
+    local cw = math.floor((w - CHIP_GAP) / 2)
+    local rows = math.ceil(#PC.PRESETS / 2)
+    local height = rows * CHIP_H + (rows - 1) * CHIP_GAP
+    f:SetSize(w, height)
+    for i, p in ipairs(PC.PRESETS) do
+        local chip = SDB.UI.ChoiceChip(f, p.name, cw, CHIP_H)
+        local col, row = (i - 1) % 2, math.floor((i - 1) / 2)
+        chip:SetPoint("TOPLEFT", f, "TOPLEFT", col * (cw + CHIP_GAP), -row * (CHIP_H + CHIP_GAP))
+        chip.presetName = p.name
+        chip:SetScript("OnClick", function()
+            if PlaySound then PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856) end
+            PC.ApplyPreset(p)
+            PC.RefreshAll()
+        end)
+        chip:SetScript("OnEnter", function(self)
+            self.sdbHot = true
+            self:Apply(self.look)
+            SDB.Tip.Begin(self, "ANCHOR_RIGHT", p.name, "control")
+            SDB.Tip.Line(p.fill == nil and "Back to the built-in colors." or "Sets all four colors together.")
+            SDB.Tip.Done()
+        end)
+        chip:SetScript("OnLeave", function(self)
+            self.sdbHot = false
+            self:Apply(self.look)
+            GameTooltip:Hide()
+        end)
+        PC.presetChips[#PC.presetChips + 1] = chip
+    end
+    f.height = height
+    return f, height
 end
 
 -- "Flash Background": shows the SpellPad's change glow once, or says why it can't. It works with the

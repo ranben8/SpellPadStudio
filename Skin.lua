@@ -13,7 +13,7 @@ local addonName, SDB = ...
 --       window body: see "Dark text" below. Rows with a transparent background opt in with
 --       `row.sdbOnBody = true`; any frame can opt out of that with `frame.sdbKeepLight = true`.
 --   SDB.Skin.GetStyle() / SetStyle(key) / Label(key) / CheckStyle(key)
---   SDB.Skin.BuildDropdown(parent)          the Options "Window style" dropdown (OptionsUI.lua places it)
+--   SDB.Skin.BuildSwatches(parent)          the Options "Window style" swatches (OptionsUI.lua places them)
 --   SDB.Skin.ThickOn() / SetThick(on) / BuildThickCheck(parent)   the thick border (retail only), see below
 --   SDB.Skin.Slash(arg)                     /sps skin [name]; /sps skin text; /sps skin icons
 -- The setting is one account-wide value, GalleonBridgeDB.windowStyle (not part of a profile, like the
@@ -671,8 +671,7 @@ end
 function S.RefreshAll()
     for _, st in ipairs(windows) do Show(st) end
     RefreshTracked()
-    local dd = S.dropdown
-    if dd and S.SyncDropdown then S.SyncDropdown() end
+    if S.swatches and S.SyncSwatches then S.SyncSwatches() end
 end
 
 function S.SetStyle(key)
@@ -856,54 +855,124 @@ function S.Slash(arg)
 end
 
 -- ---------------------------------------------------------------
--- Options dropdown
+-- Options: Window style swatches
 -- ---------------------------------------------------------------
-local SafeCreateInfo, SafeAddButton = SDB.SafeCreateInfo, SDB.SafeAddButton
+-- One small tile per style, side by side, each showing that style's background, a bar in the color of its frame
+-- and a sample of its text ("Aa", dark on Parchment (Dark)). The chosen tile has a gold outline and a check mark;
+-- the caption under the row names it. Click a tile to switch; hovering one names it.
+local SW_W, SW_H, SW_GAP = 32, 28, 4
+local SW_LINE, SW_LINE_ON = { 0.40, 0.40, 0.43, 1 }, { 1, 0.82, 0, 1 }
+local SW_BAR = { metal = { 0.62, 0.46, 0.20 }, simple = { 0.72, 0.72, 0.76 }, dialog = { 0.50, 0.42, 0.28 } }
+local SW_STREAK = { 0.30, 0.24, 0.16 }
 
-local function MakeDropdown(parent)
-    -- the menu host is never positioned or drawn; the visible control is a U.Dropdown button
-    local dd = CreateFrame("Frame", "GalleonWindowStyleDropDown", parent, "UIDropDownMenuTemplate")
-    local ddButton = SDB.UI.Dropdown(parent, 190, "")
-
-    UIDropDownMenu_Initialize(dd, function(self, level)
-        level = level or 1
-        local current = S.GetStyle()
-        for _, key in ipairs(ORDER) do
-            local ok = S.CheckStyle(key)
-            local info = SafeCreateInfo()
-            info.text = STYLES[key].label .. (ok and "" or " (not available)")
-            info.disabled = not ok
-            info.checked = (current == key)
-            info.func = function()
-                S.SetStyle(key)
-                if CloseDropDownMenus then CloseDropDownMenus() end
-            end
-            SafeAddButton(info, level)
-        end
-    end, "MENU")
-
-    function S.SyncDropdown()
-        ddButton:SetText(S.Label(S.GetStyle()))
-    end
-    S.SyncDropdown()
-
-    SDB.UI.AttachMenu(ddButton, dd)
-    ddButton:HookScript("OnEnter", function(self)
-        SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Window Style", "control")
-        SDB.Tip.Line("Applies the chosen style to all addon windows except for the SpellPad.")
-        SDB.Tip.Done()
-    end)
-    ddButton:HookScript("OnLeave", function() GameTooltip:Hide() end)
-
-    parent:HookScript("OnShow", S.SyncDropdown)
-    S.dropdown = ddButton
-    return ddButton
+local function PaintSwatch(b)
+    local c = b.sdbSel and SW_LINE_ON or SW_LINE
+    if b.sdbHot and not b.sdbSel then c = { 0.70, 0.70, 0.74, 1 } end
+    b:SetBackdropBorderColor(c[1], c[2], c[3], c[4])
+    if b.check then b.check:SetShown(b.sdbSel and true or false) end
 end
 
--- returns the dropdown, or nil if it could not be built (the Options window then leaves its row out)
-function S.BuildDropdown(parent)
-    local ok, dd = pcall(MakeDropdown, parent)
-    if ok and dd then return dd end
+local function MakeSwatch(parent, key, i)
+    local st = STYLES[key]
+    local b = CreateFrame("Button", nil, parent, "BackdropTemplate")
+    b:SetSize(SW_W, SW_H)
+    b:SetPoint("TOPLEFT", parent, "TOPLEFT", (i - 1) * (SW_W + SW_GAP), 0)
+    SDB.UI.FlatBackdrop(b, { 0, 0, 0, 1 }, SW_LINE, SDB.UI.OnePixel(b))
+    b.sdbKeepLight = true
+
+    local bg = b:CreateTexture(nil, "ARTWORK")
+    bg:SetPoint("TOPLEFT", b, "TOPLEFT", 2, -2)
+    bg:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -2, 2)
+    if st.bg == "parchment" then
+        if AtlasInfo(PARCHMENT) then pcall(bg.SetAtlas, bg, PARCHMENT, false) end
+    else
+        bg:SetTexture(BG_FILES[st.bg])
+        if st.tint then bg:SetVertexColor(unpack(st.tint)) end
+    end
+
+    local bar = SW_BAR[st.layout] or SW_BAR.metal
+    local top = b:CreateTexture(nil, "ARTWORK", nil, 1)
+    top:SetPoint("TOPLEFT", bg, "TOPLEFT", 0, 0)
+    top:SetPoint("TOPRIGHT", bg, "TOPRIGHT", 0, 0)
+    top:SetHeight(4)
+    top:SetColorTexture(bar[1], bar[2], bar[3], 1)
+    if st.streaks then
+        local sk = b:CreateTexture(nil, "ARTWORK", nil, 1)
+        sk:SetPoint("TOPLEFT", top, "BOTTOMLEFT", 0, 0)
+        sk:SetPoint("TOPRIGHT", top, "BOTTOMRIGHT", 0, 0)
+        sk:SetHeight(3)
+        sk:SetColorTexture(SW_STREAK[1], SW_STREAK[2], SW_STREAK[3], 0.9)
+    end
+
+    local aa = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    aa:SetPoint("CENTER", b, "CENTER", -2, -2)
+    aa:SetText("Aa")
+    if st.darkText then aa:SetTextColor(0.17, 0.11, 0.04) else aa:SetTextColor(0.95, 0.95, 0.95) end
+
+    -- the selected tile also carries a check mark, so the choice is not colour only
+    if AtlasInfo("common-icon-checkmark") then
+        local ck = b:CreateTexture(nil, "OVERLAY")
+        ck:SetSize(10, 10)
+        ck:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -2, 2)
+        if pcall(ck.SetAtlas, ck, "common-icon-checkmark", false) then
+            ck:Hide()
+            b.check = ck
+        end
+    end
+
+    b.styleKey = key
+    b:SetScript("OnEnter", function(self)
+        self.sdbHot = true
+        PaintSwatch(self)
+        SDB.Tip.Begin(self, "ANCHOR_RIGHT", st.label, "control")
+        if S.CheckStyle(key) then
+            SDB.Tip.Line("Applies to all addon windows except the SpellPad.")
+        else
+            SDB.Tip.Line("This look isn't available on this client.")
+        end
+        SDB.Tip.Done()
+    end)
+    b:SetScript("OnLeave", function(self)
+        self.sdbHot = false
+        PaintSwatch(self)
+        GameTooltip:Hide()
+    end)
+    b:SetScript("OnClick", function(self)
+        if not S.CheckStyle(key) then return end
+        PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+        S.SetStyle(key)
+    end)
+    return b
+end
+
+local function MakeSwatches(parent)
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(#ORDER * SW_W + (#ORDER - 1) * SW_GAP, SW_H)
+    local caption = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    caption:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 0, -6)
+    f.tiles = {}
+    for i, key in ipairs(ORDER) do f.tiles[i] = MakeSwatch(f, key, i) end
+
+    function S.SyncSwatches()
+        local cur = S.GetStyle()
+        for _, b in ipairs(f.tiles) do
+            b.sdbSel = (b.styleKey == cur)
+            b:SetAlpha(S.CheckStyle(b.styleKey) and 1 or 0.35)
+            PaintSwatch(b)
+        end
+        caption:SetText("Window style: " .. S.Label(cur))
+    end
+    f:SetScript("OnShow", S.SyncSwatches)
+    S.SyncSwatches()
+    S.swatches = f
+    return f
+end
+
+-- Returns the row of swatches (about 28 + 19 units high: the tiles and the caption), or nil if it could not be
+-- built (the Options window then leaves the row out).
+function S.BuildSwatches(parent)
+    local ok, f = pcall(MakeSwatches, parent)
+    if ok and f then return f end
 end
 
 -- The saved variables are in when this addon's ADDON_LOADED fires, which is after every file has run.

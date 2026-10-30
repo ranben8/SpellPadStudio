@@ -82,6 +82,14 @@ local function AddRow(g, label, c, w)
     g.cur = g.cur + 30
 end
 
+-- a row of choice tiles with its caption underneath (the Window style swatches): about 28 + 19 units
+local function AddTiles(g, f)
+    if not f then return end
+    Take(g, f)
+    f:SetPoint("TOPLEFT", g, "TOPLEFT", PAD, -g.cur)
+    g.cur = g.cur + f:GetHeight() + 6 + 13 + 10
+end
+
 local function AddButton(g, b, w, h)
     if not b then return end
     Take(g, b)
@@ -291,7 +299,7 @@ end
 local function OptionsBody(win)
     local ctl = {
         opacity = Named("GalleonOpacitySlider"), scale = Named("GalleonScaleSlider"),
-        style = win.styleDropDown, thick = win.thickCheck, lockWin = Named("GalleonLockFramesToggle"),
+        style = win.styleSwatches, thick = win.thickCheck, lockWin = Named("GalleonLockFramesToggle"),
         minimap = Named("GalleonMinimapToggle"), autoHide = Named("GalleonAutoHideToggle"),
         help = Named("GalleonHelpTooltipsToggle"), pageFollow = Named("GalleonPageCardsFollowToggle"),
         font = win.fontSlider, color = Named("GalleonColorTextToggle"),
@@ -305,7 +313,7 @@ local function OptionsBody(win)
         local h1 = Stack(content, 16, COL_W, { { title = "Windows", fill = function(g)
             AddSlider(g, ctl.opacity)
             AddSlider(g, ctl.scale)
-            if ctl.style then AddRow(g, "Window style", ctl.style, 150) end
+            AddTiles(g, ctl.style)
             AddCheck(g, ctl.thick) -- nil on Forever
             AddCheck(g, ctl.lockWin)
         end }, { title = "Key Prefix", fill = BuildPrefixGroup } })
@@ -387,8 +395,11 @@ local function OptionsBody(win)
             or "Type a hex code and press Enter. Opacity is set in the SpellPad tab."
         local h1 = Stack(content, 16, COL_W, {
             { title = "Preset", fill = function(g)
-                AddButton(g, PC.PresetButton(g, 248), 248, 22)
-                AddNote(g, "Sets all four colors together. Two presets are made for color blindness.", 3)
+                local chips, ch = PC.PresetChips(g, 248)
+                Take(g, chips)
+                chips:SetPoint("TOPLEFT", g, "TOPLEFT", PAD, -g.cur)
+                g.cur = g.cur + ch + 8
+                PC.presetNote = AddNote(g, "", 3)
             end },
             { title = "Try It", fill = function(g)
                 local b1 = SDB.UI.Button(g, "secondary", "Flash Background", 140, 24)
@@ -417,6 +428,7 @@ local function OptionsBody(win)
             AddNote(g, pickerNote, 4)
         end } })
         content:HookScript("OnShow", PC.RefreshAll)
+        PC.RefreshAll()
         return math.max(h1, h2)
     end)
 
