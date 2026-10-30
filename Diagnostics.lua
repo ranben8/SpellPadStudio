@@ -2034,3 +2034,197 @@ function D.ContextsSlash(arg)
         for _, l in ipairs(lines) do print(l) end
     end
 end
+
+-- ---------------------------------------------------------------
+-- /sps bars: what sits on the action bars, and what importing it would write
+-- ---------------------------------------------------------------
+-- Read-only. Shows how this client numbers its action slots, which bar frame shows which slots, and for every
+-- filled slot the macro text that a bar import would put on a card.
+
+do
+    local MAX_SLOT = 200
+    local LINE_CAP = 360
+
+    -- { label, button name prefix, bar frame name }
+    local BARS = {
+        { "Main bar", "ActionButton", "MainActionBar" },
+        { "Bottom left", "MultiBarBottomLeftButton", "MultiBarBottomLeft" },
+        { "Bottom right", "MultiBarBottomRightButton", "MultiBarBottomRight" },
+        { "Right", "MultiBarRightButton", "MultiBarRight" },
+        { "Right 2", "MultiBarLeftButton", "MultiBarLeft" },
+        { "Bar 5", "MultiBar5Button", "MultiBar5" },
+        { "Bar 6", "MultiBar6Button", "MultiBar6" },
+        { "Bar 7", "MultiBar7Button", "MultiBar7" },
+        { "Bar 8", "MultiBar8Button", "MultiBar8" },
+        { "Stance", "StanceButton", "StanceBar" },
+        { "Pet", "PetActionButton", "PetActionBar" },
+    }
+
+    local API = {
+        "GetActionInfo", "HasAction", "GetActionText", "GetActionTexture", "GetActionBarPage", "GetBonusBarOffset",
+        "GetBonusBarIndex", "HasBonusActionBar", "HasOverrideActionBar", "HasVehicleActionBar",
+        "HasTempShapeshiftActionBar", "GetMacroInfo", "GetCompanionInfo",
+        "C_ActionBar.GetBonusBarIndex", "C_ActionBar.GetActionBarPage", "C_ActionBar.IsAssistedCombatAction",
+        "C_MountJournal.GetMountInfoByID", "C_EquipmentSet.GetEquipmentSetInfo", "C_PetJournal.GetPetInfoByPetID",
+        "SDB.SpellBrowser.RankedName", "SDB.MountDrop.InfoByID",
+    }
+
+    -- first result of a protected call, or nil
+    local function Call(fn, ...)
+        if type(fn) ~= "function" then return nil end
+        local ok, a, b, c = pcall(fn, ...)
+        if ok then return a, b, c end
+    end
+
+    local function Short(s, n)
+        s = tostring(s)
+        if #s > n then s = string.sub(s, 1, n) .. "..." end
+        return s
+    end
+
+    local function OneLine(s) return (string.gsub(tostring(s), "\r?\n", " / ")) end
+
+    -- "SDB.x.y" is walked from the addon table, anything else from the globals
+    local function Find(path)
+        local sdbPath = string.match(path, "^SDB%.(.+)$")
+        if not sdbPath then return RTWalk(path) end
+        local v = SDB
+        for part in string.gmatch(sdbPath, "[^%.]+") do
+            if type(v) ~= "table" then return nil end
+            v = v[part]
+        end
+        return v
+    end
+
+    function D.Bars(emit)
+        local E = emit
+
+        E("Action bars report for SpellPad Studio.")
+        local version, build, _, interface = GetBuildInfo()
+        E("Client: " .. tostring(SDB.Client and SDB.Client.name or "?") .. ", " .. tostring(version) .. " build "
+            .. tostring(build) .. ", interface " .. tostring(interface))
+        E("In combat: " .. (InCombatLockdown() and "yes (values can be secret)" or "no"))
+
+        E("")
+        E("Functions")
+        local missing = {}
+        for _, name in ipairs(API) do
+            local v = Find(name)
+            if type(v) ~= "function" then missing[#missing + 1] = name end
+        end
+        E("  missing: " .. (#missing > 0 and table.concat(missing, ", ") or "none"))
+
+        E("")
+        E("Page state")
+        RTLive(E, "GetActionBarPage()", GetActionBarPage)
+        RTLive(E, "GetBonusBarOffset()", GetBonusBarOffset)
+        RTLive(E, "GetBonusBarIndex()", GetBonusBarIndex)
+        RTLive(E, "C_ActionBar.GetBonusBarIndex()", C_ActionBar and C_ActionBar.GetBonusBarIndex)
+        RTLive(E, "HasBonusActionBar()", HasBonusActionBar)
+        RTLive(E, "HasOverrideActionBar()", HasOverrideActionBar)
+        RTLive(E, "HasVehicleActionBar()", HasVehicleActionBar)
+        RTLive(E, "HasTempShapeshiftActionBar()", HasTempShapeshiftActionBar)
+
+        -- which bar frame shows which slots right now (the main bar's slots follow the page and the form)
+        E("")
+        E("Bar frames (slot numbers come from each button's own action field)")
+        local owner = {}
+        for _, bar in ipairs(BARS) do
+            local label, prefix, frameName = bar[1], bar[2], bar[3]
+            local frame = _G[frameName] or (label == "Main bar" and _G.MainMenuBar) or nil
+            local count, first, last, shown, firstShown = 0, nil, nil, 0, nil
+            for i = 1, 12 do
+                local b = _G[prefix .. i]
+                if b then
+                    count = count + 1
+                    local a = b.action
+                    if type(a) == "number" and not (issecretvalue and issecretvalue(a)) then
+                        first = first or a
+                        last = a
+                        owner[a] = label
+                    end
+                    local visible = Call(b.IsShown, b)
+                    if visible then shown = shown + 1 end
+                end
+            end
+            local barShown = frame and Call(frame.IsShown, frame)
+            E(string.format("  %-13s buttons %2d, shown %2d, slots %s, bar frame %s (%s)", label, count, shown,
+                first and (first .. " to " .. last) or "-", frame and (barShown and "shown" or "hidden") or "missing", frameName))
+        end
+
+        -- every slot
+        local used, byType, skipped = {}, {}, {}
+        local mismatch = 0
+        for slot = 1, MAX_SLOT do
+            local ok, kind, id, sub = pcall(GetActionInfo, slot)
+            if ok and kind ~= nil then
+                used[#used + 1] = { slot = slot, kind = kind, id = id, sub = sub }
+            end
+            local has = Call(HasAction, slot)
+            if has and not (ok and kind ~= nil) then mismatch = mismatch + 1 end
+        end
+
+        E("")
+        E("Filled slots: " .. #used .. " of " .. MAX_SLOT .. " scanned" .. (mismatch > 0
+            and (" (HasAction says yes for " .. mismatch .. " slots where GetActionInfo had no answer)") or ""))
+
+        local blocks, order = {}, {}
+        for _, u in ipairs(used) do
+            local b = math.ceil(u.slot / 12)
+            if not blocks[b] then blocks[b] = {}; order[#order + 1] = b end
+            blocks[b][#blocks[b] + 1] = u
+        end
+        local lines = 0
+        for _, b in ipairs(order) do
+            E("")
+            E(string.format("Slots %d-%d: %d filled", (b - 1) * 12 + 1, b * 12, #blocks[b]))
+            for _, u in ipairs(blocks[b]) do
+                local kind = tostring(u.kind)
+                byType[kind] = (byType[kind] or 0) + 1
+                local resolve = SDB.BarImport and SDB.BarImport.Resolve
+                    or function() return nil, "the bar import module isn't loaded", "unknown" end
+                local ok, entry, why = pcall(resolve, u.kind, u.id, u.sub)
+                local text, note
+                if not ok then note = "error: " .. RTFirstLine(entry)
+                elseif entry then text, note = entry.text, entry.what
+                else note = why end
+                if not text then skipped[kind] = (skipped[kind] or 0) + 1 end
+                lines = lines + 1
+                if lines <= LINE_CAP then
+                    E(string.format("  slot %3d %-12s id=%s sub=%s [%s]", u.slot, kind, RTDesc(u.id), RTDesc(u.sub), owner[u.slot] or "bar unknown"))
+                    if text then
+                        E("      would write: " .. Short(OneLine(text), 120) .. (note and ("   (" .. note .. ")") or ""))
+                    else
+                        E("      cannot import: " .. tostring(note))
+                    end
+                end
+            end
+        end
+        if lines > LINE_CAP then E("(" .. (lines - LINE_CAP) .. " more filled slots not listed)") end
+
+        E("")
+        E("Summary by type")
+        local kinds = {}
+        for k in pairs(byType) do kinds[#kinds + 1] = k end
+        table.sort(kinds)
+        if #kinds == 0 then E("  nothing on the bars") end
+        for _, k in ipairs(kinds) do
+            E(string.format("  %-14s %3d filled, %3d that an import can't write", k, byType[k], skipped[k] or 0))
+        end
+        E("")
+        E("End of report. Press Ctrl+C in this window and paste the whole text.")
+    end
+
+    -- Opens the report in the copy window without echoing every line to chat (it has a few hundred).
+    function D.BarsSlash()
+        local lines = {}
+        local ok, err = pcall(D.Bars, function(t) lines[#lines + 1] = tostring(t) end)
+        if not ok then lines[#lines + 1] = "The report failed: " .. tostring(err) end
+        if SDB.CopyWindow and SDB.CopyWindow.Show then
+            SDB.CopyWindow.Show("Action Bars Report", table.concat(lines, "\n"))
+            print("|cFFFFFF00[SpellPad Studio]|r Action bars report ready (" .. #lines .. " lines). Press Ctrl+C in the window and paste it.")
+        else
+            for _, l in ipairs(lines) do print(l) end
+        end
+    end
+end

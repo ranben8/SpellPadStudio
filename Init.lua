@@ -1133,6 +1133,11 @@ local function HandleSlash(msg)
         SDB.Diag.CombatSlash(diagArg) -- nothing here builds a window, so it also works in combat
         return
     end
+    diagArg = Sub("bars")
+    if diagArg and SDB.Diag and SDB.Diag.BarsSlash then
+        SDB.Diag.BarsSlash() -- long report: straight to the copy window
+        return
+    end
     diagArg = Sub("contexts")
     if diagArg and SDB.Diag and SDB.Diag.ContextsSlash then
         SDB.Diag.ContextsSlash(diagArg)

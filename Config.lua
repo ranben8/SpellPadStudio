@@ -3890,6 +3890,8 @@ function SDB.BuildUI()
                 run = function() configWindow.OpenProfiles(2) end },
             { text = "Import Game Macros...", tip = "Copies the macros from the game's Macros window onto new pages. Nothing is changed or replaced.",
                 run = function() if SDB.GameMacro then SDB.GameMacro.StartImport() end end, sound = true },
+            { text = "Import Action Bars...", tip = "Copies the spells, items, mounts and macros on your action bars onto new pages. Nothing is changed or replaced.",
+                run = function() if SDB.BarImport then SDB.BarImport.StartImport() end end, sound = true },
             { text = "Setup Guide...", tip = "Walks you through setting up your keypad.",
                 run = function() if SDB.Setup then SDB.Setup.Open() end end, sound = true },
         }
@@ -3915,7 +3917,7 @@ function SDB.BuildUI()
         end)
         toolsBtn:HookScript("OnEnter", function(self)
             SDB.Tip.Begin(self, "ANCHOR_TOP", "Tools")
-            SDB.Tip.Line("Audit, Restore, Import / Export, Import Game Macros and the Setup Guide.")
+            SDB.Tip.Line("Audit, Restore, Import / Export, Import Game Macros, Import Action Bars and the Setup Guide.")
             SDB.Tip.Done()
         end)
         toolsBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)

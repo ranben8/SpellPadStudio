@@ -452,7 +452,7 @@ local function Describe(f)
     local headline, action, button
 
     if data.type == "ALL" then
-        headline = (data.fromGame and "Your game macros"
+        headline = (data.fromGame and (data.fromGame == "bars" and "Your action bars" or "Your game macros")
             or (data.profileName and ("Profile '" .. Pipes(data.profileName) .. "'") or "Profile")) .. ": "
             .. Plural(res.pages, "page") .. ", " .. res.withMacros .. " of "
             .. Plural(res.cards, "card") .. " have macros"
@@ -473,7 +473,10 @@ local function Describe(f)
             local have = #db.pages
             action = COLOR.green .. "Adds|r " .. Plural(res.pages, "page") .. " after your last page (you have "
                 .. have .. ", you will have " .. (have + res.pages) .. "). Nothing is replaced. "
-            if data.fromGame then
+            if data.fromGame == "bars" then
+                action = action .. "Each card holds the action from the same place on a bar, written as a macro; "
+                    .. "your action bars are not changed."
+            elseif data.fromGame then
                 action = action .. "Each card holds a copy of one game macro, named after it; the macros in the game's "
                     .. "Macros window are not changed."
             else
