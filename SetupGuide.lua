@@ -915,7 +915,21 @@ local function Build()
     f.s5 = s5
     s5.note = Text(s5, "GameFontHighlightSmall", PAD_TOP - PAD_H - 10)
     s5.note:SetSpacing(2)
-    f["s" .. FINISH] = StepFrame(f)
+    -- finish screen: an offer to bring over what the player already has in the game
+    local fin = StepFrame(f)
+    f["s" .. FINISH] = fin
+    fin.offerText = fin:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    fin.offerText:SetPoint("BOTTOMLEFT", fin, "BOTTOMLEFT", 20, 122)
+    fin.offerText:SetText("Already have macros or action bars?")
+    fin.offerSub = fin:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    fin.offerSub:SetPoint("TOPLEFT", fin.offerText, "BOTTOMLEFT", 0, -4)
+    fin.offerSub:SetWidth(CW)
+    fin.offerSub:SetJustifyH("LEFT")
+    fin.offerSub:SetText("Copy them onto new pages. Nothing is changed or replaced, and you see a preview first.")
+    fin.macros = SDB.UI.Button(fin, "secondary", "Import Game Macros...", 185, 24)
+    fin.macros:SetScript("OnClick", function() if SDB.GameMacro then SDB.GameMacro.StartImport() end end)
+    fin.bars = SDB.UI.Button(fin, "secondary", "Import Action Bars...", 185, 24)
+    fin.bars:SetScript("OnClick", function() if SDB.BarImport then SDB.BarImport.StartImport() end end)
 
     -- bottom row: one red button per view
     f.leftBtn = SDB.UI.Button(f, "secondary", "Not Now", 100, 26)
@@ -1162,6 +1176,23 @@ function G.Refresh()
             .. "When you type or change a macro yourself, press Save & Apply (or Ctrl+S) to make it live.\n\n"
             .. "Open this guide again any time with /sps setup, from Options > General, or from the game's Settings > AddOns > SpellPad Studio.")
         f.nextBtn:SetText("Done")
+
+        -- the offer only shows what has something behind it
+        local fin = f["s" .. FINISH]
+        local hasMacros = SDB.GameMacro and SDB.GameMacro.HasImportable() or false
+        local hasBars = SDB.BarImport and SDB.BarImport.HasActions() or false
+        fin.offerText:SetShown(hasMacros or hasBars)
+        fin.offerSub:SetShown(hasMacros or hasBars)
+        fin.macros:SetShown(hasMacros)
+        fin.bars:SetShown(hasBars)
+        fin.macros:ClearAllPoints()
+        fin.macros:SetPoint("BOTTOMLEFT", fin, "BOTTOMLEFT", 20, 62)
+        fin.bars:ClearAllPoints()
+        if hasMacros then
+            fin.bars:SetPoint("LEFT", fin.macros, "RIGHT", 10, 0)
+        else
+            fin.bars:SetPoint("BOTTOMLEFT", fin, "BOTTOMLEFT", 20, 62)
+        end
     end
 end
 

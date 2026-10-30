@@ -1,3 +1,32 @@
+# SpellPad Studio 1.4.0 (beta)
+
+Most things now take two clicks. Ready-made macros, your game macros and the new import tools live in one place, and the footer has a Tools menu.
+
+## New
+
+- **The Arsenal has four tabs: Spells, Items, Easy Macros and My Macros.** Easy Macros replaces the old Easy Macros menus (Class, Group & Raid, Emotes, Advanced) with one searchable list, in categories: Class, Group & Raid, Emotes, Advanced, Travel, Interface. Search looks through every category. My Macros lists the macros saved in the game's own Macros window. On both tabs a click puts the macro on the selected card, and you can drag one onto any card or SpellPad button. The card is left waiting for Save & Apply, and a snapshot is taken first.
+- **A + button on every empty card.** It selects the card and opens the Arsenal on the Easy Macros tab.
+- **A Tools menu in the footer** next to Save & Apply: Audit, Restore, Import / Export, Import Game Macros, Import Action Bars and the Setup Guide.
+- **Import Game Macros.** Copies the macros from the game's Macros window onto new pages, named after each macro. Nothing is replaced: you see the Import Preview first.
+- **Import Action Bars.** Copies the spells, items, mounts and macros on your action bars onto new pages, slot for slot, so button 5 of a bar becomes card 5. Flyouts, the Single-Button Assistant and the stance and vehicle bars are skipped, and the preview says how many. `/sps bars` shows what the import would write.
+- **Offers when you start.** On a page with no macros the footer offers the Setup Guide and, when the game has something to bring over, the two imports. The Setup Guide's finish screen offers them too. Nothing is shown when there is nothing to import.
+- **Click "N changes not applied" in the footer** to see which cards, then click one to go to it.
+- **Context icons in the Pages list.** A page that switches by itself shows a small icon for its context (a sword for In Combat, a horse for Mounted, and so on). The icon is dimmed while contextual page switching is off.
+- **Edit in Builder** in the SpellPad's right-click menu opens SpellPad Builder for that button's card. It works with the main window closed.
+- **Window style and Colors presets are now clickable tiles and chips** instead of drop-down lists: one click from Options.
+- **The Arsenal button is a pin.** Click it and the Arsenal stays open and comes back after Audit or SpellPad Builder closes.
+
+## Changes
+
+- **"Spell Browser" is now the Arsenal.** The sidebar heading "Actions" is now "Workshop", and the separate Easy Macros sidebar button is gone: use the Arsenal or the + on an empty card.
+- **An Easy Macros insert no longer applies at once.** Like typing, the Arsenal and SpellPad Builder, it leaves the card waiting for Save & Apply.
+- **SpellPad Builder no longer moves the Arsenal.** The Arsenal always sits at the left of the main window.
+- The footer hint on an empty page reads "No macros on this page yet."
+
+## Known issues
+
+- Forever: these changes haven't been re-tested there since Forever's beta went offline. They will be checked again at Forever's launch.
+
 # SpellPad Studio 1.3.0
 
 ## New

@@ -724,6 +724,21 @@ function G.BuildImport()
     return data, skipped.n
 end
 
+-- true when at least one game macro has text, so an offer to import them has something behind it
+function G.HasImportable()
+    local nGen, nChar = G.Counts()
+    if not nGen then return false end
+    local base = G.CharBase()
+    local function Any(first, last)
+        for i = first, last do
+            local name, _, body = ReadMacro(i)
+            if name and strtrim(tostring(body or "")) ~= "" then return true end
+        end
+        return false
+    end
+    return Any(1, nGen) or Any(base + 1, base + nChar)
+end
+
 -- opens the Import Preview for the game's macros
 function G.StartImport()
     if InCombatLockdown() then

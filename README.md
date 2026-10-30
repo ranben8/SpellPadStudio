@@ -35,13 +35,16 @@ SpellPad Studio is a second set of action bars that lives inside the addon.
 **Build macros**
 - Ready-made macros for your class, travel and teleports, target markers, world markers, group tools and emotes. (Forever also has consumable and raid-prep sets.)
 - Macro text is colored and flags mistakes as you type. It suggests spell names too.
-- Arsenal: click or drag a spell or item you know onto a card.
+- Arsenal: click or drag a spell or item you know onto a card, or pick a ready-made macro or one of your game macros on its Easy Macros and My Macros tabs.
 - SpellPad Builder: build a macro by clicking and dragging, with conditions like mouseover, focus and modifier keys.
 
 **The SpellPad (on-screen buttons)**
 - A copy of your macro pad on screen. Set its size and shape to match your device.
 - Icons work like a normal action bar: cooldowns, charges, counts, range and procs.
 - Click a button to run its macro.
+
+**Bring in what you already have**
+- Import Game Macros and Import Action Bars (footer > Tools) copy them onto new pages. Nothing is replaced, and you see a preview first.
 
 **Stay safe**
 - Snapshots: go back to how a page looked before a change.

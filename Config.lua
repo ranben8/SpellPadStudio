@@ -3763,14 +3763,52 @@ function SDB.BuildUI()
         pendBtn:GetHighlightTexture():SetVertexColor(1, 1, 1, 0.08)
         pendBtn:Hide()
 
-        -- on a page with no macros at all the footer points at the setup guide instead
-        local guideBtn = SDB.UI.Button(footer, "secondary", "Setup Guide...", 120, 22)
-        guideBtn:SetPoint("LEFT", status, "RIGHT", 10, 0)
-        guideBtn:SetScript("OnClick", function()
-            PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPEN or 850)
-            if SDB.Setup then SDB.Setup.Open() end
-        end)
-        guideBtn:Hide()
+        -- On a page with no macros at all the footer offers the setup guide and, when the game holds something
+        -- to bring over, the two imports. Each button only shows when it has something behind it.
+        local offers = {}
+        local function OfferButton(text, width, tipTitle, tip, run)
+            local b = SDB.UI.Button(footer, "secondary", text, width, 22)
+            b:SetScript("OnClick", function()
+                PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPEN or 850)
+                run()
+            end)
+            b:HookScript("OnEnter", function(self)
+                SDB.Tip.Begin(self, "ANCHOR_TOP", tipTitle)
+                SDB.Tip.Line(tip)
+                SDB.Tip.Done()
+            end)
+            b:HookScript("OnLeave", function() GameTooltip:Hide() end)
+            b:Hide()
+            offers[#offers + 1] = b
+            return b
+        end
+        local guideBtn = OfferButton("Setup Guide...", 100, "Setup Guide", "Walks you through setting up your keypad.",
+            function() if SDB.Setup then SDB.Setup.Open() end end)
+        local macrosBtn = OfferButton("Import Macros...", 108, "Import Game Macros",
+            "Copies the macros from the game's Macros window onto new pages. Nothing is changed or replaced.",
+            function() if SDB.GameMacro then SDB.GameMacro.StartImport() end end)
+        local barsBtn = OfferButton("Import Bars...", 100, "Import Action Bars",
+            "Copies the spells, items, mounts and macros on your action bars onto new pages. Nothing is changed or replaced.",
+            function() if SDB.BarImport then SDB.BarImport.StartImport() end end)
+
+        -- lays the offers that apply side by side after the status text
+        local function ShowOffers()
+            local show = { guideBtn }
+            if SDB.GameMacro and SDB.GameMacro.HasImportable() then show[#show + 1] = macrosBtn end
+            if SDB.BarImport and SDB.BarImport.HasActions() then show[#show + 1] = barsBtn end
+            local prev
+            for _, b in ipairs(offers) do b:Hide() end
+            for _, b in ipairs(show) do
+                b:ClearAllPoints()
+                if prev then
+                    b:SetPoint("LEFT", prev, "RIGHT", 6, 0)
+                else
+                    b:SetPoint("LEFT", status, "RIGHT", 10, 0)
+                end
+                b:Show()
+                prev = b
+            end
+        end
 
         local function PageIsEmpty()
             local page = SDB.db and SDB.db.pages and SDB.db.pages[SDB.db.activePage or 1]
@@ -3785,7 +3823,7 @@ function SDB.BuildUI()
         -- also follows page changes)
         function configWindow.UpdateFooterStatus()
             local n = (SDB.Pending and SDB.Pending.count) or 0
-            guideBtn:Hide()
+            for _, b in ipairs(offers) do b:Hide() end
             pendBtn:Hide()
             if n > 0 then
                 dot:Show()
@@ -3796,8 +3834,8 @@ function SDB.BuildUI()
             elseif PageIsEmpty() then
                 dot:Hide()
                 check:Hide()
-                status:SetText("|cFF888888This page has no macros yet. New here?|r")
-                guideBtn:Show()
+                status:SetText("|cFF888888No macros on this page yet.|r")
+                ShowOffers()
             else
                 dot:Hide()
                 check:Show()

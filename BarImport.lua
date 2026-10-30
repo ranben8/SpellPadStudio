@@ -172,6 +172,22 @@ local function ReadBar(bar, skipped)
     return entries, filled
 end
 
+-- true when at least one bar slot holds something the import can write, so an offer has something behind it
+function B.HasActions()
+    if type(GetActionInfo) ~= "function" then return false end
+    for _, bar in ipairs(B.BARS) do
+        local first = FirstSlot(bar)
+        for i = 1, BAR_SLOTS do
+            local ok, kind, id, sub = pcall(GetActionInfo, first + i - 1)
+            if ok and kind ~= nil then
+                local rok, entry = pcall(B.Resolve, kind, id, sub)
+                if rok and entry then return true end
+            end
+        end
+    end
+    return false
+end
+
 -- Builds the import data, or nil and a reason; the second result is the list of notes for the preview.
 function B.Build()
     if type(GetActionInfo) ~= "function" then return nil, "This client has no action bar functions." end
