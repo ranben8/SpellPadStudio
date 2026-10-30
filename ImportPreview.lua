@@ -452,7 +452,8 @@ local function Describe(f)
     local headline, action, button
 
     if data.type == "ALL" then
-        headline = (data.profileName and ("Profile '" .. Pipes(data.profileName) .. "'") or "Profile") .. ": "
+        headline = (data.fromGame and "Your game macros"
+            or (data.profileName and ("Profile '" .. Pipes(data.profileName) .. "'") or "Profile")) .. ": "
             .. Plural(res.pages, "page") .. ", " .. res.withMacros .. " of "
             .. Plural(res.cards, "card") .. " have macros"
         if f.mode == "newprofile" then
@@ -471,8 +472,13 @@ local function Describe(f)
         else
             local have = #db.pages
             action = COLOR.green .. "Adds|r " .. Plural(res.pages, "page") .. " after your last page (you have "
-                .. have .. ", you will have " .. (have + res.pages) .. "). Nothing is replaced. Their names get "
-                .. "' (Import)' added, and any !PAGE card uses your page numbers."
+                .. have .. ", you will have " .. (have + res.pages) .. "). Nothing is replaced. "
+            if data.fromGame then
+                action = action .. "Each card holds a copy of one game macro, named after it; the macros in the game's "
+                    .. "Macros window are not changed."
+            else
+                action = action .. "Their names get ' (Import)' added, and any !PAGE card uses your page numbers."
+            end
             button = "Add Pages"
         end
     else

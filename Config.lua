@@ -525,14 +525,17 @@ function SDB.ApplyImportData(data, asNewPage)
             print("|cFF00FF00[SpellPad Studio]|r Page " .. curP .. " overwritten by the import.")
         end
     elseif data.type == "ALL" and asNewPage then
+        local firstNew = #SDB.db.pages + 1
         for i, pSlots in ipairs(data.pages) do
             local nextIdx = #SDB.db.pages + 1
             table.insert(SDB.db.pages, pSlots)
             local pName = (data.pageNames and data.pageNames[i]) or ("Imported Page " .. i)
-            SDB.db.pageNames[nextIdx] = pName .. " (Import)"
+            SDB.db.pageNames[nextIdx] = data.fromGame and pName or (pName .. " (Import)")
         end
-        SDB.db.activePage = #SDB.db.pages
-        SDB.manualPage = #SDB.db.pages
+        -- game macros land on their first page; a string import ends on its last
+        local landOn = data.fromGame and firstNew or #SDB.db.pages
+        SDB.db.activePage = landOn
+        SDB.manualPage = landOn
         print("|cFF00FF00[SpellPad Studio]|r Added " .. #data.pages .. (#data.pages == 1 and " page" or " pages") .. " from the import.")
     end
 
@@ -3885,6 +3888,8 @@ function SDB.BuildUI()
                 run = function() if SDB.Snapshots then SDB.Snapshots.Open() end end, sound = true },
             { text = "Import / Export...", tip = "Share pages and profiles as text strings.",
                 run = function() configWindow.OpenProfiles(2) end },
+            { text = "Import Game Macros...", tip = "Copies the macros from the game's Macros window onto new pages. Nothing is changed or replaced.",
+                run = function() if SDB.GameMacro then SDB.GameMacro.StartImport() end end, sound = true },
             { text = "Setup Guide...", tip = "Walks you through setting up your keypad.",
                 run = function() if SDB.Setup then SDB.Setup.Open() end end, sound = true },
         }
@@ -3910,7 +3915,7 @@ function SDB.BuildUI()
         end)
         toolsBtn:HookScript("OnEnter", function(self)
             SDB.Tip.Begin(self, "ANCHOR_TOP", "Tools")
-            SDB.Tip.Line("Audit, Restore, Import / Export and the Setup Guide.")
+            SDB.Tip.Line("Audit, Restore, Import / Export, Import Game Macros and the Setup Guide.")
             SDB.Tip.Done()
         end)
         toolsBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)

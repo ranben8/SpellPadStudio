@@ -643,6 +643,112 @@ function G.Open(page, slotIndex)
 end
 
 -- ---------------------------------------------------------------
+-- Import the game's macros as pages (Tools > Import Game Macros...)
+-- ---------------------------------------------------------------
+-- Reads the Macros window (general macros first, then this character's) and lays them out as new pages of
+-- the profile's cards-per-page size, in the game's order: macro 1 is card 1. The result goes through the
+-- Import Preview as an "add pages" import, so it is validated, flagged and confirmed like any other import;
+-- the game's macros are only read.
+local function HasShowLine(body)
+    for line in string.gmatch(body, "[^\n]+") do
+        if string.find(string.lower(line), "^%s*#show") then return true end
+    end
+    return false
+end
+
+-- { { name, icon, body }, ... } for one list; empty macros are counted in `skipped`
+local function ReadRange(first, last, out, skipped)
+    for i = first, last do
+        local name, icon, body = ReadMacro(i)
+        if name then
+            body = tostring(body or "")
+            body = string.gsub(body, "\r\n", "\n")
+            body = string.gsub(body, "\r", "\n")
+            if strtrim(body) == "" then
+                skipped.n = skipped.n + 1
+            else
+                out[#out + 1] = { name = tostring(name), icon = icon, body = body }
+            end
+        end
+    end
+end
+
+-- Builds the import data, or nil and a reason. The data is shaped like a profile string's contents; the caller
+-- runs it through SDB.ImportPreview.Validate.
+function G.BuildImport()
+    if type(GetNumMacros) ~= "function" or type(GetMacroInfo) ~= "function" then
+        return nil, "This client has no macro functions."
+    end
+    local nGen, nChar = G.Counts()
+    if not nGen then return nil, "Couldn't read the game's macro list." end
+
+    local skipped = { n = 0 }
+    local general, character = {}, {}
+    ReadRange(1, nGen, general, skipped)
+    local base = G.CharBase()
+    ReadRange(base + 1, base + nChar, character, skipped)
+    if #general + #character == 0 then
+        return nil, "You have no game macros with text to import."
+    end
+
+    local size = tonumber(SDB.db and SDB.db.deckSize) or SDB.DEFAULT_CARDS or 15
+    size = math.max(SDB.MIN_CARDS or 4, math.min(SDB.MAX_CARDS or 36, math.floor(size)))
+    -- keys follow the prefix mode: a Global prefix gives the pages keys, Per Page leaves them blank
+    local prefix = (SDB.NewPagePrefix and SDB.NewPagePrefix()) or ""
+
+    local data = { type = "ALL", pages = {}, pageNames = {}, pageCols = {}, deckSize = size }
+    local function AddPages(list, label)
+        local count = math.ceil(#list / size)
+        for n = 1, count do
+            local deck = SDB.CreateBlankDeck(0, prefix, size)
+            local cols = deck.cols
+            deck.cols = nil -- the shape travels in pageCols
+            for i = 1, size do
+                local m = list[(n - 1) * size + i]
+                if m then
+                    local card = deck[i]
+                    card.macro = m.body
+                    card.matrixText = (string.gsub(m.name, "|", ""))
+                    -- a "?" icon, or any icon under #showtooltip, is the game choosing the picture itself
+                    if not IsQuestion(m.icon) and not HasShowLine(m.body) then card.icon = m.icon end
+                end
+            end
+            local p = #data.pages + 1
+            data.pages[p] = deck
+            data.pageCols[p] = cols
+            data.pageNames[p] = "Macros (" .. label .. ")" .. (count > 1 and (" " .. n) or "")
+        end
+    end
+    AddPages(general, "General")
+    AddPages(character, "Character")
+    return data, skipped.n
+end
+
+-- opens the Import Preview for the game's macros
+function G.StartImport()
+    if InCombatLockdown() then
+        Chat("Can't import in combat.", true)
+        return
+    end
+    if not (SDB.ImportPreview and SDB.db) then return end
+    local data, extra = G.BuildImport()
+    if not data then
+        Chat(extra, extra == "You have no game macros with text to import." and "warn" or true)
+        return
+    end
+    local clean, err = SDB.ImportPreview.Validate(data)
+    if not clean then
+        Chat(err or "Couldn't read the game's macros.", true)
+        return
+    end
+    clean.fromGame = true -- Validate drops unknown fields, so only this code can set it: exact page names
+    if extra > 0 then
+        clean.notes[#clean.notes + 1] = SDB.Plural(extra, "game macro") .. " with no text skipped"
+    end
+    SDB.ImportPreview.Open(clean, "addpages")
+end
+
+-- ---------------------------------------------------------------
 -- /sps macros   (and /sps macros list)
 -- ---------------------------------------------------------------
 function G.Report(emit, arg)
