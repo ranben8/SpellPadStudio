@@ -499,6 +499,10 @@ function SDB.GoToMainPage()
     end
 end
 
+-- On a flying mount (or a swimming one) Mounted is true as well. When several rules are active at once and none has
+-- the override box ticked, the more specific context wins over the general one instead of the lower page number.
+local CONTEXT_RANK = { FLYING = 2, SWIMMING = 2 }
+
 function SDB.EvaluateContextState()
     -- Keep the fallback page valid (pages can be deleted or the profile switched)
     local pageCount = SDB.db and SDB.db.pages and #SDB.db.pages or 0
@@ -517,10 +521,12 @@ function SDB.EvaluateContextState()
     local bestPage = nil
     local bestCycle = nil -- the winning rule's cycle name, nil for a page's own rule
     local bestTrigger = nil
+    local bestRank = 0
     local hasPriority = false
 
     -- Candidates are pages with a rule of their own and named cycles with a context (a cycle counts once, at its
-    -- first page). The first one with the override box ticked wins, else the one whose first page is lowest.
+    -- first page). The first one with the override box ticked wins, else the most specific context (CONTEXT_RANK),
+    -- and among equals the one whose first page is lowest.
     local totalPages = SDB.db and SDB.db.pages and #SDB.db.pages or 0
     local seenCycle = {}
     for p = 1, totalPages do
@@ -541,8 +547,9 @@ function SDB.EvaluateContextState()
                 bestPage, bestCycle, bestTrigger = p, name, trigger
                 hasPriority = true
                 break
-            elseif not bestPage then
+            elseif (CONTEXT_RANK[trigger] or 1) > bestRank then
                 bestPage, bestCycle, bestTrigger = p, name, trigger
+                bestRank = CONTEXT_RANK[trigger] or 1
             end
         end
     end
