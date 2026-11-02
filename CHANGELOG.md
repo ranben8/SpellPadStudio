@@ -1,3 +1,24 @@
+# SpellPad Studio 1.4.5 (beta)
+
+Pages can now live in folders, and a folder can switch by itself when its context starts.
+
+## New
+
+- **Page folders.** A folder is a named set of pages. In Page Options, "Page folder" puts the page in a folder (Default, a folder you have made, or None to skip it) or makes a new one. The Pages list always shows its folders as headers, with the page count and, if the folder has a context, its icon. Pages in a folder get a thin gold bar on their left edge.
+- **`!PAGE Forward` and `!PAGE Backward` stay inside the folder** of the page you are on, and wrap around at the ends. Pages set to None are skipped. Pages that have a context of their own step through the pages that share that context.
+- **A folder can have a context.** When it starts (you mount, enter a dungeon, the fight begins) the folder's first page is shown, and while it holds, Forward and Backward move inside it without snapping back. Choose the context in Page Options (it then applies to the whole folder) or right-click the folder's header in the Pages list: the menu has Rename Folder and the same context list, one click each. A folder with the context In Combat only ever shows its first page, because pages can't change during a fight.
+- **Drag pages between folders.** Drag a page in the Pages list: drop it between two pages of a folder to join it at that spot, on a folder's header (or just under its last page) to be its first (or last) page, on the Default header to leave the folder, on the Skipped header to skip it. The ghost reads, for example, "Heal to Mounted, position 3". Moves the page can't make (a page with a context of its own onto Default) turn the ghost grey and do nothing.
+- **Pages with a context of their own group together.** Pages that share the same context sit side by side under "Context pages". The first time you change a folder or a context, the whole list is tidied this way, after a snapshot (Restore can undo it) and with a chat line saying so; `!PAGE n` cards follow their pages.
+
+## Changes
+
+- **Context rules now belong to the profile.** Before, a character's context rules were shared by every profile it used, so a new profile showed the context icons of the page numbers in your old one. Rules are now stored per character, specialization and profile; a new profile starts with none. If you used more than one profile, only the profile in use when you first load this version keeps your existing rules.
+- **Flying and Swimming win over Mounted.** On a flying mount both Mounted and Flying are true, and the page with the lowest number used to win, so a Mounted page ahead of your Flying page stayed on screen after lift-off. The more specific context now wins; other pairs of contexts still go to the lower page. "Enable context override" still beats everything.
+
+## Known issues
+
+- Forever: these changes haven't been re-tested there since Forever's beta went offline. They will be checked again at Forever's launch.
+
 # SpellPad Studio 1.4.0
 
 Most things now take two clicks. Ready-made macros, your game macros and the new import tools live in one place, and the footer has a Tools menu.
