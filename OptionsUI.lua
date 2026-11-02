@@ -80,6 +80,7 @@ local function AddRow(g, label, c, w)
     c:SetWidth(w)
     c:SetPoint("TOPRIGHT", g, "TOPRIGHT", -PAD, -g.cur)
     g.cur = g.cur + 30
+    return fs
 end
 
 -- a row of choice tiles with its caption underneath (the Window style swatches): about 28 + 19 units
@@ -555,17 +556,36 @@ local function PageOptionsBody(win)
     local h2 = Finish(g2)
     y = y + h2 + GAP
 
-    -- 3. context switching
+    -- 3. page cycle: the pages !PAGE Forward / Backward walk; the text under the dropdown follows the page
     local g3 = Group(root, 16, y, gw, nil)
-    local lab3 = g3:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    lab3:SetPoint("TOPLEFT", g3, "TOPLEFT", PAD, -12)
-    lab3:SetText("Context switching")
+    local labC = g3:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    labC:SetPoint("TOPLEFT", g3, "TOPLEFT", PAD, -12)
+    labC:SetText("Page cycle")
     g3.cur = 30
-    AddCheck(g3, Named("GalleonPageLogicAutoSwitch"))
-    AddRow(g3, "This page is used when", win.ctxBtn, 120)
-    AddCheck(g3, Named("GalleonPageLogicPrio"))
-    local h3 = Finish(g3)
-    y = y + h3
+    AddRow(g3, "This page is in", win.cycleBtn, 150)
+    local info = g3:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    info:SetPoint("TOPLEFT", g3, "TOPLEFT", PAD, -g3.cur)
+    info:SetWidth(g3.w - 2 * PAD)
+    info:SetHeight(52) -- four lines: the explanation and, for an In Combat cycle, the warning
+    info:SetJustifyH("LEFT")
+    info:SetJustifyV("TOP")
+    win.cycleInfo = info
+    g3.cur = g3.cur + 52 + 8
+    local hC = Finish(g3)
+    y = y + hC + GAP
+
+    -- 4. context switching (for a page in a named cycle these act on the whole cycle)
+    local g4 = Group(root, 16, y, gw, nil)
+    local lab4 = g4:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    lab4:SetPoint("TOPLEFT", g4, "TOPLEFT", PAD, -12)
+    lab4:SetText("Context switching")
+    win.ctxGroupLabel = lab4
+    g4.cur = 30
+    AddCheck(g4, Named("GalleonPageLogicAutoSwitch"))
+    win.ctxRowLabel = AddRow(g4, "This page is used when", win.ctxBtn, 120)
+    AddCheck(g4, Named("GalleonPageLogicPrio"))
+    local h4 = Finish(g4)
+    y = y + h4
 
     win:SetHeight(top + y + BOTTOM)
 
@@ -577,6 +597,7 @@ local function PageOptionsBody(win)
     end
     win.RefreshPageName = ShowName
     win:HookScript("OnShow", ShowName)
+    if win.RefreshContextUI then win.RefreshContextUI() end -- the cycle text needs the controls that were just placed
     local watch = CreateFrame("Frame", nil, win)
     local acc = 0
     watch:SetScript("OnUpdate", function(_, elapsed)

@@ -584,27 +584,89 @@ function SDB.GetActiveSpecID()
     return 1
 end
 
+-- Context rules (page contexts, cycle contexts, the master switch) belong to a character and specialization AND to a
+-- profile: their page numbers mean a different page in every profile. contextRules[specKey].profiles[profileName]
+-- holds them and SDB.ctx points at the set in use. Rules saved before this applied to every profile the character
+-- used: the first time they are read they go to the profile in use, and every other profile starts with none.
+local CONTEXT_TABLES = { "pageContexts", "pagePriorities", "cycleContexts", "cyclePriorities" }
+
+local function NewContextSet(from)
+    from = from or {}
+    local set = { autoSwitchContext = from.autoSwitchContext or false }
+    for _, key in ipairs(CONTEXT_TABLES) do
+        set[key] = type(from[key]) == "table" and from[key] or {}
+    end
+    return set
+end
+
+local function SelectContextRules(specKey, profileName)
+    local all = GalleonBridgeDB.contextRules
+    local box = all[specKey]
+    if type(box) ~= "table" then
+        box = {}
+        all[specKey] = box
+    end
+    if type(box.profiles) ~= "table" then box.profiles = {} end
+    if not box.migrated then
+        box.migrated = true
+        if box.autoSwitchContext ~= nil or box.pageContexts ~= nil or box.cycleContexts ~= nil then
+            if not box.profiles[profileName] then box.profiles[profileName] = NewContextSet(box) end
+        end
+        box.autoSwitchContext = nil
+        for _, key in ipairs(CONTEXT_TABLES) do box[key] = nil end
+    end
+    local set = box.profiles[profileName]
+    if type(set) ~= "table" then
+        set = NewContextSet()
+        box.profiles[profileName] = set
+    else
+        for _, key in ipairs(CONTEXT_TABLES) do
+            if type(set[key]) ~= "table" then set[key] = {} end
+        end
+    end
+    SDB.ctx = set
+end
+
+-- Runs fn(rules) for the context rules of profile `profileName` of every character and specialization.
+function SDB.EachContextSet(profileName, fn)
+    local all = GalleonBridgeDB and GalleonBridgeDB.contextRules
+    if type(all) ~= "table" then return end
+    for _, box in pairs(all) do
+        local set = type(box) == "table" and type(box.profiles) == "table" and box.profiles[profileName]
+        if type(set) == "table" then fn(set) end
+    end
+end
+
+-- A deleted or reset profile takes its context rules with it, so a profile created later with the same name starts clean.
+function SDB.DropProfileContexts(profileName)
+    local all = GalleonBridgeDB and GalleonBridgeDB.contextRules
+    if type(all) ~= "table" then return end
+    for _, box in pairs(all) do
+        if type(box) == "table" and type(box.profiles) == "table" then box.profiles[profileName] = nil end
+    end
+end
+
+function SDB.RenameProfileContexts(old, new)
+    local all = GalleonBridgeDB and GalleonBridgeDB.contextRules
+    if type(all) ~= "table" then return end
+    for _, box in pairs(all) do
+        if type(box) == "table" and type(box.profiles) == "table" and box.profiles[old] ~= nil then
+            box.profiles[new] = box.profiles[old]
+            box.profiles[old] = nil
+        end
+    end
+end
+
 function SDB.LoadActiveProfile()
     local pKey = SDB.GetPlayerKey()
     local specID = SDB.GetActiveSpecID()
     local specKey = pKey .. "-Spec" .. tostring(specID)
 
-    -- Decouple Context Rules from profiles so they are purely Character/Spec specific
-    if not GalleonBridgeDB.contextRules[specKey] then
-        -- Fallback migration: Grab from 'Default' profile if legacy data exists
-        local fallback = GalleonBridgeDB.profiles["Default"] or {}
-        GalleonBridgeDB.contextRules[specKey] = {
-            autoSwitchContext = fallback.autoSwitchContext or false,
-            pageContexts = fallback.pageContexts or {},
-            pagePriorities = fallback.pagePriorities or {}
-        }
-    end
-    SDB.ctx = GalleonBridgeDB.contextRules[specKey]
-
     if GalleonBridgeDB.accountSync then
         if not GalleonBridgeDB.profiles["Global"] then
             GalleonBridgeDB.profiles["Global"] = SDB.GetDefaultProfile()
         end
+        SelectContextRules(specKey, "Global")
         SDB.currentProfileName = "Global"
         SDB.db = GalleonBridgeDB.profiles["Global"]
         SDB.AttachOptions(SDB.db)
@@ -624,6 +686,7 @@ function SDB.LoadActiveProfile()
         GalleonBridgeDB.charProfiles[pKey] = "Default"
     end
 
+    SelectContextRules(specKey, targetProfile)
     SDB.currentProfileName = targetProfile
     SDB.db = GalleonBridgeDB.profiles[targetProfile]
     SDB.AttachOptions(SDB.db)
@@ -986,7 +1049,7 @@ SDB.bridgeFrame:SetScript("OnEvent", function(self, event, arg1)
         if not SDB.manualPageSeeded and SDB.db then
             SDB.manualPageSeeded = true
             local ap = SDB.db.activePage
-            local rule = SDB.ctx and SDB.ctx.pageContexts and ap and SDB.ctx.pageContexts[ap]
+            local rule = SDB.PageRule and ap and SDB.PageRule(ap)
             if ap and not rule and SDB.db.pages and SDB.db.pages[ap] then SDB.manualPage = ap end
         end
         if SDB.EvaluateContextState then SDB.EvaluateContextState() end

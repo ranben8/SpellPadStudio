@@ -48,10 +48,10 @@ local POLLED_CONTEXTS = {
 }
 
 local function PageUsesPolledContext()
-    local rules = SDB.ctx and SDB.ctx.pageContexts
-    if not rules then return false end
-    for _, trigger in pairs(rules) do
-        if POLLED_CONTEXTS[trigger] then return true end
+    for _, rules in ipairs({ SDB.ctx and SDB.ctx.pageContexts or {}, SDB.ctx and SDB.ctx.cycleContexts or {} }) do
+        for _, trigger in pairs(rules) do
+            if POLLED_CONTEXTS[trigger] then return true end
+        end
     end
     return false
 end
@@ -169,8 +169,10 @@ end
 -- Puts the context glyph on a Pages list row (btn:SetContext, UI.lua). Dimmed while contextual page switching is off,
 -- because the rule does nothing then. Returns whether the page has a rule.
 function SDB.PaintPageContext(btn, p)
+    -- a page in a named cycle has no glyph of its own: the cycle's header shows the context
     local rules = SDB.ctx and SDB.ctx.pageContexts
-    local name, icon = SDB.ContextInfo(rules and rules[p])
+    local name, icon
+    if not SDB.PageCycle(p) then name, icon = SDB.ContextInfo(rules and rules[p]) end
     btn.sdbContextName = name
     btn.sdbContextOn = (SDB.ctx and SDB.ctx.autoSwitchContext) and true or false
     btn:SetContext(icon, btn.sdbContextOn)
@@ -180,12 +182,261 @@ end
 -- The first page set to the "In Combat" context while contextual page switching is on, or nil. Used by the
 -- combat-start hook (Init.lua) and /sps page.
 function SDB.CombatPageRule()
-    if not SDB.ctx or not SDB.ctx.autoSwitchContext or not SDB.ctx.pageContexts then return nil end
+    if not SDB.ctx or not SDB.ctx.autoSwitchContext then return nil end
     local totalPages = SDB.db and SDB.db.pages and #SDB.db.pages or 0
+    local seen = {}
     for p = 1, totalPages do
-        if SDB.ctx.pageContexts[p] == "COMBAT" then return p end
+        local name = SDB.PageCycle(p)
+        if name then
+            -- a cycle set to In Combat shows its first page at the pull
+            if not seen[name] then
+                seen[name] = true
+                if SDB.ctx.cycleContexts and SDB.ctx.cycleContexts[name] == "COMBAT" then return p end
+            end
+        elseif SDB.ctx.pageContexts and SDB.ctx.pageContexts[p] == "COMBAT" then
+            return p
+        end
     end
     return nil
+end
+
+-- -------------------------------------------------------------
+-- Page cycles
+-- -------------------------------------------------------------
+-- A cycle is a named set of pages: page.cycle holds the name, a page without one is in the Default cycle, and
+-- page.noCycle skips the page from !PAGE Forward / Backward. A named cycle can have one context rule
+-- (SDB.ctx.cycleContexts / cyclePriorities), keyed by the cycle's NAME so moving pages never renumbers it. A page that
+-- has its own rule and no cycle name stays a cycle of one for the context engine.
+local function PageTable(p)
+    local pg = SDB.db and SDB.db.pages and SDB.db.pages[p]
+    return type(pg) == "table" and pg or nil
+end
+
+SDB.CYCLE_NAME_MAX = 30
+local RESERVED_CYCLE_NAMES = { default = true, none = true, ["not in a cycle"] = true }
+
+-- the trimmed name, or nil and the reason it can't be used
+function SDB.CheckCycleName(name)
+    name = strtrim(tostring(name or ""))
+    if name == "" then return nil, "Type a cycle name first." end
+    if string.len(name) > SDB.CYCLE_NAME_MAX then return nil, "A cycle name can have up to " .. SDB.CYCLE_NAME_MAX .. " letters." end
+    if string.find(name, "|", 1, true) then return nil, "A cycle name can't contain '|'." end
+    if RESERVED_CYCLE_NAMES[string.lower(name)] then return nil, "'" .. name .. "' is a reserved name." end
+    return name
+end
+
+-- the named cycle of page p, or nil (Default cycle or skipped)
+function SDB.PageCycle(p)
+    local pg = PageTable(p)
+    local name = pg and pg.cycle
+    if type(name) == "string" and name ~= "" and not pg.noCycle then return name end
+    return nil
+end
+
+-- "named", name | "context", trigger | "default" | "skipped". Pages with a context rule of their own (while contextual
+-- page switching is on) are not in the Default cycle: those that share the same context step through Forward / Backward
+-- together. "skipped" pages are the ones set to None.
+function SDB.PageGroup(p)
+    local pg = PageTable(p)
+    if not pg then return "default" end
+    local name = SDB.PageCycle(p)
+    if name then return "named", name end
+    if pg.noCycle then return "skipped" end
+    local trigger = SDB.ctx and SDB.ctx.autoSwitchContext and SDB.ctx.pageContexts and SDB.ctx.pageContexts[p]
+    if trigger then return "context", trigger end
+    return "default"
+end
+
+-- the cycle names in use, in the order their first page appears
+function SDB.CycleNames()
+    local names, seen = {}, {}
+    for p = 1, SDB.db and SDB.db.pages and #SDB.db.pages or 0 do
+        local n = SDB.PageCycle(p)
+        if n and not seen[n] then
+            seen[n] = true
+            names[#names + 1] = n
+        end
+    end
+    return names
+end
+
+-- the existing cycle with this name (ignoring case), so "mounted" joins "Mounted" instead of making a twin
+function SDB.FindCycle(name, exceptPage)
+    local want = string.lower(name or "")
+    for p = 1, SDB.db and SDB.db.pages and #SDB.db.pages or 0 do
+        local n = p ~= exceptPage and SDB.PageCycle(p)
+        if n and string.lower(n) == want then return n end
+    end
+    return nil
+end
+
+function SDB.CycleMembers(name)
+    local list = {}
+    for p = 1, SDB.db and SDB.db.pages and #SDB.db.pages or 0 do
+        if SDB.PageCycle(p) == name then list[#list + 1] = p end
+    end
+    return list
+end
+
+-- The pages !PAGE Forward / Backward visit from page p: its own cycle when it has a name, the pages that share its
+-- context when it has one, else the Default cycle.
+function SDB.StepMembers(p)
+    local kind, name = SDB.PageGroup(p)
+    local own = (kind == "named" or kind == "context")
+    local list = {}
+    for i = 1, SDB.db and SDB.db.pages and #SDB.db.pages or 0 do
+        local k, n = SDB.PageGroup(i)
+        if (own and k == kind and n == name) or (not own and k == "default") then
+            list[#list + 1] = i
+        end
+    end
+    return list
+end
+
+-- Where page p's context rule lives: contexts table, priorities table, key, and whether it belongs to a cycle.
+function SDB.RuleSlot(p)
+    local ctx = SDB.ctx
+    if not ctx then return nil end
+    local name = SDB.PageCycle(p)
+    if name then
+        ctx.cycleContexts = ctx.cycleContexts or {}
+        ctx.cyclePriorities = ctx.cyclePriorities or {}
+        return ctx.cycleContexts, ctx.cyclePriorities, name, true
+    end
+    ctx.pageContexts = ctx.pageContexts or {}
+    ctx.pagePriorities = ctx.pagePriorities or {}
+    return ctx.pageContexts, ctx.pagePriorities, p, false
+end
+
+-- trigger and override flag of the rule that governs page p (its cycle's, or its own)
+function SDB.PageRule(p)
+    local contexts, priorities, key = SDB.RuleSlot(p)
+    if not contexts then return nil, false end
+    return contexts[key], priorities[key] and true or false
+end
+
+-- runs fn(rules) for the context rules of every character and specialization that uses this profile
+local function EachRuleSet(fn)
+    if SDB.Snapshots and SDB.Snapshots.EachRuleSet then
+        SDB.Snapshots.EachRuleSet(fn)
+    elseif SDB.ctx then
+        fn(SDB.ctx)
+    end
+end
+
+local function DropCycleRules(name)
+    EachRuleSet(function(r)
+        if type(r.cycleContexts) == "table" then r.cycleContexts[name] = nil end
+        if type(r.cyclePriorities) == "table" then r.cyclePriorities[name] = nil end
+    end)
+end
+
+-- Puts page p into the named cycle `name`, into the Default cycle (name nil) or, with skip, out of all cycles.
+-- Returns true when something changed, nil when nothing needed to, false and a reason when refused.
+function SDB.SetPageCycle(p, name, skip)
+    local pg = PageTable(p)
+    if not pg then return false, "That page no longer exists." end
+    skip = skip and true or false
+    if skip then name = nil end
+    if name then
+        local clean, reason = SDB.CheckCycleName(name)
+        if not clean then return false, reason end
+        name = SDB.FindCycle(clean, p) or clean
+    end
+    local old = SDB.PageCycle(p)
+    if old == name and (pg.noCycle and true or false) == skip then return nil end
+
+    local lostRule = false
+    if name then
+        -- a brand-new cycle starts with no context (a stale rule that used the same name is dropped)
+        if not SDB.FindCycle(name, p) then DropCycleRules(name) end
+        -- the cycle's context replaces the page's own
+        if SDB.ctx and SDB.ctx.pageContexts and SDB.ctx.pageContexts[p] ~= nil then lostRule = true end
+        EachRuleSet(function(r)
+            if type(r.pageContexts) == "table" then r.pageContexts[p] = nil end
+            if type(r.pagePriorities) == "table" then r.pagePriorities[p] = nil end
+        end)
+    end
+    pg.cycle = name
+    pg.noCycle = skip or nil
+    if old and old ~= name and not SDB.FindCycle(old) then DropCycleRules(old) end
+    if lostRule then
+        print("|cFFFF9900[SpellPad Studio]|r Page " .. p .. "'s own context was removed. The cycle '"
+            .. (string.gsub(name, "|", "||")) .. "' decides when it is used.")
+    end
+    SDB.GroupPages()
+    if SDB.EvaluateContextState then SDB.EvaluateContextState() end
+    return true
+end
+
+-- Puts the pages of each group next to each other, so the Pages list never repeats a header and Forward / Backward
+-- never jump over a different group. Groups keep the order of their first page; pages of the Context pages group are
+-- sorted by context (same context side by side); everything else keeps its order. Reordering renumbers pages the way a
+-- drag in the Pages list does (names, context rules, `!PAGE n` cards, page snapshots); a profile snapshot is taken
+-- first. Returns how many moves it made. Not in combat.
+function SDB.GroupPages()
+    local n = SDB.db and SDB.db.pages and #SDB.db.pages or 0
+    if n < 2 or InCombatLockdown() then return 0 end
+    local keys, subs, first, triggerFirst = {}, {}, {}, {}
+    for p = 1, n do
+        local kind, value = SDB.PageGroup(p)
+        local key = (kind == "named") and ("n:" .. value) or kind
+        keys[p] = key
+        if first[key] == nil then first[key] = p end
+        if kind == "context" then
+            if triggerFirst[value] == nil then triggerFirst[value] = p end
+            subs[p] = triggerFirst[value]
+        else
+            subs[p] = 0
+        end
+    end
+    local order = {}
+    for p = 1, n do order[p] = p end
+    table.sort(order, function(a, b)
+        local fa, fb = first[keys[a]], first[keys[b]]
+        if fa ~= fb then return fa < fb end
+        if subs[a] ~= subs[b] then return subs[a] < subs[b] end
+        return a < b
+    end)
+    local moved = SDB.Snapshots and SDB.Snapshots.ApplyOrder and SDB.Snapshots.ApplyOrder(order) or 0
+    if moved > 0 then
+        SDB.activeSlotIndex = nil
+        if SDB.Undo then SDB.Undo.ClearAll() end
+        local w = SDB.configWindow
+        if w and w.RefreshPageTabs then w.RefreshPageTabs() end
+        if w and w.RefreshRows then w.RefreshRows() end
+        if SDB.RefreshPadIfShown then SDB.RefreshPadIfShown() end
+        if SDB.ApplyBindings then SDB.ApplyBindings({ keepPending = true }) end
+        print("|cFF00FF00[SpellPad Studio]|r Pages grouped by cycle. Restore can undo it.")
+    end
+    return moved
+end
+
+-- Renames a cycle on every page and in the context rules of every character that uses the profile.
+-- Returns true, nil when nothing changed, or false and a reason.
+function SDB.RenameCycle(old, new)
+    local clean, reason = SDB.CheckCycleName(new)
+    if not clean then return false, reason end
+    if clean == old then return nil end
+    local pages = SDB.db and SDB.db.pages or {}
+    for p = 1, #pages do
+        local n = SDB.PageCycle(p)
+        if n and n ~= old and string.lower(n) == string.lower(clean) then
+            return false, "A cycle called '" .. n .. "' already exists."
+        end
+    end
+    for p = 1, #pages do
+        if SDB.PageCycle(p) == old then pages[p].cycle = clean end
+    end
+    EachRuleSet(function(r)
+        for _, key in ipairs({ "cycleContexts", "cyclePriorities" }) do
+            if type(r[key]) == "table" and r[key][old] ~= nil then
+                r[key][clean] = r[key][old]
+                r[key][old] = nil
+            end
+        end
+    end)
+    return true
 end
 
 -- The main page: at most one page of the profile carries `main = true` (a flag on the page table, like `cols`, so it
@@ -264,19 +515,34 @@ function SDB.EvaluateContextState()
     end
 
     local bestPage = nil
+    local bestCycle = nil -- the winning rule's cycle name, nil for a page's own rule
+    local bestTrigger = nil
     local hasPriority = false
 
+    -- Candidates are pages with a rule of their own and named cycles with a context (a cycle counts once, at its
+    -- first page). The first one with the override box ticked wins, else the one whose first page is lowest.
     local totalPages = SDB.db and SDB.db.pages and #SDB.db.pages or 0
+    local seenCycle = {}
     for p = 1, totalPages do
-        local trigger = SDB.ctx.pageContexts and SDB.ctx.pageContexts[p]
+        local name = SDB.PageCycle(p)
+        local trigger, isPrio
+        if name then
+            if not seenCycle[name] then
+                seenCycle[name] = true
+                trigger = SDB.ctx.cycleContexts and SDB.ctx.cycleContexts[name]
+                isPrio = SDB.ctx.cyclePriorities and SDB.ctx.cyclePriorities[name]
+            end
+        else
+            trigger = SDB.ctx.pageContexts and SDB.ctx.pageContexts[p]
+            isPrio = SDB.ctx.pagePriorities and SDB.ctx.pagePriorities[p]
+        end
         if trigger and SDB.IsContextActive(trigger) then
-            local isPrio = SDB.ctx.pagePriorities and SDB.ctx.pagePriorities[p]
             if isPrio then
-                bestPage = p
+                bestPage, bestCycle, bestTrigger = p, name, trigger
                 hasPriority = true
                 break
             elseif not bestPage then
-                bestPage = p
+                bestPage, bestCycle, bestTrigger = p, name, trigger
             end
         end
     end
@@ -294,9 +560,17 @@ function SDB.EvaluateContextState()
     local targetPage = bestPage or SDB.manualPage or 1
     local curP = SDB.db and SDB.db.activePage or 1
 
+    -- a page of the winning cycle that is already showing stays (a Forward / Backward press inside the cycle,
+    -- or any re-check of the rules, must not snap back to the cycle's first page); so does a page that has the
+    -- same context as the winning page of its own
+    if bestCycle and SDB.PageCycle(curP) == bestCycle then
+        targetPage = curP
+    elseif bestPage and not bestCycle and not SDB.PageCycle(curP) and SDB.PageRule(curP) == bestTrigger then
+        targetPage = curP
+    end
+
     if curP ~= targetPage then
-        local curTrigger = SDB.ctx.pageContexts and SDB.ctx.pageContexts[curP]
-        local curIsPrio = SDB.ctx.pagePriorities and SDB.ctx.pagePriorities[curP]
+        local curTrigger, curIsPrio = SDB.PageRule(curP)
 
         -- Retain priority page if it is still active, unless another priority overwrites it
         if curIsPrio and SDB.IsContextActive(curTrigger) and hasPriority then
@@ -353,13 +627,27 @@ function SDB.PageCommand(text)
     return nil
 end
 
--- The page after (or before) the active one in list order; the ends wrap around.
+-- The next (or previous) page of the cycle the active page belongs to, in list order; the ends wrap around. A page
+-- that isn't in the cycle it steps through (a skipped page) goes to the nearest member in that direction.
 local function StepPage(direction)
     local count = SDB.db and SDB.db.pages and #SDB.db.pages or 0
     if count < 1 then return nil end
     local current = SDB.db.activePage or 1
-    if direction == "forward" then return current % count + 1 end
-    return (current - 2) % count + 1
+    local members = SDB.StepMembers(current)
+    if #members == 0 then
+        print("|cFFFF9900[SpellPad Studio]|r There's no page to step to from here.")
+        return nil
+    end
+    if direction == "forward" then
+        for _, i in ipairs(members) do
+            if i > current then return i end
+        end
+        return members[1]
+    end
+    for k = #members, 1, -1 do
+        if members[k] < current then return members[k] end
+    end
+    return members[#members]
 end
 
 function SDB.ChangePage(pageNum)
@@ -367,7 +655,10 @@ function SDB.ChangePage(pageNum)
         SDB.NoPageInCombat()
         return
     end
-    if pageNum == "forward" or pageNum == "backward" then pageNum = StepPage(pageNum) end
+    if pageNum == "forward" or pageNum == "backward" then
+        pageNum = StepPage(pageNum)
+        if not pageNum then return end
+    end
     local targetPage = tonumber(pageNum)
     if targetPage and SDB.db.pages[targetPage] then
         -- what the last page jump did (read by /sps page)
@@ -432,6 +723,25 @@ function SDB.PageReport(emit)
     end
     if SDB.contextRedrawError then
         emit("Last context switch redraw error: " .. (string.gsub(SDB.contextRedrawError, "|", "||")))
+    end
+    -- page cycles: who Forward / Backward visit and which context decides each cycle
+    local default, skipped, context = {}, {}, {}
+    for p = 1, pages do
+        local kind, value = SDB.PageGroup(p)
+        if kind == "default" then default[#default + 1] = p
+        elseif kind == "skipped" then skipped[#skipped + 1] = p
+        elseif kind == "context" then context[#context + 1] = p .. " (" .. tostring(SDB.ContextInfo(value) or value) .. ")" end
+    end
+    emit("Default cycle: pages " .. (#default > 0 and table.concat(default, ", ") or "none")
+        .. (#context > 0 and ("; own context: " .. table.concat(context, ", ")) or "")
+        .. (#skipped > 0 and ("; skipped: " .. table.concat(skipped, ", ")) or ""))
+    for _, name in ipairs(SDB.CycleNames()) do
+        local members = SDB.CycleMembers(name)
+        local trigger = SDB.ctx and SDB.ctx.cycleContexts and SDB.ctx.cycleContexts[name]
+        local prio = SDB.ctx and SDB.ctx.cyclePriorities and SDB.ctx.cyclePriorities[name]
+        emit("Cycle '" .. (string.gsub(name, "|", "||")) .. "': pages " .. table.concat(members, ", ")
+            .. ", context " .. (trigger and (SDB.ContextInfo(trigger) or trigger) or "none")
+            .. (prio and ", override on" or "") .. ", entry page " .. members[1])
     end
     if SDB.configWindow and SDB.configWindow.PageTabReport then SDB.configWindow.PageTabReport(emit) end
 end

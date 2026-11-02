@@ -153,33 +153,16 @@ local function ShiftTable(t, idx, delta)
     for k, v in pairs(moved) do t[k] = v end
 end
 
--- Does this context-rule entry ("<name>-<realm>-Spec<id>") belong to the profile in use?
-local function RulesUseCurrentProfile(specKey)
-    local pKey = string.match(specKey, "^(.*)%-Spec[^%-]*$") or specKey
-    local prof
-    if GalleonBridgeDB.accountSync then
-        prof = "Global"
-    else
-        -- same order as SDB.LoadActiveProfile, which ignores a link to a profile that no longer exists
-        local profiles = GalleonBridgeDB.profiles or {}
-        local spec = GalleonBridgeDB.specProfiles and GalleonBridgeDB.specProfiles[specKey]
-        local char = GalleonBridgeDB.charProfiles and GalleonBridgeDB.charProfiles[pKey]
-        if spec and profiles[spec] then prof = spec
-        elseif char and profiles[char] then prof = char
-        else prof = "Default" end
-    end
-    return prof == SDB.currentProfileName
+-- Runs fn(rules) for the context rules of the profile in use, of every character and specialization.
+function S.EachRuleSet(fn)
+    SDB.EachContextSet(SDB.currentProfileName, fn)
 end
 
 function S.ShiftContextRules(idx, delta)
-    local rules = GalleonBridgeDB and GalleonBridgeDB.contextRules
-    if type(rules) ~= "table" then return end
-    for specKey, r in pairs(rules) do
-        if type(r) == "table" and RulesUseCurrentProfile(specKey) then
-            ShiftTable(r.pageContexts, idx, delta)
-            ShiftTable(r.pagePriorities, idx, delta)
-        end
-    end
+    S.EachRuleSet(function(r)
+        ShiftTable(r.pageContexts, idx, delta)
+        ShiftTable(r.pagePriorities, idx, delta)
+    end)
 end
 
 function S.ClampPages()
@@ -217,7 +200,7 @@ local function RemapKeys(t, map)
     for k, v in pairs(moved) do t[k] = v end
 end
 
-function S.MovePage(src, dest)
+function S.MovePage(src, dest, forceFollow)
     local db = SDB.db
     if not db or not db.pages then return false end
     local n = #db.pages
@@ -241,19 +224,15 @@ function S.MovePage(src, dest)
         if db.pageNames then db.pageNames[k] = newNames[k] end
     end
 
-    -- context rules of every character/spec that uses this profile
-    local rules = GalleonBridgeDB and GalleonBridgeDB.contextRules
-    if type(rules) == "table" then
-        for specKey, r in pairs(rules) do
-            if type(r) == "table" and RulesUseCurrentProfile(specKey) then
-                RemapKeys(r.pageContexts, map)
-                RemapKeys(r.pagePriorities, map)
-            end
-        end
-    end
+    -- context rules of this profile, of every character and specialization
+    S.EachRuleSet(function(r)
+        RemapKeys(r.pageContexts, map)
+        RemapKeys(r.pagePriorities, map)
+    end)
 
     if SDB.manualPage and map[SDB.manualPage] then SDB.manualPage = map[SDB.manualPage] end
     if db.activePage and map[db.activePage] then db.activePage = map[db.activePage] end
+    if type(SDB.lastContextPage) == "number" and map[SDB.lastContextPage] then SDB.lastContextPage = map[SDB.lastContextPage] end
 
     -- page snapshots of this profile keep pointing at the page they were taken of
     local snaps = GalleonBridgeDB and GalleonBridgeDB.snapshots
@@ -269,7 +248,7 @@ function S.MovePage(src, dest)
     -- `!PAGE n` cards: a card whose whole macro is "!PAGE n" follows the page it pointed at
     -- (Options > General > "Update !PAGE cards on reorder"; off = true in GalleonBridgeDB.pageCardsFollowOff)
     local rewritten = 0
-    local follow = not (GalleonBridgeDB and GalleonBridgeDB.pageCardsFollowOff)
+    local follow = forceFollow or not (GalleonBridgeDB and GalleonBridgeDB.pageCardsFollowOff)
     for k = 1, follow and n or 0 do
         local page = db.pages[k]
         if type(page) == "table" then
@@ -287,6 +266,33 @@ function S.MovePage(src, dest)
         end
     end
     return true, rewritten
+end
+
+-- Puts the pages in `order` (a list of the current page numbers in the wanted sequence) with MovePage steps, after one
+-- profile snapshot. `!PAGE n` cards always follow here: a regrouping must not break them. Returns the number of moves.
+function S.ApplyOrder(order)
+    local db = SDB.db
+    local n = db and db.pages and #db.pages or 0
+    if n < 2 or #order ~= n then return 0 end
+    local seq = {} -- seq[position] = the original page number that sits there now
+    for i = 1, n do seq[i] = i end
+    local moves = {}
+    for pos = 1, n do
+        local want = order[pos]
+        local cur
+        for i = pos, n do
+            if seq[i] == want then cur = i break end
+        end
+        if cur and cur ~= pos then
+            moves[#moves + 1] = { cur, pos }
+            table.remove(seq, cur)
+            table.insert(seq, pos, want)
+        end
+    end
+    if #moves == 0 then return 0 end
+    S.Take("Before Group Pages", "profile")
+    for _, m in ipairs(moves) do S.MovePage(m[1], m[2], true) end
+    return #moves
 end
 
 function S.InsertPage(idx, slots, name)

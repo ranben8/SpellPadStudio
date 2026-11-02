@@ -529,7 +529,9 @@ function G.ApplyShape(confirmed)
         if SDB.Snapshots then SDB.Snapshots.Take("Before Setup Guide", "page", { page = 1 }) end
         local deck = SDB.CreateBlankDeck(1, PrefixFor(p1), n)
         SDB.SetPageCols(deck, cols)
-        deck.main = SDB.db.pages[1] and SDB.db.pages[1].main or nil -- the rebuilt page keeps its main page status
+        local old = SDB.db.pages[1]
+        deck.main = old and old.main or nil -- the rebuilt page keeps its main page status
+        deck.cycle, deck.noCycle = old and old.cycle, old and old.noCycle -- and its page cycle
         SDB.db.pages[1] = deck
         SDB.db.deckSize = n -- pages you add later match your keypad
         if SDB.Undo and SDB.Undo.ClearAll then SDB.Undo.ClearAll() end

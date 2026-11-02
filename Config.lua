@@ -31,8 +31,9 @@ StaticPopupDialogs["GALLEONBRIDGE_CONFIRM_RESET"] = {
         end
         if SDB.Undo then SDB.Undo.ClearAll() end
 
-        -- Reset only the "Default" profile
+        -- Reset only the "Default" profile (its context rules go with its pages)
         GalleonBridgeDB.profiles["Default"] = SDB.GetDefaultProfile()
+        SDB.DropProfileContexts("Default")
 
         -- Switch the current character to Default
         SDB.SetCharacterProfile("Default")
@@ -153,6 +154,95 @@ StaticPopupDialogs["GALLEONBRIDGE_RENAME_PAGE"] = {
     preferredIndex = 3,
 }
 
+-- Page cycles: the name popups (Page Options' cycle dropdown and the Pages list headers). The page or cycle they act
+-- on is kept in SDB.cyclePopupPage / SDB.cyclePopupName, set just before the popup is shown.
+local function AfterCycleChange()
+    local w = SDB.configWindow
+    if w and w.AfterCycleChange then w.AfterCycleChange() end
+end
+
+StaticPopupDialogs["GALLEONBRIDGE_NEW_CYCLE"] = {
+    text = "Name the new page cycle:",
+    button1 = "Create",
+    button2 = "Cancel",
+    hasEditBox = 1,
+    editBoxWidth = 240,
+    maxLetters = 30,
+    OnShow = function(self)
+        local editBox = self.editBox or _G[self:GetName() .. "EditBox"]
+        if editBox then
+            editBox:SetText("")
+            editBox:SetFocus()
+        end
+    end,
+    OnAccept = function(self)
+        local editBox = self.editBox or _G[self:GetName() .. "EditBox"]
+        local ok, reason = SDB.SetPageCycle(SDB.cyclePopupPage or SDB.db.activePage or 1, editBox and editBox:GetText() or "")
+        if ok == false then
+            print("|cFFFF4444[SpellPad Studio]|r " .. reason)
+            return
+        end
+        AfterCycleChange()
+    end,
+    EditBoxOnEnterPressed = function(self)
+        local parent = self:GetParent()
+        StaticPopupDialogs["GALLEONBRIDGE_NEW_CYCLE"].OnAccept(parent)
+        parent:Hide()
+    end,
+    EditBoxOnEscapePressed = function(self)
+        self:GetParent():Hide()
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
+StaticPopupDialogs["GALLEONBRIDGE_RENAME_CYCLE"] = {
+    text = "Enter a new name for this page cycle:",
+    button1 = "Save",
+    button2 = "Cancel",
+    hasEditBox = 1,
+    editBoxWidth = 240,
+    maxLetters = 30,
+    OnShow = function(self)
+        local editBox = self.editBox or _G[self:GetName() .. "EditBox"]
+        if editBox then
+            editBox:SetText(SDB.cyclePopupName or "")
+            editBox:HighlightText()
+            editBox:SetFocus()
+        end
+    end,
+    OnAccept = function(self)
+        local editBox = self.editBox or _G[self:GetName() .. "EditBox"]
+        local old = SDB.cyclePopupName
+        if not old then return end
+        local new = strtrim(editBox and editBox:GetText() or "")
+        local ok, reason = SDB.RenameCycle(old, new)
+        if ok == false then
+            print("|cFFFF4444[SpellPad Studio]|r " .. reason)
+            return
+        end
+        if ok then
+            print("|cFF00FF00[SpellPad Studio]|r Cycle '" .. (string.gsub(old, "|", "||")) .. "' renamed to '"
+                .. (string.gsub(new, "|", "||")) .. "'.")
+            AfterCycleChange()
+        end
+    end,
+    EditBoxOnEnterPressed = function(self)
+        local parent = self:GetParent()
+        StaticPopupDialogs["GALLEONBRIDGE_RENAME_CYCLE"].OnAccept(parent)
+        parent:Hide()
+    end,
+    EditBoxOnEscapePressed = function(self)
+        self:GetParent():Hide()
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
 -- Fits `text` into maxW pixels using the font of the FontString `fs`: whole UTF-8 characters are cut
 -- off the end and "..." is added, the same rule as the card name plates and the SpellPad buttons.
 -- Pipes are doubled so a name can't inject colour codes (and a cut can't leave half an escape).
@@ -187,6 +277,7 @@ function SDB.RenameProfile(old, new)
 
     db.profiles[clean] = db.profiles[old]
     db.profiles[old] = nil
+    SDB.RenameProfileContexts(old, clean)
     for _, map in ipairs({ db.charProfiles or {}, db.specProfiles or {} }) do
         for k, v in pairs(map) do
             if v == old then map[k] = clean end
@@ -407,6 +498,8 @@ function SDB.ExportActivePageString()
         version = 1,
         name = pageName,
         cols = SDB.PageCols(sourceSlots), -- the SpellPad shape of the page (nil = default)
+        cycle = sourceSlots.cycle,
+        noCycle = sourceSlots.noCycle,
         slots = cloned,
     }
 
@@ -416,9 +509,12 @@ end
 function SDB.ExportAllPagesString()
     local pagesCloned = {}
     local pageCols = {} -- SpellPad shape per page (only pages that have one)
+    local pageCycles, pageNoCycle = {}, {} -- page cycle per page (only pages that have one)
     for pIdx, slots in ipairs(SDB.db.pages) do
         pagesCloned[pIdx] = {}
         pageCols[pIdx] = SDB.PageCols(slots)
+        pageCycles[pIdx] = slots.cycle
+        pageNoCycle[pIdx] = slots.noCycle
         for sIdx, s in ipairs(slots) do
             pagesCloned[pIdx][sIdx] = {
                 name = s.name or ("Slot " .. sIdx),
@@ -438,6 +534,8 @@ function SDB.ExportAllPagesString()
         deckSize = SDB.db.deckSize or 12,
         pageNames = SDB.db.pageNames or {},
         pageCols = pageCols,
+        pageCycles = pageCycles,
+        pageNoCycle = pageNoCycle,
         pages = pagesCloned,
     }
 
@@ -1660,6 +1758,89 @@ function SDB.BuildUI()
         end
     end
 
+    -- Cycle headers in the Pages list: made on demand, shown only once a page has a cycle name. A header is a plain
+    -- button; a right-click on a named cycle's header opens its menu. Kept on the window (BuildUI local limit).
+    configWindow.cycleHeaders = {}
+    function configWindow.GetCycleHeader(i)
+        local h = configWindow.cycleHeaders[i]
+        if h then return h end
+        h = CreateFrame("Button", nil, pageContent)
+        h:SetSize(124, 20)
+        h:RegisterForClicks("RightButtonUp")
+        h.label = h:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        h.label:SetPoint("LEFT", h, "LEFT", 6, 0)
+        h.label:SetJustifyH("LEFT")
+        h.label:SetWordWrap(false)
+        h.count = h:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        h.glyph = h:CreateTexture(nil, "ARTWORK")
+        h.glyph:SetSize(14, 14)
+        h.glyph:SetPoint("RIGHT", h, "RIGHT", -4, 0)
+        h.glyph:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- a plain file icon: trims its rounded border
+        local rule = h:CreateTexture(nil, "BACKGROUND")
+        rule:SetColorTexture(1, 1, 1, 0.08)
+        rule:SetHeight(1)
+        rule:SetPoint("BOTTOMLEFT", h, "BOTTOMLEFT", 4, 0)
+        rule:SetPoint("BOTTOMRIGHT", h, "BOTTOMRIGHT", -4, 0)
+        h:SetScript("OnClick", function(self, mouseButton)
+            if mouseButton == "RightButton" and self.cycleName and configWindow.OpenCycleMenu then
+                configWindow.OpenCycleMenu(self.cycleName)
+            end
+        end)
+        h:SetScript("OnEnter", function(self)
+            local title = self.fullText or ""
+            SDB.Tip.Begin(self, "ANCHOR_RIGHT", (string.gsub(title, "|", "||")), "data")
+            if self.kind == "named" then
+                SDB.Tip.Text(self.pageCount .. (self.pageCount == 1 and " page" or " pages") .. " step through !PAGE Forward / Backward together.")
+                if self.contextName then
+                    SDB.Tip.Colored("GOLD", "Context: " .. self.contextName)
+                    if not self.contextOn then SDB.Tip.Hint("Contextual page switching is off.") end
+                end
+                SDB.Tip.Hint("Right-click to rename.")
+            elseif self.kind == "default" then
+                SDB.Tip.Text("The pages !PAGE Forward / Backward step through when a page has no cycle of its own.")
+            elseif self.kind == "context" then
+                SDB.Tip.Text("Pages with a context rule of their own. Pages that share a context step through !PAGE Forward / Backward together.")
+            else
+                SDB.Tip.Text("Pages set to None: !PAGE Forward / Backward skip them.")
+            end
+            SDB.Tip.Done()
+        end)
+        h:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        configWindow.cycleHeaders[i] = h
+        return h
+    end
+
+    -- puts header number i at row position y; kind "named" (name), "default" or "skipped"
+    function configWindow.ShowCycleHeader(i, y, kind, name, count)
+        local h = configWindow.GetCycleHeader(i)
+        h:ClearAllPoints()
+        h:SetPoint("TOPLEFT", pageContent, "TOPLEFT", 0, -y)
+        h.kind, h.pageCount = kind, count
+        h.cycleName = (kind == "named") and name or nil
+        local trigger = kind == "named" and SDB.ctx and SDB.ctx.cycleContexts and SDB.ctx.cycleContexts[name] or nil
+        local ctxName, icon = SDB.ContextInfo(trigger)
+        h.contextName = ctxName
+        h.contextOn = (SDB.ctx and SDB.ctx.autoSwitchContext) and true or false
+        if icon then
+            h.glyph:SetTexture(icon)
+            h.glyph:SetAlpha(h.contextOn and 0.9 or 0.35)
+            h.glyph:Show()
+        else
+            h.glyph:Hide()
+        end
+        h.count:ClearAllPoints()
+        h.count:SetPoint("RIGHT", h, "RIGHT", icon and -22 or -6, 0)
+        h.count:SetText(count .. (count == 1 and " page" or " pages"))
+        local text = kind == "named" and name or (kind == "default" and "Default" or (kind == "context" and "Context pages" or "Skipped"))
+        h.fullText = text
+        h.label:SetFontObject(kind == "named" and "GameFontNormalSmall" or "GameFontDisableSmall")
+        h.label:SetText((string.gsub(text, "|", "||")))
+        local room = 124 - 6 - (icon and 22 or 6) - h.count:GetStringWidth() - 6
+        local shown = SDB.FitText(h.label, text, room)
+        h.label:SetText(shown)
+        h:Show()
+    end
+
     local function RefreshPageTabs()
         local PS = SDB.PageSearch
         -- The page search clears itself when the active page changes by anything other than picking a tab
@@ -1689,7 +1870,27 @@ function SDB.BuildUI()
         -- pages with edits that are not applied yet get the small orange square (SDB.Pending)
         local pendingByPage = (SDB.Pending and SDB.Pending.pageDirty) or {}
         local mainPage = SDB.MainPage and SDB.MainPage()
+
+        -- group headers are always shown (Default even when there is only one group); one is drawn wherever the group
+        -- changes from the row above
+        for _, h in pairs(configWindow.cycleHeaders) do h:Hide() end
+        local lastLabel, headerN = nil, 0
+        local counts = { named = {}, default = 0, skipped = 0, context = 0 }
+        for q = 1, #SDB.db.pages do
+            local k, n = SDB.PageGroup(q)
+            if k == "named" then counts.named[n] = (counts.named[n] or 0) + 1 else counts[k] = counts[k] + 1 end
+        end
+
         for _, p in ipairs(listed) do
+            local kind, cname = SDB.PageGroup(p)
+            local label = (kind == "named") and ("n:" .. cname) or kind
+            if label ~= lastLabel then
+                lastLabel = label
+                headerN = headerN + 1
+                configWindow.ShowCycleHeader(headerN, y, kind, cname, kind == "named" and counts.named[cname] or counts[kind])
+                y = y + 22
+            end
+
             local btn = pageButtons[p]
             if not btn then
                 -- a calm row with the game's Settings-list hover and a gold band while selected
@@ -1711,6 +1912,22 @@ function SDB.BuildUI()
             btn.sdbTopY = y -- where this tab sits in the list now (ShowActivePageTab)
             btn:Show()
 
+            -- a page in a named cycle gets a thin gold bar on its left edge
+            btn.sdbCycleName = (kind == "named") and cname or nil
+            if not btn.cycleBar then
+                local bar = btn:CreateTexture(nil, "ARTWORK")
+                bar:SetColorTexture(1, 0.82, 0, 0.9)
+                bar:SetWidth(2)
+                bar:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, -2)
+                bar:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 0, 2)
+                if bar.SetSnapToPixelGrid then
+                    bar:SetSnapToPixelGrid(false) -- a thin line on a scrolling list drops out when it snaps
+                    bar:SetTexelSnappingBias(0)
+                end
+                btn.cycleBar = bar
+            end
+            btn.cycleBar:SetShown(kind == "named")
+
             local displayName = SDB.PageName(p)
 
             -- the context glyph, the star and the dot have fixed places at the right edge (UI.lua Row); the name
@@ -1729,6 +1946,7 @@ function SDB.BuildUI()
                     local named = SDB.db.pageNames and SDB.db.pageNames[pg]
                     if named then SDB.Tip.Text((string.gsub(named, "|", "||"))) end
                     if SDB.MainPage and SDB.MainPage() == pg then SDB.Tip.Colored("GOLD", "Main page") end
+                    if self.sdbCycleName then SDB.Tip.Colored("GOLD", "Cycle: " .. (string.gsub(self.sdbCycleName, "|", "||"))) end
                     if self.sdbContextName then
                         SDB.Tip.Colored("GOLD", "Context: " .. self.sdbContextName)
                         if not self.sdbContextOn then SDB.Tip.Hint("Contextual page switching is off.") end
@@ -1951,6 +2169,7 @@ function SDB.BuildUI()
             }
         end
         copiedSlots.cols = SDB.PageCols(sourceSlots) -- the copy keeps the SpellPad shape
+        copiedSlots.cycle, copiedSlots.noCycle = sourceSlots.cycle, sourceSlots.noCycle -- and its page cycle
 
         local nextPageIndex = #SDB.db.pages + 1
         table.insert(SDB.db.pages, copiedSlots)
@@ -2631,7 +2850,8 @@ function SDB.BuildUI()
         cb:SetScript("OnClick", function(self)
             if SDB.ctx then SDB.ctx.autoSwitchContext = self:GetChecked() end
             PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
-            configWindow.RefreshPageContexts()
+            if SDB.GroupPages then SDB.GroupPages() end -- pages with a context of their own move to the Context pages group
+            configWindow.AfterCycleChange()
             if SDB.EvaluateContextState then SDB.EvaluateContextState() end
         end)
         cb:SetScript("OnEnter", function(self)
@@ -2670,8 +2890,7 @@ function SDB.BuildUI()
     local function InitCtxDropDown(self, level)
         level = level or 1
         local curP = SDB.db.activePage or 1
-        if not SDB.ctx.pageContexts then SDB.ctx.pageContexts = {} end
-        local currentTrigger = SDB.ctx.pageContexts[curP]
+        local currentTrigger = SDB.PageRule(curP) -- the page's own rule, or its cycle's
 
         if level == 1 then
             for _, opt in ipairs(ctxOptions) do
@@ -2680,10 +2899,12 @@ function SDB.BuildUI()
                 info.checked = (currentTrigger == opt.val)
                 info.func = function()
                     local cp = SDB.db.activePage or 1
-                    SDB.ctx.pageContexts[cp] = opt.val
+                    local contexts, _, key = SDB.RuleSlot(cp)
+                    contexts[key] = opt.val
                     SetCtxText(opt.name)
                     PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
-                    configWindow.RefreshPageContexts()
+                    if SDB.GroupPages then SDB.GroupPages() end -- a page that gains a context joins the pages that share it
+                    configWindow.AfterCycleChange()
                     if SDB.EvaluateContextState then SDB.EvaluateContextState() end
                 end
                 SafeAddButton(info, level)
@@ -2718,10 +2939,12 @@ function SDB.BuildUI()
                     info.checked = (currentTrigger == formVal)
                     info.func = function()
                         local cp = SDB.db.activePage or 1
-                        SDB.ctx.pageContexts[cp] = formVal
+                        local contexts, _, key = SDB.RuleSlot(cp)
+                        contexts[key] = formVal
                         SetCtxText(name)
                         PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
-                        configWindow.RefreshPageContexts()
+                        if SDB.GroupPages then SDB.GroupPages() end
+                        configWindow.AfterCycleChange()
                         if SDB.EvaluateContextState then SDB.EvaluateContextState() end
                     end
                     SafeAddButton(info, level)
@@ -2749,8 +2972,8 @@ function SDB.BuildUI()
 
     ctxPriorityCb:SetScript("OnClick", function(self)
         local curP = SDB.db.activePage or 1
-        if not SDB.ctx.pagePriorities then SDB.ctx.pagePriorities = {} end
-        SDB.ctx.pagePriorities[curP] = self:GetChecked()
+        local _, priorities, key = SDB.RuleSlot(curP)
+        priorities[key] = self:GetChecked()
         PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
         if SDB.EvaluateContextState then SDB.EvaluateContextState() end
     end)
@@ -2780,6 +3003,152 @@ function SDB.BuildUI()
         mainPageCb:SetScript("OnLeave", function() GameTooltip:Hide() end)
     end
 
+    -- Page cycle: the set of pages !PAGE Forward / Backward walk, and whose context applies to the active page. In a
+    -- do-block (BuildUI local limit); the controls are pageLogicWindow.cycleBtn and .cycleInfo (OptionsUI.lua lays
+    -- them out), and pageLogicWindow.RefreshCycleUI() brings them up to date.
+    do
+        local cycleDropDown = CreateFrame("Frame", "GalleonCycleDropDown", pageLogicWindow, "UIDropDownMenuTemplate")
+
+        local function Apply(p, name, skip)
+            local ok, reason = SDB.SetPageCycle(p, name, skip)
+            if ok == false then
+                print("|cFFFF4444[SpellPad Studio]|r " .. reason)
+                return
+            end
+            PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+            AfterCycleChange()
+        end
+
+        local function InitCycleDropDown(self, level)
+            if (level or 1) ~= 1 then return end
+            local p = SDB.db.activePage or 1
+            local pg = SDB.db.pages[p]
+            local cur = SDB.PageCycle(p)
+            local skipped = pg and pg.noCycle and true or false
+            local function Add(text, checked, func)
+                local info = SafeCreateInfo()
+                info.text = text
+                info.checked = checked
+                info.notCheckable = (checked == nil)
+                info.func = func
+                SafeAddButton(info, 1)
+            end
+            Add("Default", (not cur) and (not skipped), function() Apply(p, nil, false) end)
+            for _, name in ipairs(SDB.CycleNames()) do
+                Add((string.gsub(name, "|", "||")), cur == name, function() Apply(p, name, false) end)
+            end
+            if UIDropDownMenu_AddSeparator then UIDropDownMenu_AddSeparator(1) end
+            Add("None (skip this page)", skipped, function() Apply(p, nil, true) end)
+            Add("New cycle...", nil, function()
+                SDB.cyclePopupPage = p
+                StaticPopup_Show("GALLEONBRIDGE_NEW_CYCLE")
+            end)
+            if cur then
+                Add("Rename this cycle...", nil, function()
+                    SDB.cyclePopupName = cur
+                    StaticPopup_Show("GALLEONBRIDGE_RENAME_CYCLE")
+                end)
+            end
+        end
+        UIDropDownMenu_Initialize(cycleDropDown, InitCycleDropDown, "MENU")
+
+        local cycleBtn = SDB.UI.Dropdown(pageLogicWindow, 150, "Default")
+        pageLogicWindow.cycleBtn = cycleBtn
+        cycleBtn:SetScript("OnEnter", function(self)
+            SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Page Cycle", "control")
+            SDB.Tip.Line("Pages in the same cycle are the ones !PAGE Forward and !PAGE Backward step through. A cycle can have a context of its own: when it starts, its first page is shown.")
+            SDB.Tip.Hint("Pages with a context rule of their own are skipped by the Default cycle while contextual page switching is on.")
+            SDB.Tip.Done()
+        end)
+        cycleBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        cycleBtn:SetScript("OnClick", function(self)
+            PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+            SDB.UI.ToggleMenu(cycleDropDown, self)
+        end)
+
+        -- the button text and the explanation under it, and the wording of the context group below (it acts on the
+        -- whole cycle for a page in a named cycle)
+        function pageLogicWindow.RefreshCycleUI()
+            local p = SDB.db.activePage or 1
+            local pg = SDB.db.pages[p]
+            local kind = SDB.PageGroup(p)
+            local cur = SDB.PageCycle(p)
+            local text, info
+            local function Place(members)
+                for i, m in ipairs(members) do
+                    if m == p then return i end
+                end
+                return 1
+            end
+            if cur then
+                local members = SDB.CycleMembers(cur)
+                text = cur
+                info = "Forward / Backward step through this cycle only: this is page " .. Place(members) .. " of " .. #members .. "."
+                local trigger = SDB.ctx and SDB.ctx.cycleContexts and SDB.ctx.cycleContexts[cur]
+                if trigger == "COMBAT" and #members > 1 then
+                    info = info .. "\n|cFFFF9900Pages can't change during a fight, so an In Combat cycle only ever shows its first page.|r"
+                end
+            elseif pg and pg.noCycle then
+                text = "None"
+                info = "Forward / Backward skip this page."
+            elseif kind == "context" then
+                local members = SDB.StepMembers(p)
+                text = "Default (own context)"
+                info = "This page has its own context. Forward / Backward step through the pages that share it: this is page "
+                    .. Place(members) .. " of " .. #members .. "."
+            else
+                local members = SDB.StepMembers(p)
+                text = "Default"
+                info = "Forward / Backward step through the Default cycle: this is page " .. Place(members) .. " of " .. #members .. "."
+            end
+            cycleBtn:SetText((string.gsub(text, "|", "||")))
+            if pageLogicWindow.cycleInfo then pageLogicWindow.cycleInfo:SetText(info) end
+            if pageLogicWindow.ctxGroupLabel then
+                pageLogicWindow.ctxGroupLabel:SetText(cur and "Context switching (whole cycle)" or "Context switching")
+            end
+            if pageLogicWindow.ctxRowLabel then
+                pageLogicWindow.ctxRowLabel:SetText(cur and "This cycle is used when" or "This page is used when")
+            end
+        end
+
+        -- right-click on a cycle's header in the Pages list
+        local menuFrame = CreateFrame("Frame", "GalleonCycleHeaderMenu", UIParent, "UIDropDownMenuTemplate")
+        local menuCycle
+        UIDropDownMenu_Initialize(menuFrame, function(self, level)
+            if (level or 1) ~= 1 or not menuCycle then return end
+            local title = SafeCreateInfo()
+            title.text = (string.gsub(menuCycle, "|", "||"))
+            title.isTitle = true
+            title.notCheckable = true
+            SafeAddButton(title, 1)
+            local item = SafeCreateInfo()
+            item.text = "Rename Cycle"
+            item.notCheckable = true
+            item.func = function()
+                SDB.cyclePopupName = menuCycle
+                StaticPopup_Show("GALLEONBRIDGE_RENAME_CYCLE")
+            end
+            SafeAddButton(item, 1)
+        end, "MENU")
+        function configWindow.OpenCycleMenu(name)
+            local justClosed, isOpen = SDB.UI.MenuState(menuFrame)
+            if menuCycle == name and (justClosed or isOpen) then return end
+            menuCycle = name
+            ToggleDropDownMenu(1, nil, menuFrame, "cursor", 0, 0)
+        end
+
+        -- after a cycle was made, joined, left or renamed, or a context changed (the pages may have been regrouped, which
+        -- renumbers them: the window stays open when it is still showing the same page)
+        function configWindow.AfterCycleChange()
+            local w = pageLogicWindow
+            if w.sdbPageTable and SDB.db.pages[SDB.db.activePage or 1] == w.sdbPageTable then
+                w.sdbPage = SDB.db.activePage
+            end
+            configWindow.RefreshPageContexts()
+            if w.RefreshContextUI then w.RefreshContextUI() end
+        end
+    end
+
     -- The Key Prefix box shows the ACTIVE page's real prefix: the same source as the "Prefix:" label
     -- (the first BOUND card of the page), with its trailing dash. A page with no bound key has no
     -- prefix, so the box is empty. Filled when the window opens and after a prefix capture (a method
@@ -2807,6 +3176,7 @@ function SDB.BuildUI()
     do
         local function Remember()
             pageLogicWindow.sdbPage = SDB.db and SDB.db.activePage
+            pageLogicWindow.sdbPageTable = SDB.db and SDB.db.pages and SDB.db.pages[SDB.db.activePage or 1]
             pageLogicWindow.sdbDb = SDB.db
             pageLogicWindow.sdbCount = SDB.db and SDB.db.pages and #SDB.db.pages or 0
         end
@@ -2826,13 +3196,10 @@ function SDB.BuildUI()
         end)
     end
 
-    pageLogicWindow:HookScript("OnShow", function()
+    -- the context and cycle controls for the ACTIVE page (a page in a named cycle shows and edits its cycle's rule)
+    function pageLogicWindow.RefreshContextUI()
         local curP = SDB.db.activePage or 1
-
-        pageLogicWindow.FillPrefixBox()
-
-        if not SDB.ctx.pageContexts then SDB.ctx.pageContexts = {} end
-        local currentTrigger = SDB.ctx.pageContexts[curP]
+        local currentTrigger, isPrio = SDB.PageRule(curP)
         local triggerName = "None"
 
         if currentTrigger then
@@ -2857,9 +3224,14 @@ function SDB.BuildUI()
         end
         SetCtxText(triggerName)
 
-        if not SDB.ctx.pagePriorities then SDB.ctx.pagePriorities = {} end
-        ctxPriorityCb:SetChecked(SDB.ctx.pagePriorities[curP])
+        ctxPriorityCb:SetChecked(isPrio)
         pageLogicWindow.mainPageCb:SetChecked(SDB.MainPage() == curP)
+        if pageLogicWindow.RefreshCycleUI then pageLogicWindow.RefreshCycleUI() end
+    end
+
+    pageLogicWindow:HookScript("OnShow", function()
+        pageLogicWindow.FillPrefixBox()
+        pageLogicWindow.RefreshContextUI()
     end)
 
     -- three labelled groups (page name, key prefix, context switching)
@@ -3617,6 +3989,7 @@ function SDB.BuildUI()
             end
             if SDB.Undo then SDB.Undo.ClearAll() end
             GalleonBridgeDB.profiles[profName] = nil
+            SDB.DropProfileContexts(profName)
 
             for k, v in pairs(GalleonBridgeDB.specProfiles) do
                 if v == profName then GalleonBridgeDB.specProfiles[k] = nil end
@@ -5936,6 +6309,8 @@ function SDB.BuildUI()
     -- the context glyphs follow the rules and the master switch (Page Options); a redraw also re-cuts the names to fit
     function configWindow.RefreshPageContexts()
         RefreshPageTabs()
+        -- the cycle text under Page Options depends on the contexts too (a page with its own context is skipped)
+        if pageLogicWindow.RefreshCycleUI then pageLogicWindow.RefreshCycleUI() end
     end
     if SDB.Esc then SDB.Esc.RegisterAll() end -- ESC closes the windows, front-most first
 

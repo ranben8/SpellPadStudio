@@ -194,6 +194,16 @@ local function CleanName(v, st)
     if nm ~= "" then return nm end
 end
 
+-- a page's cycle from an import: the checked name, or nothing (a page can't be both in a cycle and skipped)
+local function CleanCycle(slots, name, skip)
+    if skip == true then
+        slots.noCycle = true
+    elseif type(name) == "string" and SDB.CheckCycleName then
+        local ok = SDB.CheckCycleName((string.gsub(name, "[%c|]", "")))
+        if ok then slots.cycle = ok end
+    end
+end
+
 local function BuildNotes(st)
     local notes = {}
     if st.cut > 0 then notes[#notes + 1] = Plural(st.cut, "text") .. " shortened" end
@@ -214,6 +224,7 @@ function IP.Validate(data)
         local slots, err = CleanSlots(data.slots, "this page", st)
         if not slots then return nil, err end
         SDB.SetPageCols(slots, data.cols) -- the page's SpellPad shape, kept only if it fits the card count
+        CleanCycle(slots, data.cycle, data.noCycle)
         clean.slots = slots
         clean.name = CleanName(data.name, st)
     elseif data.type == "ALL" then
@@ -228,11 +239,14 @@ function IP.Validate(data)
         clean.profileName = CleanName(data.profileName, st)
         local names = type(data.pageNames) == "table" and data.pageNames or {}
         local shapes = type(data.pageCols) == "table" and data.pageCols or {}
+        local cycles = type(data.pageCycles) == "table" and data.pageCycles or {}
+        local skips = type(data.pageNoCycle) == "table" and data.pageNoCycle or {}
         for p = 1, np do
             if type(data.pages[p]) ~= "table" then return nil, "Page " .. p .. " is not a valid page." end
             local slots, err = CleanSlots(data.pages[p], "page " .. p, st)
             if not slots then return nil, err end
             SDB.SetPageCols(slots, shapes[p]) -- the page's SpellPad shape, kept only if it fits the card count
+            CleanCycle(slots, cycles[p], skips[p])
             clean.pages[p] = slots
             clean.pageNames[p] = CleanName(names[p], st)
         end
