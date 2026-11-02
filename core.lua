@@ -213,14 +213,14 @@ local function PageTable(p)
 end
 
 SDB.CYCLE_NAME_MAX = 30
-local RESERVED_CYCLE_NAMES = { default = true, none = true, ["not in a cycle"] = true }
+local RESERVED_CYCLE_NAMES = { default = true, none = true, ["not in a cycle"] = true, ["not in a folder"] = true }
 
 -- the trimmed name, or nil and the reason it can't be used
 function SDB.CheckCycleName(name)
     name = strtrim(tostring(name or ""))
-    if name == "" then return nil, "Type a cycle name first." end
-    if string.len(name) > SDB.CYCLE_NAME_MAX then return nil, "A cycle name can have up to " .. SDB.CYCLE_NAME_MAX .. " letters." end
-    if string.find(name, "|", 1, true) then return nil, "A cycle name can't contain '|'." end
+    if name == "" then return nil, "Type a folder name first." end
+    if string.len(name) > SDB.CYCLE_NAME_MAX then return nil, "A folder name can have up to " .. SDB.CYCLE_NAME_MAX .. " letters." end
+    if string.find(name, "|", 1, true) then return nil, "A folder name can't contain '|'." end
     if RESERVED_CYCLE_NAMES[string.lower(name)] then return nil, "'" .. name .. "' is a reserved name." end
     return name
 end
@@ -361,7 +361,7 @@ function SDB.SetPageCycle(p, name, skip)
     pg.noCycle = skip or nil
     if old and old ~= name and not SDB.FindCycle(old) then DropCycleRules(old) end
     if lostRule then
-        print("|cFFFF9900[SpellPad Studio]|r Page " .. p .. "'s own context was removed. The cycle '"
+        print("|cFFFF9900[SpellPad Studio]|r Page " .. p .. "'s own context was removed. The folder '"
             .. (string.gsub(name, "|", "||")) .. "' decides when it is used.")
     end
     SDB.GroupPages()
@@ -407,7 +407,7 @@ function SDB.GroupPages()
         if w and w.RefreshRows then w.RefreshRows() end
         if SDB.RefreshPadIfShown then SDB.RefreshPadIfShown() end
         if SDB.ApplyBindings then SDB.ApplyBindings({ keepPending = true }) end
-        print("|cFF00FF00[SpellPad Studio]|r Pages grouped by cycle. Restore can undo it.")
+        print("|cFF00FF00[SpellPad Studio]|r Pages grouped by folder. Restore can undo it.")
     end
     return moved
 end
@@ -422,7 +422,7 @@ function SDB.RenameCycle(old, new)
     for p = 1, #pages do
         local n = SDB.PageCycle(p)
         if n and n ~= old and string.lower(n) == string.lower(clean) then
-            return false, "A cycle called '" .. n .. "' already exists."
+            return false, "A folder called '" .. n .. "' already exists."
         end
     end
     for p = 1, #pages do
@@ -732,14 +732,14 @@ function SDB.PageReport(emit)
         elseif kind == "skipped" then skipped[#skipped + 1] = p
         elseif kind == "context" then context[#context + 1] = p .. " (" .. tostring(SDB.ContextInfo(value) or value) .. ")" end
     end
-    emit("Default cycle: pages " .. (#default > 0 and table.concat(default, ", ") or "none")
+    emit("Default folder: pages " .. (#default > 0 and table.concat(default, ", ") or "none")
         .. (#context > 0 and ("; own context: " .. table.concat(context, ", ")) or "")
         .. (#skipped > 0 and ("; skipped: " .. table.concat(skipped, ", ")) or ""))
     for _, name in ipairs(SDB.CycleNames()) do
         local members = SDB.CycleMembers(name)
         local trigger = SDB.ctx and SDB.ctx.cycleContexts and SDB.ctx.cycleContexts[name]
         local prio = SDB.ctx and SDB.ctx.cyclePriorities and SDB.ctx.cyclePriorities[name]
-        emit("Cycle '" .. (string.gsub(name, "|", "||")) .. "': pages " .. table.concat(members, ", ")
+        emit("Folder '" .. (string.gsub(name, "|", "||")) .. "': pages " .. table.concat(members, ", ")
             .. ", context " .. (trigger and (SDB.ContextInfo(trigger) or trigger) or "none")
             .. (prio and ", override on" or "") .. ", entry page " .. members[1])
     end

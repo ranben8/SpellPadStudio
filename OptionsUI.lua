@@ -560,13 +560,13 @@ local function PageOptionsBody(win)
     local g3 = Group(root, 16, y, gw, nil)
     local labC = g3:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     labC:SetPoint("TOPLEFT", g3, "TOPLEFT", PAD, -12)
-    labC:SetText("Page cycle")
+    labC:SetText("Page folder")
     g3.cur = 30
     AddRow(g3, "This page is in", win.cycleBtn, 150)
     local info = g3:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     info:SetPoint("TOPLEFT", g3, "TOPLEFT", PAD, -g3.cur)
     info:SetWidth(g3.w - 2 * PAD)
-    info:SetHeight(52) -- four lines: the explanation and, for an In Combat cycle, the warning
+    info:SetHeight(52) -- four lines: the explanation and, for an In Combat folder, the warning
     info:SetJustifyH("LEFT")
     info:SetJustifyV("TOP")
     win.cycleInfo = info
