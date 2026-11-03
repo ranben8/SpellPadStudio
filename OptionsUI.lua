@@ -117,8 +117,8 @@ local function Finish(g)
 end
 
 -- stack of groups in one column: returns the next y
-local function Stack(parent, x, w, list)
-    local y = 0
+local function Stack(parent, x, w, list, y0)
+    local y = y0 or 0
     for _, spec in ipairs(list) do
         local g = Group(parent, x, y, w, spec.title)
         spec.fill(g)
@@ -297,6 +297,92 @@ local function BuildPrefixGroup(g)
     Refresh()
 end
 
+-- Pad size group (SpellPad tab): tiles for the common keypad sizes, the direction, and the two dropdowns that make any
+-- other size from 4 to 36. Every choice goes through SDB.SetPadSize, which applies it to every page.
+local function BuildPadSizeGroup(g, win)
+    local function Click() PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856) end
+
+    local tiles = SDB.UI.PadTiles(g, { w = 82, h = 70, gap = 8, countFont = "GameFontNormalLarge", onPick = function(n)
+        Click()
+        SDB.SetPadSize(n, SDB.PadColsFor(n, SDB.PadIsVertical()))
+    end })
+    tiles:SetPoint("TOPLEFT", g, "TOPLEFT", PAD, -g.cur)
+    g.cur = g.cur + 70 + 10
+
+    local horiz = SDB.UI.ChoiceChip(g, "Horizontal (wider than tall)", 185, 24)
+    local vert = SDB.UI.ChoiceChip(g, "Vertical (taller than wide)", 185, 24)
+    horiz:SetPoint("TOPLEFT", g, "TOPLEFT", PAD, -g.cur)
+    vert:SetPoint("LEFT", horiz, "RIGHT", 10, 0)
+    g.cur = g.cur + 24 + 10
+
+    -- the custom size row: the two dropdowns Config.lua made, [cards] cards in [rows x columns]
+    local label = g:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    label:SetPoint("TOPLEFT", g, "TOPLEFT", PAD, -(g.cur + 4))
+    label:SetText("Custom size")
+    local cards, shape = win.deckSizeBtn, win.orientBtn
+    if cards and shape then
+        Take(g, cards)
+        cards:SetWidth(70)
+        cards:SetPoint("TOPLEFT", g, "TOPLEFT", PAD + 100, -g.cur)
+        local cardsFs = g:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        cardsFs:SetPoint("LEFT", cards, "RIGHT", 8, 0)
+        cardsFs:SetText("cards in")
+        Take(g, shape)
+        shape:SetWidth(84)
+        shape:SetPoint("LEFT", cardsFs, "RIGHT", 8, 0)
+        local shapeFs = g:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        shapeFs:SetPoint("LEFT", shape, "RIGHT", 8, 0)
+        shapeFs:SetText("rows x columns")
+    end
+    g.cur = g.cur + 30
+
+    local note = AddNote(g, "", 3)
+
+    local function Refresh()
+        local pad = SDB.PadSize()
+        local vertical = SDB.PadIsVertical()
+        tiles:SetValue(pad, pad and SDB.PadCols() or nil, vertical)
+        horiz:SetSelected(not vertical)
+        vert:SetSelected(vertical)
+        -- a square pad looks the same both ways: the choice is greyed out
+        local square = pad and SDB.PadColsFor(pad, false) == SDB.PadColsFor(pad, true)
+        for _, chip in ipairs({ horiz, vert }) do
+            chip:SetAlpha(square and 0.45 or 1)
+            chip:SetEnabled(not square)
+        end
+        if not pad then
+            note:SetText("This profile still gives each page its own size and shape. Pick a size to use one for every page.")
+            return
+        end
+        local rows, cols = pad / SDB.PadCols(), SDB.PadCols()
+        local text = "Every page shows " .. pad .. " cards, " .. rows .. (rows == 1 and " row by " or " rows by ") .. cols
+            .. (cols == 1 and " column." or " columns.")
+        local hidden, pages = SDB.HiddenContent(pad)
+        if hidden > 0 then
+            text = text .. "\n|cFFFF9900" .. SDB.Plural(hidden, "card") .. " on " .. SDB.Plural(pages, "page")
+                .. (hidden == 1 and " holds" or " hold") .. " a macro or icon past card " .. pad .. ": "
+                .. (hidden == 1 and "it is" or "they are") .. " hidden, not deleted.|r"
+        end
+        note:SetText(text)
+    end
+    win.RefreshPadSize = Refresh
+
+    local function Pick(v)
+        Click()
+        SDB.padVerticalPref = v
+        local n = SDB.PadSize()
+        if n then
+            local cols = SDB.PadColsFor(n, v)
+            if cols ~= SDB.PadCols() then SDB.SetPadSize(n, cols) end
+        end
+        if win.UpdateActiveProfileText then win.UpdateActiveProfileText() else Refresh() end -- also moves the Shape dropdown's text
+    end
+    horiz:SetScript("OnClick", function() Pick(false) end)
+    vert:SetScript("OnClick", function() Pick(true) end)
+    g:HookScript("OnShow", Refresh)
+    Refresh()
+end
+
 local function OptionsBody(win)
     local ctl = {
         opacity = Named("GalleonOpacitySlider"), scale = Named("GalleonScaleSlider"),
@@ -350,10 +436,12 @@ local function OptionsBody(win)
 
     -- SpellPad: the on-screen button window
     spec[3] = Tab("SpellPad", function(content)
+        local top = Group(content, 16, 0, OPT_W - 32, "Pad Size")
+        BuildPadSizeGroup(top, win)
+        local topH = Finish(top)
+        local y0 = topH + GAP
         local h1 = Stack(content, 16, COL_W, {
             { title = "Layout and Behavior", fill = function(g)
-                AddRow(g, "Cards per page", win.deckSizeBtn, 90)
-                AddRow(g, "Orientation", win.orientBtn, 90)
                 AddCheck(g, Named("GalleonMopLock"))
                 AddCheck(g, Named("GalleonMopClickSound"))
                 AddCheck(g, Named("GalleonMopChangeGlow"))
@@ -366,7 +454,7 @@ local function OptionsBody(win)
                 AddSlider(g, Named("GalleonMatrixButtonOpacitySlider"))
                 AddSlider(g, Named("GalleonMatrixSpacingSlider"))
             end },
-        })
+        }, y0)
         local h2 = Stack(content, 16 + COL_W + GAP, COL_W, {
             { title = "Visibility", fill = function(g)
                 AddCheck(g, Named("GalleonMopAlways"))
@@ -383,7 +471,7 @@ local function OptionsBody(win)
                 AddCheck(g, Named("GalleonMopRangeTint"))
                 AddCheck(g, Named("GalleonMopDim"))
             end },
-        })
+        }, y0)
         return math.max(h1, h2)
     end)
 

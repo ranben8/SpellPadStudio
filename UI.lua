@@ -16,6 +16,7 @@ local addonName, SDB = ...
 --   SDB.UI.Check / Slider / Dropdown            Settings-style looks (the dropdown is only the look; the menu is the caller's)
 --   SDB.UI.Divider / KeyCap / Glyph / Dashed
 --   SDB.UI.StateChip(parent, label, w, h)       Any / Yes / No chip (:SetState(0|1|2)); SDB.UI.ChoiceChip(...) :SetSelected(bool)
+--   SDB.UI.PadTiles(parent, opts)               the pad size tiles; :SetValue(n, cols, vertical)
 --   SDB.UI.FauxBar(scrollFrame)                 the thin bar for an offset-scrolled (Faux) list; call sf.sdbBar.Update() after each refresh
 --
 -- Whole atlases only: no SetTexCoord / SetHeight on a texture made with SetAtlas(atlas, true) (it corrupted the
@@ -1492,6 +1493,101 @@ function U.ChoiceChip(parent, text, w, h)
     if text then b:SetText(text) end
     Note("chip", "choice")
     return b
+end
+
+-- ---------------------------------------------------------------
+-- Pad size tiles
+-- ---------------------------------------------------------------
+-- One tile per preset pad size (SDB.PAD_PRESETS): a small grid pictogram of the shape, the number of cards and
+-- rows x columns. opts = { w, h, gap, countFont, onPick(n) }. f:SetValue(n, cols, vertical) marks the tile for n as the
+-- chosen one (nil = none; it shows the real `cols`), draws the others in the shape a click would give them in that
+-- direction, and gives the chosen tile a check mark besides its gold outline.
+local CELL_GREY, CELL_GOLD = { 0.58, 0.58, 0.62 }, { 1, 0.82, 0 }
+
+local function DrawPictogram(tile, n, cols, chosen)
+    local rows = n / cols
+    local pw, ph = tile.picW, tile.picH
+    local gap = 1
+    local s = math.min((pw - (cols - 1) * gap) / cols, (ph - (rows - 1) * gap) / rows)
+    if s < 2.5 then
+        gap = 0.5
+        s = math.min((pw - (cols - 1) * gap) / cols, (ph - (rows - 1) * gap) / rows)
+    end
+    s = math.max(1, s)
+    local gridW, gridH = cols * s + (cols - 1) * gap, rows * s + (rows - 1) * gap
+    local x0, y0 = (pw - gridW) / 2, (ph - gridH) / 2
+    local c = chosen and CELL_GOLD or CELL_GREY
+    for i = 1, n do
+        local t = tile.cells[i]
+        if not t then
+            t = tile.pic:CreateTexture(nil, "ARTWORK")
+            tile.cells[i] = t
+        end
+        local r, k = math.floor((i - 1) / cols), (i - 1) % cols
+        t:SetSize(s, s)
+        t:ClearAllPoints()
+        t:SetPoint("TOPLEFT", tile.pic, "TOPLEFT", x0 + k * (s + gap), -(y0 + r * (s + gap)))
+        t:SetColorTexture(c[1], c[2], c[3], 1)
+        t:Show()
+    end
+    for i = n + 1, #tile.cells do tile.cells[i]:Hide() end
+end
+
+function U.PadTiles(parent, opts)
+    local list = SDB.PAD_PRESETS
+    local w, h, gap = opts.w, opts.h, opts.gap or 6
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(#list * w + (#list - 1) * gap, h)
+    f.tiles = {}
+    local shapeH, countH = 11, (opts.countFont == "GameFontNormalLarge") and 16 or 13
+    for i, n in ipairs(list) do
+        local b = NewChip(f, w, h)
+        b:SetPoint("TOPLEFT", f, "TOPLEFT", (i - 1) * (w + gap), 0)
+        b.n = n
+        b.cells = {}
+        b.picW, b.picH = w - 12, h - 5 - 4 - shapeH - countH - 3
+        b.pic = CreateFrame("Frame", nil, b)
+        b.pic:SetSize(b.picW, b.picH)
+        b.pic:SetPoint("TOPLEFT", b, "TOPLEFT", 6, -5)
+        b.shapeFs = b:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        b.shapeFs:SetPoint("BOTTOM", b, "BOTTOM", 0, 4)
+        b.countFs = b:CreateFontString(nil, "OVERLAY", opts.countFont or "GameFontNormal")
+        b.countFs:SetPoint("BOTTOM", b.shapeFs, "TOP", 0, 1)
+        b.check = b:CreateTexture(nil, "OVERLAY")
+        b.check:SetSize(12, 12)
+        b.check:SetPoint("TOPRIGHT", b, "TOPRIGHT", -3, -3)
+        b.hasCheck = SetAtl(b.check, "common-icon-checkmark", false)
+        b.check:Hide()
+        b.countFs:SetText(tostring(n))
+        function b:SetSelected(on)
+            self.sdbSelected = on and true or false
+            self:Apply(self.sdbSelected and CHIP_LOOK.on or CHIP_LOOK.any)
+        end
+        b:SetScript("OnClick", function() if opts.onPick then opts.onPick(n) end end)
+        b:HookScript("OnEnter", function(self)
+            SDB.Tip.Begin(self, "ANCHOR_TOP", n .. " Cards", "control")
+            SDB.Tip.Line("Every page shows " .. n .. " cards in " .. self.shapeText .. ".")
+            SDB.Tip.Done()
+        end)
+        b:HookScript("OnLeave", function() GameTooltip:Hide() end)
+        f.tiles[i] = b
+    end
+    function f:SetValue(n, cols, vertical)
+        for _, b in ipairs(self.tiles) do
+            local chosen = (b.n == n)
+            local c = (chosen and cols) or SDB.PadColsFor(b.n, vertical and true or false)
+            local rows = b.n / c
+            b.shapeText = rows .. (rows == 1 and " row by " or " rows by ") .. c .. (c == 1 and " column" or " columns")
+            b.shapeFs:SetText(rows .. " x " .. c)
+            b.countFs:SetTextColor(unpack(chosen and CELL_GOLD or { 1, 1, 1 }))
+            b:SetSelected(chosen)
+            b.check:SetShown(chosen and b.hasCheck)
+            DrawPictogram(b, b.n, c, chosen)
+        end
+    end
+    f:SetValue(nil, nil, false)
+    Note("pad tiles", "tiles")
+    return f
 end
 
 -- ---------------------------------------------------------------

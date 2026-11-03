@@ -2504,12 +2504,14 @@ function SDB.BuildUI()
 
         local profName = SDB.currentProfileName or "Default"
         optActiveProfileText:SetText("Profile: |cFF00FF00" .. profName .. "|r\nCards per page: |cFFFFFFFF" .. curCount .. "|r\nOrientation: |cFFFFFFFF" .. orient .. "|r")
-        -- the two dropdowns of the SpellPad tab show the same values (they are made further down)
+        -- the Custom size dropdowns of the SpellPad tab show the size and shape a choice would use for every page
+        -- (they are made further down)
         if optionsWindow.deckSizeBtn then optionsWindow.deckSizeBtn:SetText(tostring(curCount)) end
         if optionsWindow.orientBtn then
-            local shape = (pad or (curPage and #curPage > 0)) and string.match(orient, "^%d+x%d+") or "-"
-            optionsWindow.orientBtn:SetText(shape)
+            local cols = pad and SDB.PadCols() or SDB.PadColsFor(curCount, SDB.PadIsVertical())
+            optionsWindow.orientBtn:SetText((curCount / cols) .. "x" .. cols)
         end
+        if optionsWindow.RefreshPadSize then optionsWindow.RefreshPadSize() end
         optionsWindow.UpdateActiveProfileText = UpdateActiveProfileText
     end
     UpdateActiveProfileText()
@@ -3445,39 +3447,29 @@ function SDB.BuildUI()
     local deckSizeDropDownFrame = CreateFrame("Frame", "GalleonDeckSizeDropDown", optionsWindow, "UIDropDownMenuTemplate")
     local function InitDeckSizeDropDown(self, level)
         level = level or 1
-        -- with a pad size the choice sets it for every page, keeping the pad's horizontal or vertical lie
+        -- the choice sets the pad size for every page, keeping the pad's horizontal or vertical lie
         local pad = SDB.PadSize()
-        local vertical = pad and (pad / SDB.PadCols()) > SDB.PadCols()
+        local vertical = SDB.PadIsVertical()
         for count = SDB.MIN_CARDS, SDB.MAX_CARDS do
             local info = SafeCreateInfo()
             info.text = tostring(count)
             info.checked = ((pad or SDB.db.deckSize) == count)
             info.func = function()
                 PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
-                if pad then
-                    SDB.SetPadSize(count, SDB.PadColsFor(count, vertical))
-                    return
-                end
-                SDB.db.deckSize = count
-                if optionsWindow and optionsWindow.UpdateActiveProfileText then optionsWindow.UpdateActiveProfileText() end
-                print("|cFF00FF00[SpellPad Studio]|r New pages will have " .. count .. " cards.")
+                SDB.SetPadSize(count, SDB.PadColsFor(count, vertical))
             end
             SafeAddButton(info, level)
         end
     end
     UIDropDownMenu_Initialize(deckSizeDropDownFrame, InitDeckSizeDropDown, "MENU")
 
-    -- Cards per Page and Orientation are dropdown-looking buttons that show their current value;
-    -- OptionsUI.lua puts a label in front of each.
-    local deckSizeBtn = SDB.UI.Dropdown(optionsWindow, 90, tostring(SDB.db.deckSize or 12))
+    -- The Custom size dropdowns are dropdown-looking buttons that show their current value; OptionsUI.lua puts them
+    -- in the Pad Size group.
+    local deckSizeBtn = SDB.UI.Dropdown(optionsWindow, 70, tostring(SDB.db.deckSize or 12))
     optionsWindow.deckSizeBtn = deckSizeBtn
     deckSizeBtn:SetScript("OnEnter", function(self)
-        SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Cards per Page", "control")
-        if SDB.PadSize() then
-            SDB.Tip.Line("Number of cards (4 to 36) every page shows. Cards past it are hidden, not deleted.")
-        else
-            SDB.Tip.Line("Number of cards (4 to 36) on pages you create from now on. Existing pages keep their size.")
-        end
+        SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Cards", "control")
+        SDB.Tip.Line("Number of cards (4 to 36) every page shows. Cards past it are hidden, not deleted.")
         SDB.Tip.Done()
     end)
     deckSizeBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -3489,55 +3481,38 @@ function SDB.BuildUI()
     local orientDropDownFrame = CreateFrame("Frame", "GalleonOrientDropDown", optionsWindow, "UIDropDownMenuTemplate")
     local function InitOrientDropDown(self, level)
         level = level or 1
-        -- Every exact rows x columns grid of the page the SpellPad is showing. Each page keeps its own shape
-        -- (stored on the page, SDB.SetPageCols), so a profile can mix pages of different sizes.
-        -- With a pad size the shapes are those of the pad size and the choice applies to every page.
-        local p = SDB.db.activePage or 1
-        local page = SDB.db.pages and SDB.db.pages[p]
+        -- Every exact rows x columns grid for the pad size (a profile without one: for its cards per page). The choice
+        -- applies to every page.
         local pad = SDB.PadSize()
-        local n = pad or (page and #page or 0)
+        local n = pad or SDB.db.deckSize or 12
         if n < 1 then return end
 
         local title = SafeCreateInfo()
-        local pageName = SDB.PageName(p)
-        title.text = pad and ("All pages (" .. n .. " cards)")
-            or ((string.gsub(pageName, "|", "||")) .. " (" .. n .. (n == 1 and " card)" or " cards)"))
+        title.text = "All pages (" .. n .. " cards)"
         title.isTitle = true
         title.notCheckable = true
         SafeAddButton(title, level)
 
-        local curRows, curCols = SDB.GetMatrixDimensions(n, page)
+        local curCols = pad and SDB.PadCols() or SDB.PadColsFor(n, SDB.PadIsVertical())
         for _, shape in ipairs(SDB.GetCardShapes(n)) do
             local info = SafeCreateInfo()
             info.text = shape.rows .. "x" .. shape.cols
-            info.checked = (shape.rows == curRows and shape.cols == curCols)
+            info.checked = (shape.cols == curCols)
             info.func = function()
-                if pad then
-                    PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
-                    SDB.SetPadSize(pad, shape.cols)
-                    return
-                end
-                if not SDB.SetPageCols(page, shape.cols) then return end
-                if optionsWindow and optionsWindow.UpdateActiveProfileText then optionsWindow.UpdateActiveProfileText() end
                 PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
-                SDB.RefreshPadIfShown()
+                SDB.SetPadSize(n, shape.cols)
             end
             SafeAddButton(info, level)
         end
     end
     UIDropDownMenu_Initialize(orientDropDownFrame, InitOrientDropDown, "MENU")
 
-    local orientBtn = SDB.UI.Dropdown(optionsWindow, 90, "-")
+    local orientBtn = SDB.UI.Dropdown(optionsWindow, 84, "-")
     optionsWindow.orientBtn = orientBtn
     orientBtn:SetScript("OnEnter", function(self)
-        SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Orientation", "control")
-        if SDB.PadSize() then
-            SDB.Tip.Line("Grid shape of every page, as rows x columns.")
-            SDB.Tip.Hint("The choices depend on the cards per page.")
-        else
-            SDB.Tip.Line("Grid shape of the page the SpellPad is showing, as rows x columns. Each page keeps its own shape.")
-            SDB.Tip.Hint("The choices depend on how many cards the page has.")
-        end
+        SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Shape", "control")
+        SDB.Tip.Line("Grid shape of every page, as rows x columns.")
+        SDB.Tip.Hint("The choices depend on the number of cards.")
         SDB.Tip.Done()
     end)
     orientBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)

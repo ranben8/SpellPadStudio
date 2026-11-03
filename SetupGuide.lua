@@ -39,10 +39,9 @@ G.FRAME_NAME = "GalleonSetupGuideFrame"
 G.STEPS = 5
 local FINISH = G.STEPS + 1
 
-local W, H = 420, 580
+local W, H = 420, 612
 local CW = 380                  -- content width (20 units margin each side)
-local PAD_TOP, PAD_H = -196, 186
-local TILES = { 6, 8, 12, 15, 32 }
+local PAD_TOP, PAD_H = -228, 186
 local MAX_BTN = 30              -- demo pad button size: about 2/3 of a SpellPad button
 
 local GREY, GOLD, ORANGE, RED = "|cFF888888", "|cFFFFD100", "|cFFFF9900", "|cFFFF4444"
@@ -199,9 +198,9 @@ local function ReadPage1()
     if n == 0 then return end
     local rows, cols = SDB.GetMatrixDimensions(n, p1)
     st.count = n
-    st.vertical = rows > cols
+    st.vertical = SDB.PadSize() and SDB.PadIsVertical() or rows > cols
     st.other = true
-    for _, t in ipairs(TILES) do
+    for _, t in ipairs(SDB.PAD_PRESETS) do
         if t == n then st.other = false end
     end
 end
@@ -505,6 +504,7 @@ function G.ApplyShape()
     if not p1 then return false end
     local n, cols = st.count, ColsFor(st.count, st.vertical)
     local oldN, oldCols = SDB.PadSize(), SDB.PadCols()
+    SDB.padVerticalPref = st.vertical -- a square pad has no direction of its own: Options > SpellPad follows this choice
 
     local function Done()
         p1 = Page1()
@@ -792,33 +792,28 @@ local function Build()
     f.pad:SetPoint("TOPLEFT", f, "TOPLEFT", 20, PAD_TOP)
     f.pad:SetSize(CW, PAD_H)
 
-    -- step 1: tiles, the Other stepper, orientation
+    -- step 1: size tiles (the same ones as Options > SpellPad), the Other stepper, orientation
     local s1 = StepFrame(f)
     f.s1 = s1
-    s1.tiles = {}
-    for i = 1, #TILES + 1 do
-        local chip = SDB.UI.ChoiceChip(s1, TILES[i] and tostring(TILES[i]) or "Other", 58, 24)
-        chip:SetPoint("TOPLEFT", s1, "TOPLEFT", 20 + (i - 1) * 64, -104)
-        chip:SetScript("OnClick", function()
-            if TILES[i] then
-                st.count, st.other = TILES[i], false
-            else
-                st.other = true
-                if st.count < SDB.MIN_CARDS or st.count > SDB.MAX_CARDS then st.count = 20 end
-            end
-            st.note = ""
-            G.Refresh()
-        end)
-        s1.tiles[i] = chip
-    end
+    s1.tiles = SDB.UI.PadTiles(s1, { w = 58, h = 56, gap = 6, onPick = function(n)
+        st.count, st.other = n, false
+        st.note = ""
+        G.Refresh()
+    end })
+    s1.tiles:SetPoint("TOPLEFT", s1, "TOPLEFT", 20, -100)
+    s1.otherChip = SDB.UI.ChoiceChip(s1, "Other", 64, 24)
+    s1.otherChip:SetPoint("TOPLEFT", s1, "TOPLEFT", 20, -164)
+    s1.otherChip:SetScript("OnClick", function()
+        st.other = true
+        if st.count < SDB.MIN_CARDS or st.count > SDB.MAX_CARDS then st.count = 20 end
+        st.note = ""
+        G.Refresh()
+    end)
     s1.stepper = CreateFrame("Frame", nil, s1)
-    s1.stepper:SetSize(CW, 24)
-    s1.stepper:SetPoint("TOPLEFT", s1, "TOPLEFT", 20, -134)
-    local sl = s1.stepper:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    sl:SetPoint("LEFT", 0, 0)
-    sl:SetText("Buttons:")
+    s1.stepper:SetSize(CW - 72, 24)
+    s1.stepper:SetPoint("TOPLEFT", s1, "TOPLEFT", 92, -164)
     local minus = SDB.UI.GlyphButton(s1.stepper, "minus", 22)
-    minus:SetPoint("LEFT", sl, "RIGHT", 10, 0)
+    minus:SetPoint("LEFT", s1.stepper, "LEFT", 0, 0)
     s1.value = s1.stepper:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     s1.value:SetPoint("LEFT", minus, "RIGHT", 6, 0)
     s1.value:SetWidth(32)
@@ -835,6 +830,7 @@ local function Build()
     minus:SetScript("OnClick", function() Step(-1) end)
     plus:SetScript("OnClick", function() Step(1) end)
     s1.horiz = SDB.UI.ChoiceChip(s1, "Horizontal (wider than tall)", 185, 24)
+    s1.horiz:SetPoint("TOPLEFT", s1, "TOPLEFT", 20, -196)
     s1.vert = SDB.UI.ChoiceChip(s1, "Vertical (taller than wide)", 185, 24)
     s1.vert:SetPoint("LEFT", s1.horiz, "RIGHT", 10, 0)
     s1.horiz:SetScript("OnClick", function() st.vertical = false; G.Refresh() end)
@@ -853,7 +849,7 @@ local function Build()
     local APPS = { { "elgato", "Stream Deck" }, { "icue", "Corsair iCUE" }, { "other", "Other App" } }
     for i, a in ipairs(APPS) do
         local chip = SDB.UI.ChoiceChip(s2, a[2], 120, 24)
-        chip:SetPoint("TOPLEFT", s2, "TOPLEFT", 20 + (i - 1) * 130, -132)
+        chip:SetPoint("TOPLEFT", s2, "TOPLEFT", 20 + (i - 1) * 130, -164)
         chip:SetScript("OnClick", function() st.app = a[1]; G.Refresh() end)
         chip.app = a[1]
         s2.apps[i] = chip
@@ -869,7 +865,7 @@ local function Build()
     -- step 3: counter, messages, button check and the prefix fix
     local s3 = StepFrame(f)
     f.s3 = s3
-    s3.count = Text(s3, "GameFontNormal", -132)
+    s3.count = Text(s3, "GameFontNormal", -164)
     s3.note = Text(s3, "GameFontHighlightSmall", PAD_TOP - PAD_H - 10)
     s3.note:SetSpacing(2)
     s3.find = SDB.UI.Button(s3, "secondary", FIND_TEXT, 290, 24)
@@ -1038,14 +1034,11 @@ function G.Refresh()
         local s1 = f.s1
         f.head:SetText("How many buttons does your keypad have?")
         f.body:SetText("Count every button, also the ones you don't plan to use yet.")
-        for i, chip in ipairs(s1.tiles) do
-            chip:SetSelected(TILES[i] and (not st.other and st.count == TILES[i]) or (not TILES[i] and st.other))
-        end
+        s1.tiles:SetValue(not st.other and st.count or nil, ColsFor(st.count, st.vertical), st.vertical)
+        s1.otherChip:SetSelected(st.other)
         s1.stepper:SetShown(st.other)
         s1.value:SetText(tostring(st.count))
         local square = IsSquare(st.count)
-        s1.horiz:ClearAllPoints()
-        s1.horiz:SetPoint("TOPLEFT", s1, "TOPLEFT", 20, st.other and -164 or -134)
         s1.horiz:SetShown(not square)
         s1.vert:SetShown(not square)
         s1.horiz:SetSelected(not st.vertical)

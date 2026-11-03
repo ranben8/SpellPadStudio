@@ -157,7 +157,7 @@ SDB.SUFFIX_MAP = {
 }
 
 -- Cards per page: any whole number from 4 to 36 (36 = the keys in SUFFIX_MAP). Pages smaller than the
--- minimum can still exist (an import can hold one); the limits only apply to the Cards per Page choice.
+-- minimum can still exist (an import can hold one); the limits only apply to the pad size choice.
 SDB.MIN_CARDS, SDB.MAX_CARDS = 4, 36
 -- Cards per page of a brand-new profile (fresh install, Reset Defaults, a new Global profile): 15 = 3 rows x 5
 -- columns, the size and shape of a common 15-key keypad. Profiles that already exist keep what they have.
@@ -446,6 +446,20 @@ function SDB.PadCols(db)
     local c = (db or SDB.db).padCols
     if type(c) == "number" and c == math.floor(c) and c >= 1 and c <= n and n % c == 0 then return c end
     return SDB.PadColsFor(n, false)
+end
+
+-- whether the pad lies vertical (taller than wide). A square pad, or a profile without a pad size yet, has no direction of
+-- its own: the last choice made in this session counts (SDB.padVerticalPref), else the profile's older Horizontal/Vertical flag.
+function SDB.PadIsVertical(db)
+    db = db or SDB.db
+    local n = SDB.PadSize(db)
+    if n then
+        local cols = SDB.PadCols(db)
+        if n / cols > cols then return true end
+        if n / cols < cols then return false end
+    end
+    if SDB.padVerticalPref ~= nil then return SDB.padVerticalPref and true or false end
+    return type(db) == "table" and db.matrixOrientation == "VERTICAL"
 end
 
 -- how many cards of a page count (are shown and bound): the pad size, or the whole page without one
