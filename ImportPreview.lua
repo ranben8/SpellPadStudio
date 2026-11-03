@@ -204,6 +204,11 @@ local function CleanCycle(slots, name, skip)
     end
 end
 
+-- a folder color from an import: three numbers from 0 to 1, rebuilt as a plain table; nil for anything else
+local function CleanColor(c)
+    if SDB.ValidColor(c) then return { c[1], c[2], c[3] } end
+end
+
 local function BuildNotes(st)
     local notes = {}
     if st.cut > 0 then notes[#notes + 1] = Plural(st.cut, "text") .. " shortened" end
@@ -225,6 +230,7 @@ function IP.Validate(data)
         if not slots then return nil, err end
         SDB.SetPageCols(slots, data.cols) -- the page's SpellPad shape, kept only if it fits the card count
         CleanCycle(slots, data.cycle, data.noCycle)
+        clean.cycleColor = slots.cycle and CleanColor(data.cycleColor) or nil
         clean.slots = slots
         clean.name = CleanName(data.name, st)
     elseif data.type == "ALL" then
@@ -249,6 +255,18 @@ function IP.Validate(data)
             CleanCycle(slots, cycles[p], skips[p])
             clean.pages[p] = slots
             clean.pageNames[p] = CleanName(names[p], st)
+        end
+
+        -- folder colors, kept only for folders some page of the string really uses
+        clean.cycleColors = {}
+        if type(data.cycleColors) == "table" then
+            for p = 1, np do
+                local folder = clean.pages[p].cycle
+                if folder and clean.cycleColors[folder] == nil then
+                    local c = CleanColor(data.cycleColors[folder])
+                    if c then clean.cycleColors[folder] = c end
+                end
+            end
         end
 
         local okSize = type(data.deckSize) == "number" and data.deckSize == math.floor(data.deckSize)
@@ -869,6 +887,10 @@ function IP.CreateProfile(data, name)
     end
     p.pages = data.pages
     p.pageNames = data.pageNames or {}
+    -- the string's folder colors; a folder without one is gold (existing profiles' folders are unaffected)
+    local colors = {}
+    for folder, c in pairs(data.cycleColors or {}) do colors[folder] = { c[1], c[2], c[3] } end
+    p.cycleColors = colors
     p.deckSize = data.deckSize or 12
     p.activePage = 1
     profiles[clean] = p

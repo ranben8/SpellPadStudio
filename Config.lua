@@ -500,6 +500,7 @@ function SDB.ExportActivePageString()
         cols = SDB.PageCols(sourceSlots), -- the SpellPad shape of the page (nil = default)
         cycle = sourceSlots.cycle,
         noCycle = sourceSlots.noCycle,
+        cycleColor = SDB.PageCycle(curP) and SDB.CycleColorIsSet(sourceSlots.cycle) and { SDB.CycleColor(sourceSlots.cycle) } or nil,
         slots = cloned,
     }
 
@@ -510,11 +511,16 @@ function SDB.ExportAllPagesString()
     local pagesCloned = {}
     local pageCols = {} -- SpellPad shape per page (only pages that have one)
     local pageCycles, pageNoCycle = {}, {} -- page cycle per page (only pages that have one)
+    local cycleColors = {} -- folder name -> color, for folders that have one
     for pIdx, slots in ipairs(SDB.db.pages) do
         pagesCloned[pIdx] = {}
         pageCols[pIdx] = SDB.PageCols(slots)
         pageCycles[pIdx] = slots.cycle
         pageNoCycle[pIdx] = slots.noCycle
+        local folder = SDB.PageCycle(pIdx)
+        if folder and cycleColors[folder] == nil and SDB.CycleColorIsSet(folder) then
+            cycleColors[folder] = { SDB.CycleColor(folder) }
+        end
         for sIdx, s in ipairs(slots) do
             pagesCloned[pIdx][sIdx] = {
                 name = s.name or ("Slot " .. sIdx),
@@ -536,6 +542,7 @@ function SDB.ExportAllPagesString()
         pageCols = pageCols,
         pageCycles = pageCycles,
         pageNoCycle = pageNoCycle,
+        cycleColors = cycleColors,
         pages = pagesCloned,
     }
 
@@ -603,6 +610,9 @@ function SDB.ApplyImportData(data, asNewPage)
     end
     if SDB.Undo then SDB.Undo.ClearAll() end
 
+    local existedFolders = {}
+    for _, n in ipairs(SDB.CycleNames()) do existedFolders[n] = true end
+
     if data.type == "PAGE" then
         if asNewPage then
             local nextIdx = #SDB.db.pages + 1
@@ -636,6 +646,13 @@ function SDB.ApplyImportData(data, asNewPage)
         SDB.manualPage = landOn
         print("|cFF00FF00[SpellPad Studio]|r Added " .. #data.pages .. (#data.pages == 1 and " page" or " pages") .. " from the import.")
     end
+
+    -- folders that came with the import: take the string's colors where the folder has none, color the new ones
+    local importedColors = data.cycleColors
+    if data.type == "PAGE" and data.slots and data.slots.cycle and SDB.ValidColor(data.cycleColor) then
+        importedColors = { [data.slots.cycle] = data.cycleColor }
+    end
+    SDB.AdoptCycleColors(importedColors, existedFolders)
 
     SDB.activeSlotIndex = nil
     if SDB.configWindow then
@@ -1772,6 +1789,10 @@ function SDB.BuildUI()
         h.label:SetJustifyH("LEFT")
         h.label:SetWordWrap(false)
         h.count = h:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        -- the folder's color, a small square left of its name (named folders only)
+        h.chip = h:CreateTexture(nil, "ARTWORK")
+        h.chip:SetSize(8, 8)
+        h.chip:SetPoint("LEFT", h, "LEFT", 6, 0)
         -- the same thin grey border as the context icon on a page row: a grey square one pixel larger behind the icon
         h.glyphBorder = h:CreateTexture(nil, "ARTWORK", nil, 0)
         h.glyphBorder:SetColorTexture(0.40, 0.40, 0.40, 1)
@@ -1799,7 +1820,7 @@ function SDB.BuildUI()
                     SDB.Tip.Colored("GOLD", "Context: " .. self.contextName)
                     if not self.contextOn then SDB.Tip.Hint("Contextual page switching is off.") end
                 end
-                SDB.Tip.Hint("Right-click to rename it or change its context.")
+                SDB.Tip.Hint("Right-click to rename it or change its color or context.")
             elseif self.kind == "default" then
                 SDB.Tip.Text("The pages !PAGE Forward / Backward step through when a page has no folder of its own.")
             elseif self.kind == "context" then
@@ -1838,15 +1859,31 @@ function SDB.BuildUI()
             h.glyph:Hide()
             h.glyphBorder:Hide()
         end
+        -- the folder's color chip, and the name starts after it
+        local left = 6
+        if kind == "named" then
+            h.chip:SetColorTexture(SDB.CycleColor(name))
+            h.chip:Show()
+            left = 18
+        else
+            h.chip:Hide()
+        end
+        h.label:ClearAllPoints()
+        h.label:SetPoint("LEFT", h, "LEFT", left, 0)
         h.count:ClearAllPoints()
         h.count:SetPoint("RIGHT", h, "RIGHT", icon and -22 or -6, 0)
-        h.count:SetText(count .. (count == 1 and " page" or " pages"))
         local text = kind == "named" and name or (kind == "default" and "Default" or (kind == "context" and "Context pages" or "Skipped"))
         h.fullText = text
         h.label:SetFontObject(kind == "named" and "GameFontNormalSmall" or "GameFontDisableSmall")
-        h.label:SetText((string.gsub(text, "|", "||")))
-        local room = 124 - 6 - (icon and 22 or 6) - h.count:GetStringWidth() - 6
-        local shown = SDB.FitText(h.label, text, room)
+        -- "3 pages" if the name still fits beside it, else just "3" (the tooltip says what it counts)
+        local shown, cut
+        for _, countText in ipairs({ count .. (count == 1 and " page" or " pages"), tostring(count) }) do
+            h.count:SetText(countText)
+            h.label:SetText((string.gsub(text, "|", "||")))
+            local room = 124 - left - (icon and 22 or 6) - h.count:GetStringWidth() - 6
+            shown, cut = SDB.FitText(h.label, text, room)
+            if not cut then break end
+        end
         h.label:SetText(shown)
         h:Show()
         return h
@@ -1869,6 +1906,7 @@ function SDB.BuildUI()
         PS.lastActive = activeP
 
         for _, btn in ipairs(pageButtons) do btn:Hide() end
+        SDB.PruneCycleColors() -- a folder whose last page was deleted or moved away takes its color with it
 
         -- the pages that pass the page search (all of them when the box is empty), in page order
         local listed = {}
@@ -1925,7 +1963,7 @@ function SDB.BuildUI()
             btn.sdbHeader = header
             btn:Show()
 
-            -- a page in a named cycle gets a thin gold bar on its left edge
+            -- a page in a named folder gets a thin bar in the folder's color on its left edge
             btn.sdbCycleName = (kind == "named") and cname or nil
             if not btn.cycleBar then
                 local bar = btn:CreateTexture(nil, "ARTWORK")
@@ -1940,6 +1978,10 @@ function SDB.BuildUI()
                 btn.cycleBar = bar
             end
             btn.cycleBar:SetShown(kind == "named")
+            if kind == "named" then
+                local cr, cg, cb = SDB.CycleColor(cname)
+                btn.cycleBar:SetColorTexture(cr, cg, cb, 0.9)
+            end
 
             local displayName = SDB.PageName(p)
 
@@ -3115,6 +3157,112 @@ function SDB.BuildUI()
             if pageLogicWindow.ctxRowLabel then
                 pageLogicWindow.ctxRowLabel:SetText(cur and "This folder is used when" or "This page is used when")
             end
+            if pageLogicWindow.RefreshColorUI then pageLogicWindow.RefreshColorUI() end
+        end
+
+        -- The folder's color: a swatch per palette color (a check on the chosen one) and a hex box, for the folder
+        -- the active page is in. The row is dimmed and does nothing while the page is in no named folder.
+        -- OptionsUI.lua places pageLogicWindow.colorRow.
+        do
+            local PAD_SW, GAP_SW = 18, 3
+            local row = CreateFrame("Frame", nil, pageLogicWindow)
+            row:SetSize(280, 22)
+            pageLogicWindow.colorRow = row
+            local swatches = {}
+
+            local function ApplyColor(rgbHex)
+                local folder = SDB.PageCycle(SDB.db.activePage or 1)
+                if not folder then return end
+                if rgbHex == SDB.FOLDER_PALETTE[1].hex then
+                    SDB.SetCycleColor(folder, nil) -- gold is the default: no color stored
+                else
+                    SDB.SetCycleColor(folder, SDB.HexToRGB(rgbHex))
+                end
+                PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+                configWindow.AfterCycleChange()
+            end
+
+            for i, c in ipairs(SDB.FOLDER_PALETTE) do
+                local b = CreateFrame("Button", nil, row)
+                b:SetSize(PAD_SW, PAD_SW)
+                b:SetPoint("LEFT", row, "LEFT", (i - 1) * (PAD_SW + GAP_SW), 0)
+                local edge = b:CreateTexture(nil, "BACKGROUND")
+                edge:SetAllPoints(b)
+                edge:SetColorTexture(0.45, 0.45, 0.45, 1)
+                local fill = b:CreateTexture(nil, "ARTWORK")
+                fill:SetPoint("TOPLEFT", b, "TOPLEFT", 1, -1)
+                fill:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -1, 1)
+                local r, g, bl = SDB.HexToRGB(c.hex)
+                fill:SetColorTexture(r, g, bl, 1)
+                local hl = b:CreateTexture(nil, "HIGHLIGHT")
+                hl:SetAllPoints(b)
+                hl:SetColorTexture(1, 1, 1, 0.2)
+                -- a check mark in black or white, whichever reads on this color
+                local check = b:CreateTexture(nil, "OVERLAY")
+                check:SetSize(12, 12)
+                check:SetPoint("CENTER", b, "CENTER", 0, 0)
+                local atlasOk = check.SetAtlas and pcall(check.SetAtlas, check, "common-icon-checkmark")
+                if atlasOk then
+                    if check.SetDesaturated then check:SetDesaturated(true) end
+                    local light = (0.3 * r + 0.59 * g + 0.11 * bl) > 0.5
+                    check:SetVertexColor(light and 0 or 1, light and 0 or 1, light and 0 or 1)
+                end
+                check:Hide()
+                b.edge, b.check, b.hex, b.hasCheck = edge, check, c.hex, atlasOk and true or false
+                b:SetScript("OnClick", function() ApplyColor(c.hex) end)
+                b:SetScript("OnEnter", function(self)
+                    SDB.Tip.Begin(self, "ANCHOR_RIGHT", c.name, "control")
+                    SDB.Tip.Line("Colors this folder's bar and the chip on its header.")
+                    SDB.Tip.Done()
+                end)
+                b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+                swatches[i] = b
+            end
+
+            local box = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
+            box:SetSize(62, 20)
+            box:SetPoint("LEFT", row, "LEFT", #SDB.FOLDER_PALETTE * (PAD_SW + GAP_SW) + 8, 0)
+            box:SetAutoFocus(false)
+            box:SetMaxLetters(7)
+            box:SetFontObject("GameFontHighlightSmall")
+            box:SetTextInsets(2, 2, 0, 0)
+            pageLogicWindow.colorBox = box
+
+            function pageLogicWindow.RefreshColorUI()
+                local folder = SDB.PageCycle(SDB.db.activePage or 1)
+                local hex = folder and SDB.CycleColorHex(folder)
+                row:SetAlpha(folder and 1 or 0.35)
+                for _, b in ipairs(swatches) do
+                    b:EnableMouse(folder and true or false)
+                    local chosen = folder and b.hex == hex
+                    b.check:SetShown((chosen and b.hasCheck) and true or false)
+                    -- with no check atlas the chosen swatch is told apart by a white edge
+                    if chosen then b.edge:SetColorTexture(1, 1, 1, 1) else b.edge:SetColorTexture(0.45, 0.45, 0.45, 1) end
+                end
+                box:EnableMouse(folder and true or false)
+                if not folder then box:ClearFocus() end
+                if not box:HasFocus() then box:SetText(hex or "") end
+            end
+
+            -- Enter applies, Esc and leaving the box put the stored value back; nothing relies on OnTextChanged
+            box:SetScript("OnEnterPressed", function(self)
+                local r, g, b
+                if SDB.PadColors then r, g, b = SDB.PadColors.ParseHex(self:GetText()) end
+                if r then
+                    ApplyColor(SDB.RGBToHex(r, g, b))
+                else
+                    SDB.Chat("That isn't a color code. Use six hex digits, like FFD933.", "warn")
+                end
+                self:ClearFocus()
+                pageLogicWindow.RefreshColorUI()
+            end)
+            box:SetScript("OnEscapePressed", function(self)
+                self:ClearFocus()
+                pageLogicWindow.RefreshColorUI()
+            end)
+            box:SetScript("OnEditFocusLost", function() pageLogicWindow.RefreshColorUI() end)
+            -- a box that keeps the keyboard would swallow movement keys
+            pageLogicWindow:HookScript("OnHide", function() box:ClearFocus() end)
         end
 
         -- right-click on a folder's header in the Pages list: rename it or pick its context (the same list as the
@@ -3138,12 +3286,34 @@ function SDB.BuildUI()
                     StaticPopup_Show("GALLEONBRIDGE_RENAME_CYCLE")
                 end
                 SafeAddButton(item, 1)
+                local color = SafeCreateInfo()
+                color.text = "Folder Color"
+                color.notCheckable = true
+                color.hasArrow = true
+                color.value = "COLOR"
+                SafeAddButton(color, 1)
                 if UIDropDownMenu_AddSeparator then UIDropDownMenu_AddSeparator(1) end
                 local head = SafeCreateInfo()
                 head.text = "Context"
                 head.isTitle = true
                 head.notCheckable = true
                 SafeAddButton(head, 1)
+            elseif UIDROPDOWNMENU_MENU_VALUE == "COLOR" then
+                -- the palette, each name in its own color, the folder's current one ticked
+                local current = SDB.CycleColorHex(menuCycle)
+                for _, c in ipairs(SDB.FOLDER_PALETTE) do
+                    local info = SafeCreateInfo()
+                    info.text = "|cFF" .. c.hex .. c.name .. "|r"
+                    info.checked = (c.hex == current)
+                    info.func = function()
+                        if not SDB.FindCycle(menuCycle) then return end
+                        SDB.SetCycleColor(menuCycle, SDB.HexToRGB(c.hex))
+                        PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+                        configWindow.AfterCycleChange()
+                    end
+                    SafeAddButton(info, 2)
+                end
+                return
             end
             local rules = SDB.ctx and SDB.ctx.cycleContexts
             configWindow.FillContextMenu(level, rules and rules[menuCycle] or nil, function(val)

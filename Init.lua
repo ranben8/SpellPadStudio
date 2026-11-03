@@ -561,6 +561,18 @@ function SDB.ValidateDB()
 
     -- Ensure relational tables exist
     if not GalleonBridgeDB.profiles then GalleonBridgeDB.profiles = { ["Default"] = SDB.GetDefaultProfile() } end
+    -- folder colors: keep only well-formed entries (a color is three numbers from 0 to 1)
+    for _, prof in pairs(GalleonBridgeDB.profiles) do
+        if type(prof) == "table" and prof.cycleColors ~= nil then
+            if type(prof.cycleColors) ~= "table" then
+                prof.cycleColors = nil
+            else
+                for folder, c in pairs(prof.cycleColors) do
+                    if type(folder) ~= "string" or not SDB.ValidColor(c) then prof.cycleColors[folder] = nil end
+                end
+            end
+        end
+    end
     if not GalleonBridgeDB.charProfiles then GalleonBridgeDB.charProfiles = {} end
     if not GalleonBridgeDB.specProfiles then GalleonBridgeDB.specProfiles = {} end
     if not GalleonBridgeDB.charClass then GalleonBridgeDB.charClass = {} end

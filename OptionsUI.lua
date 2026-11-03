@@ -571,6 +571,16 @@ local function PageOptionsBody(win)
     info:SetJustifyV("TOP")
     win.cycleInfo = info
     g3.cur = g3.cur + 52 + 8
+    -- the folder's color: swatches and a hex box (dimmed while the page is in no named folder)
+    if win.colorRow then
+        local labCol = g3:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        labCol:SetPoint("TOPLEFT", g3, "TOPLEFT", PAD, -g3.cur)
+        labCol:SetText("Folder color")
+        g3.cur = g3.cur + 14
+        Take(g3, win.colorRow)
+        win.colorRow:SetPoint("TOPLEFT", g3, "TOPLEFT", PAD, -g3.cur)
+        g3.cur = g3.cur + 22 + 8
+    end
     local hC = Finish(g3)
     y = y + hC + GAP
 

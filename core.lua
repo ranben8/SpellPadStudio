@@ -331,6 +331,104 @@ local function DropCycleRules(name)
     end)
 end
 
+-- Folder colors. A folder's color is stored in the profile, by the folder's name (SDB.db.cycleColors[name] = { r, g, b });
+-- a folder with none is gold, as every folder was before colors existed. A new folder takes the next palette color
+-- no other folder uses, so neighbours in the list are told apart at a glance.
+SDB.FOLDER_PALETTE = {
+    { name = "Gold", hex = "FFD100" },
+    { name = "Orange", hex = "E69F00" },
+    { name = "Sky blue", hex = "56B4E9" },
+    { name = "Green", hex = "009E73" },
+    { name = "Yellow", hex = "F0E442" },
+    { name = "Blue", hex = "0072B2" },
+    { name = "Vermillion", hex = "D55E00" },
+    { name = "Purple", hex = "CC79A7" },
+    { name = "Grey", hex = "B0B0B8" },
+}
+-- the order new folders take colors in (gold is the default and grey is calm, so neither is handed out)
+local AUTO_FOLDER_COLORS = { "56B4E9", "E69F00", "009E73", "CC79A7", "0072B2", "D55E00", "F0E442" }
+
+local function HexToRGB(h)
+    return tonumber(string.sub(h, 1, 2), 16) / 255, tonumber(string.sub(h, 3, 4), 16) / 255, tonumber(string.sub(h, 5, 6), 16) / 255
+end
+
+local function RGBToHex(r, g, b)
+    local function byte(v) return math.floor(math.max(0, math.min(1, v)) * 255 + 0.5) end
+    return string.format("%02X%02X%02X", byte(r), byte(g), byte(b))
+end
+
+SDB.HexToRGB, SDB.RGBToHex = HexToRGB, RGBToHex
+
+-- r, g, b of a folder (gold when it has none)
+function SDB.CycleColor(name)
+    local c = SDB.db and type(SDB.db.cycleColors) == "table" and SDB.db.cycleColors[name]
+    if SDB.ValidColor(c) then return c[1], c[2], c[3] end
+    return HexToRGB(SDB.FOLDER_PALETTE[1].hex)
+end
+
+function SDB.CycleColorHex(name)
+    return RGBToHex(SDB.CycleColor(name))
+end
+
+function SDB.CycleColorIsSet(name)
+    local c = SDB.db and type(SDB.db.cycleColors) == "table" and SDB.db.cycleColors[name]
+    return SDB.ValidColor(c)
+end
+
+-- sets a folder's color; nil resets it to gold
+function SDB.SetCycleColor(name, r, g, b)
+    if not SDB.db or type(name) ~= "string" then return end
+    if r == nil then
+        if type(SDB.db.cycleColors) == "table" then SDB.db.cycleColors[name] = nil end
+        return
+    end
+    if type(SDB.db.cycleColors) ~= "table" then SDB.db.cycleColors = {} end
+    SDB.db.cycleColors[name] = { r, g, b }
+end
+
+-- the next palette color that no folder (other than `except`) wears; when all are taken, the palette repeats
+function SDB.NextFolderColor(except)
+    local used, folders = {}, 0
+    for _, n in ipairs(SDB.CycleNames()) do
+        if n ~= except then
+            folders = folders + 1
+            used[SDB.CycleColorHex(n)] = true
+        end
+    end
+    for _, hex in ipairs(AUTO_FOLDER_COLORS) do
+        if not used[hex] then return HexToRGB(hex) end
+    end
+    return HexToRGB(AUTO_FOLDER_COLORS[folders % #AUTO_FOLDER_COLORS + 1])
+end
+
+-- drops the colors of folders that no page uses any more
+function SDB.PruneCycleColors()
+    local colors = SDB.db and SDB.db.cycleColors
+    if type(colors) ~= "table" then return end
+    local inUse = {}
+    for _, n in ipairs(SDB.CycleNames()) do inUse[n] = true end
+    for name in pairs(colors) do
+        if not inUse[name] then colors[name] = nil end
+    end
+end
+
+-- After an import added pages: a folder that arrived with a color and has none yet takes it; a folder that is new
+-- here and arrived without one gets the next palette color. `existed` is the set of folder names from before.
+function SDB.AdoptCycleColors(colors, existed)
+    if not SDB.db then return end
+    for _, name in ipairs(SDB.CycleNames()) do
+        if not SDB.CycleColorIsSet(name) then
+            local c = type(colors) == "table" and colors[name]
+            if SDB.ValidColor(c) then
+                SDB.SetCycleColor(name, c[1], c[2], c[3])
+            elseif not (existed and existed[name]) then
+                SDB.SetCycleColor(name, SDB.NextFolderColor(name))
+            end
+        end
+    end
+    SDB.PruneCycleColors()
+end
+
 -- Puts page p into the named cycle `name`, into the Default cycle (name nil) or, with skip, out of all cycles.
 -- Returns true when something changed, nil when nothing needed to, false and a reason when refused.
 function SDB.SetPageCycle(p, name, skip)
@@ -347,9 +445,13 @@ function SDB.SetPageCycle(p, name, skip)
     if old == name and (pg.noCycle and true or false) == skip then return nil end
 
     local lostRule = false
+    local newColor -- { r, g, b } for a folder that did not exist before
     if name then
-        -- a brand-new cycle starts with no context (a stale rule that used the same name is dropped)
-        if not SDB.FindCycle(name, p) then DropCycleRules(name) end
+        -- a brand-new cycle starts with no context (a stale rule that used the same name is dropped) and takes the next color
+        if not SDB.FindCycle(name, p) then
+            DropCycleRules(name)
+            newColor = { SDB.NextFolderColor(name) }
+        end
         -- the cycle's context replaces the page's own
         if SDB.ctx and SDB.ctx.pageContexts and SDB.ctx.pageContexts[p] ~= nil then lostRule = true end
         EachRuleSet(function(r)
@@ -359,7 +461,11 @@ function SDB.SetPageCycle(p, name, skip)
     end
     pg.cycle = name
     pg.noCycle = skip or nil
-    if old and old ~= name and not SDB.FindCycle(old) then DropCycleRules(old) end
+    if newColor then SDB.SetCycleColor(name, newColor[1], newColor[2], newColor[3]) end
+    if old and old ~= name and not SDB.FindCycle(old) then
+        DropCycleRules(old)
+        SDB.SetCycleColor(old, nil)
+    end
     if lostRule then
         print("|cFFFF9900[SpellPad Studio]|r Page " .. p .. "'s own context was removed. The folder '"
             .. (string.gsub(name, "|", "||")) .. "' decides when it is used.")
@@ -427,6 +533,11 @@ function SDB.RenameCycle(old, new)
     end
     for p = 1, #pages do
         if SDB.PageCycle(p) == old then pages[p].cycle = clean end
+    end
+    if SDB.CycleColorIsSet(old) then
+        local r, g, b = SDB.CycleColor(old)
+        SDB.SetCycleColor(old, nil)
+        SDB.SetCycleColor(clean, r, g, b)
     end
     EachRuleSet(function(r)
         for _, key in ipairs({ "cycleContexts", "cyclePriorities" }) do
