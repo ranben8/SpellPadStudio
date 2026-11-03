@@ -31,7 +31,7 @@ local tostring = tostring
 local type = type
 local unpack = unpack
 
-local Esc, Chat = SDB.EscapePipes, SDB.Chat
+local Chat = SDB.Chat
 
 SDB.Setup = SDB.Setup or {}
 local G = SDB.Setup
@@ -110,9 +110,20 @@ local function IsBlank(page)
     return true
 end
 
-local function AllBound(page)
-    for _, d in ipairs(page or {}) do
-        if not d.key or d.key == "" then return false end
+-- page 1's cards as they will be once the page is filled up to the full 36 (keys only; nothing is changed)
+local function FilledKeys(page)
+    local copy = {}
+    for i, d in ipairs(page or {}) do copy[i] = { key = d.key } end
+    SDB.FillPage(copy, { padSize = SDB.MAX_CARDS, prefixMode = SDB.db.prefixMode, globalPrefix = SDB.db.globalPrefix })
+    return copy
+end
+
+-- true when each of the first n cards (after filling) has a key
+local function AllBound(page, n)
+    local filled = FilledKeys(page)
+    for i = 1, n do
+        local d = filled[i]
+        if not d or not d.key or d.key == "" then return false end
     end
     return true
 end
@@ -132,7 +143,7 @@ local function PrefixFor(page)
 end
 
 local function IsSquare(n)
-    local c = SDB.DefaultCols(n)
+    local c = SDB.PadColsFor(n, false)
     return c * c == n
 end
 
@@ -144,55 +155,54 @@ local function IsPrime(n)
     return true
 end
 
--- columns for n buttons: "horizontal" = the grid closest to square that is at least as wide as tall, "vertical" turned round
+-- columns for n buttons: the profile's pad shapes (SDB.PadColsFor: closest to square and at least as wide as tall,
+-- turned round for vertical; 36 = 4 x 9)
 local function ColsFor(n, vertical)
-    local c = SDB.DefaultCols(n)
-    if vertical then return n / c end
-    return c
+    return SDB.PadColsFor(n, vertical)
 end
 
+-- a blank page 1 whose first n cards would not all have a key gets a fresh set of keys
 local function WillRebuild(n)
     local p1 = Page1()
-    return p1 and IsBlank(p1) and (#p1 ~= n or not AllBound(p1)) or false
+    return p1 and IsBlank(p1) and not AllBound(p1, n) or false
 end
 
-local function NeedsConfirm(n)
-    local p1 = Page1()
-    return p1 and not IsBlank(p1) and #p1 ~= n or false
-end
-
--- the keys the demo pad shows for the current choice: page 1's own, or the ones a rebuild would give it
+-- the keys the demo pad shows: in step 1 the first n keys page 1 will have for the chosen size (its own, the ones
+-- filling it up adds, or a fresh set), later the keys of the cards the pad shows
 local function PreviewKeys()
     local p1 = Page1()
     local keys = {}
     if not p1 then return keys end
-    local n = st.step == 1 and st.count or #p1
-    if st.step == 1 and (WillRebuild(n) or NeedsConfirm(n)) then
-        for i, d in ipairs(SDB.CreateBlankDeck(1, PrefixFor(p1), n)) do keys[i] = d.key or "" end
-    else
-        for i, d in ipairs(p1) do keys[i] = d.key or "" end
+    if st.step ~= 1 then
+        for i = 1, SDB.PageVisible(p1) do keys[i] = p1[i].key or "" end
+        return keys
     end
+    local n = st.count
+    local cards = WillRebuild(n) and SDB.CreateBlankDeck(1, PrefixFor(p1), SDB.MAX_CARDS) or FilledKeys(p1)
+    for i = 1, n do keys[i] = cards[i] and cards[i].key or "" end
     return keys
 end
 
 local function PreviewCols()
     if st.step == 1 then return ColsFor(st.count, st.vertical) end
     local p1 = Page1()
-    if not p1 or #p1 == 0 then return 1 end
-    local _, cols = SDB.GetMatrixDimensions(#p1, p1)
-    return math.max(1, math.min(cols, #p1))
+    local n = SDB.PageVisible(p1)
+    if n == 0 then return 1 end
+    local _, cols = SDB.GetMatrixDimensions(n, p1)
+    return math.max(1, math.min(cols, n))
 end
 
--- takes the guide's choices from page 1 as it is now
+-- takes the guide's choices from the profile as it is now: its pad size, or page 1's own size and shape
 local function ReadPage1()
     local p1 = Page1()
-    if not p1 or #p1 == 0 then return end
-    local rows, cols = SDB.GetMatrixDimensions(#p1, p1)
-    st.count = #p1
+    local n = SDB.PageVisible(p1)
+    if n == 0 then return end
+    local rows, cols = SDB.GetMatrixDimensions(n, p1)
+    st.count = n
     st.vertical = rows > cols
     st.other = true
     for _, t in ipairs(TILES) do
-        if t == #p1 then st.other = false end
+        if t == n then st.other = false end
     end
 end
 
@@ -483,23 +493,10 @@ function G.WatchCard()
     end
 end
 
--- Pages of a standard size (12, 15, 32, 36) have no stored shape and follow the profile's Horizontal/Vertical
--- flag, so the guide's choice is kept there for the pages added later. Existing pages that follow the flag get
--- their current shape stored first, so they keep their look when it changes.
-local function UseOrientation(vertical)
-    local want = vertical and "VERTICAL" or "HORIZONTAL"
-    if (SDB.db.matrixOrientation or "HORIZONTAL") == want then return end
-    for _, page in ipairs(SDB.db.pages) do
-        if not SDB.PageCols(page) then
-            local _, c = SDB.GetMatrixDimensions(#page, page)
-            SDB.SetPageCols(page, c)
-        end
-    end
-    SDB.db.matrixOrientation = want
-end
-
--- Step 1's Next: gives page 1 the chosen size and shape. Returns false when it asked first or couldn't.
-function G.ApplyShape(confirmed)
+-- Step 1's Next: every page of the profile shows the chosen number of cards in the chosen shape (SDB.SetPadSize; a
+-- profile that had no pad size asks first if cards that hold something would be hidden). A blank page 1 whose cards
+-- would not all have a key gets a fresh set. Returns false when it is waiting for an answer or couldn't.
+function G.ApplyShape()
     if InCombat() then
         Chat("Can't change your pages in combat.", "bad")
         return false
@@ -507,82 +504,56 @@ function G.ApplyShape(confirmed)
     local p1 = Page1()
     if not p1 then return false end
     local n, cols = st.count, ColsFor(st.count, st.vertical)
-    local oldRows, oldCols = SDB.GetMatrixDimensions(#p1, p1)
-    local rebuild = WillRebuild(n)
-    if NeedsConfirm(n) then
-        if not confirmed then
-            local used = 0
-            for _, d in ipairs(p1) do
-                if not SDB.IsCardBlank(d.macro, d.icon) or (d.matrixText and d.matrixText ~= "") then used = used + 1 end
-            end
-            StaticPopup_Show("GALLEONBRIDGE_SETUP_REPLACE_PAGE", "Replace page 1 '" .. Esc(SDB.PageName(1)) .. "' with "
-                .. n .. " blank cards?\n\n" .. SDB.Plural(used, "card") .. " on it " .. (used == 1 and "has" or "have")
-                .. " a macro, icon or name. A snapshot is saved first, so Options > Restore... can bring the page back.")
-            return false
+    local oldN, oldCols = SDB.PadSize(), SDB.PadCols()
+
+    local function Done()
+        p1 = Page1()
+        if not p1 then return end
+        local rebuild = WillRebuild(n)
+        if rebuild then
+            if SDB.Snapshots then SDB.Snapshots.Take("Before Setup Guide", "page", { page = 1 }) end
+            local deck = SDB.CreateBlankDeck(1, PrefixFor(p1), SDB.MAX_CARDS)
+            deck.main = p1.main -- the rebuilt page keeps its main page status
+            deck.cycle, deck.noCycle = p1.cycle, p1.noCycle -- and its page cycle
+            SDB.db.pages[1] = deck
+            if SDB.Undo and SDB.Undo.ClearAll then SDB.Undo.ClearAll() end
         end
-        rebuild = true
+        local pageChanged = SDB.db.activePage ~= 1
+        if pageChanged then
+            SDB.manualPage = 1
+            SDB.db.activePage = 1
+            SDB.activeSlotIndex = nil
+        end
+        local dirty = SDB.Pending and SDB.Pending.pageDirty and SDB.Pending.pageDirty[1]
+        if rebuild or dirty then
+            SDB.ApplyBindings() -- page 1's keys must be live for the test
+        elseif pageChanged then
+            SDB.ApplyBindings({ keepPending = true })
+        end
+        RefreshMainWindow()
+
+        local page = SDB.db.pages[1]
+        local rows = n / cols
+        local shape = rows .. (rows == 1 and " row by " or " rows by ") .. cols .. (cols == 1 and " column" or " columns")
+        if oldN ~= n or oldCols ~= cols then
+            Chat("Every page now shows " .. n .. " cards, " .. shape .. ".")
+        end
+        if rebuild then
+            Chat("Page 1 got the keys " .. (page[1].key or "") .. " to " .. (page[n] and page[n].key or "") .. ".")
+        end
+        GoTo(2)
     end
 
-    local pageChanged = SDB.db.activePage ~= 1
-    if not IsSquare(n) then UseOrientation(st.vertical) end -- a square grid looks the same either way
-    if rebuild then
-        if SDB.Snapshots then SDB.Snapshots.Take("Before Setup Guide", "page", { page = 1 }) end
-        local deck = SDB.CreateBlankDeck(1, PrefixFor(p1), n)
-        SDB.SetPageCols(deck, cols)
-        local old = SDB.db.pages[1]
-        deck.main = old and old.main or nil -- the rebuilt page keeps its main page status
-        deck.cycle, deck.noCycle = old and old.cycle, old and old.noCycle -- and its page cycle
-        SDB.db.pages[1] = deck
-        SDB.db.deckSize = n -- pages you add later match your keypad
-        if SDB.Undo and SDB.Undo.ClearAll then SDB.Undo.ClearAll() end
-    else
-        SDB.SetPageCols(p1, cols)
-        SDB.db.deckSize = n
-    end
-    if pageChanged then
-        SDB.manualPage = 1
-        SDB.db.activePage = 1
-        SDB.activeSlotIndex = nil
-    end
-    local dirty = SDB.Pending and SDB.Pending.pageDirty and SDB.Pending.pageDirty[1]
-    if rebuild or dirty then
-        SDB.ApplyBindings() -- page 1's keys must be live for the test
-    elseif pageChanged then
-        SDB.ApplyBindings({ keepPending = true })
-    end
-    RefreshMainWindow()
-
-    local page = SDB.db.pages[1]
-    local rows, newCols = SDB.GetMatrixDimensions(#page, page)
-    local shape = rows .. (rows == 1 and " row by " or " rows by ") .. newCols .. (newCols == 1 and " column" or " columns")
-    if rebuild then
-        Chat("Page 1 set to " .. n .. " cards, " .. shape .. ", with keys " .. (page[1].key or "") .. " to "
-            .. (page[#page].key or "") .. ".")
-    elseif rows ~= oldRows or newCols ~= oldCols then
-        Chat("Page 1 is drawn as " .. shape .. ".")
-    end
-    GoTo(2)
-    return true
+    local res = SDB.SetPadSize(n, cols, { quiet = true, done = Done, cancel = G.KeepPage })
+    return res == true
 end
 
--- the confirm was canceled: page 1 stays, and the guide's choices follow it
+-- the pad size question was canceled: nothing changed, and the guide's choices follow the profile again
 function G.KeepPage()
     ReadPage1()
-    st.note = "Page 1 was kept as it is. Pick its size, or click Next to go on with it."
+    st.note = "Nothing was changed. Pick a size, or click Next to go on with this one."
     G.Refresh()
 end
-
-StaticPopupDialogs["GALLEONBRIDGE_SETUP_REPLACE_PAGE"] = {
-    text = "%s",
-    button1 = "Replace",
-    button2 = "Cancel",
-    OnAccept = function() G.ApplyShape(true) end,
-    OnCancel = function() G.KeepPage() end,
-    timeout = 0,
-    whileDead = true,
-    hideOnEscape = true,
-    preferredIndex = 3,
-}
 
 -- the one-click fix: page 1 takes the prefix the keypad really sends
 function G.UsePrefix(prefix)
@@ -677,6 +648,7 @@ function G.OnCapture(chord, reason)
     local cols = PreviewCols()
     local match, suffixMatch
     for i, d in ipairs(p1) do
+        if i > SDB.PageVisible(p1) then break end -- cards past the pad size are not bound
         local k = d.key and string.upper(d.key) or ""
         if k == chord then match = i end
         local _, s = SDB.SplitKey(k)
@@ -959,7 +931,7 @@ local function Build()
     f.nextBtn:SetPoint("BOTTOMRIGHT", -20, 14)
     f.nextBtn:SetScript("OnClick", function()
         if st.step == 1 then
-            G.ApplyShape(false)
+            G.ApplyShape()
         elseif st.step == 4 then
             G.FinishCardStep()
         elseif st.step < FINISH then
@@ -1031,7 +1003,10 @@ end
 -- ---------------------------------------------------------------
 local function BoundCount(page)
     local n = 0
-    for _, d in ipairs(page or {}) do if d.key and d.key ~= "" then n = n + 1 end end
+    for i = 1, SDB.PageVisible(page) do
+        local d = page[i]
+        if d.key and d.key ~= "" then n = n + 1 end
+    end
     return n
 end
 
@@ -1086,8 +1061,13 @@ function G.Refresh()
         end
         s1.shape:SetText(shape)
         local note = st.note
-        if note == "" and NeedsConfirm(st.count) then
-            note = ORANGE .. "Page 1 already has cards with macros, icons or names. Next asks before it replaces them.|r"
+        if note == "" then
+            local hidden, pages = SDB.HiddenContent(st.count)
+            if hidden > 0 then
+                note = ORANGE .. SDB.Plural(hidden, "card") .. " past card " .. st.count .. " on " .. SDB.Plural(pages, "page")
+                    .. (hidden == 1 and " holds" or " hold") .. " a macro or icon. "
+                    .. (hidden == 1 and "It" or "They") .. " would be hidden, not deleted.|r"
+            end
         end
         s1.note:SetText(note)
         f.nextBtn:SetEnabled(not InCombat())

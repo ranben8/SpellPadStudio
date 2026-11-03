@@ -415,6 +415,119 @@ function SDB.NewPageCols(n)
 end
 
 -- -------------------------------------------------------------
+-- Pad size: one size and shape for every page of a profile
+-- -------------------------------------------------------------
+-- SDB.db.padSize = how many cards every page shows, SDB.db.padCols = how many columns they are drawn in. Every page of
+-- such a profile holds SDB.MAX_CARDS cards and only the first padSize count: they are listed, drawn, bound, checked and
+-- counted, while the others keep their macros, inert, until the pad grows again. A profile without padSize keeps the
+-- older per-page sizes and shapes (SDB.PageCols and the Horizontal/Vertical flag) until a pad size is chosen for it.
+SDB.PAD_PRESETS = { 6, 8, 12, 15, 32, 36 }
+
+function SDB.PadSize(db)
+    db = db or SDB.db
+    local n = type(db) == "table" and db.padSize
+    if type(n) == "number" and n == math.floor(n) and n >= SDB.MIN_CARDS and n <= SDB.MAX_CARDS then return n end
+    return nil
+end
+
+-- columns of the pad shape for n cards. 36 lies as a 4 x 9 board (the large keypads are wider than tall); every other
+-- count uses the grid closest to square, turned upright when vertical.
+function SDB.PadColsFor(n, vertical)
+    if n == 36 then return vertical and 4 or 9 end
+    local cols = SDB.DefaultCols(n)
+    if vertical then cols = n / cols end
+    return cols
+end
+
+-- the profile's pad columns (a stored value that doesn't divide the size falls back to the horizontal shape)
+function SDB.PadCols(db)
+    local n = SDB.PadSize(db)
+    if not n then return nil end
+    local c = (db or SDB.db).padCols
+    if type(c) == "number" and c == math.floor(c) and c >= 1 and c <= n and n % c == 0 then return c end
+    return SDB.PadColsFor(n, false)
+end
+
+-- how many cards of a page count (are shown and bound): the pad size, or the whole page without one
+function SDB.PageVisible(page, db)
+    if type(page) ~= "table" then return 0 end
+    local n = #page
+    local pad = SDB.PadSize(db)
+    if pad and pad < n then return pad end
+    return n
+end
+
+-- how many cards a page made now gets
+function SDB.NewPageCards(db)
+    if SDB.PadSize(db) then return SDB.MAX_CARDS end
+    db = db or SDB.db
+    return (db and db.deckSize) or 12
+end
+
+-- With a pad size every page holds SDB.MAX_CARDS cards. A shorter page (an older profile, an import, a restored page
+-- snapshot) gets blank cards on the end, each with its position's key and the page's own prefix (the global prefix for
+-- a page with no key yet); a key the page already uses is left out, and ALT-F4 gets a spare numpad key. Returns how
+-- many cards were added.
+function SDB.FillPage(page, db)
+    db = db or SDB.db
+    if type(page) ~= "table" or not SDB.PadSize(db) or #page >= SDB.MAX_CARDS then return 0 end
+    local prefix, used = nil, {}
+    for _, d in ipairs(page) do
+        if type(d) == "table" and type(d.key) == "string" and d.key ~= "" then
+            local pre, sfx = SDB.SplitKey(string.upper(strtrim(d.key)))
+            if not prefix then prefix = pre end
+            used[sfx] = true
+        end
+    end
+    if not prefix and db.prefixMode == "global" then prefix = db.globalPrefix end
+    prefix = prefix or ""
+    local added = 0
+    for slot = #page + 1, SDB.MAX_CARDS do
+        local key = ""
+        local sfx = SDB.SUFFIX_MAP[slot]
+        if prefix ~= "" and sfx and not used[sfx] then
+            if SDB.IsGameKillKey(prefix .. sfx) then
+                sfx = nil
+                for _, s in ipairs(SDB.REPLACEMENT_SUFFIXES) do
+                    if not used[s] then sfx = s break end
+                end
+            end
+            if sfx then
+                key = prefix .. sfx
+                used[sfx] = true
+            end
+        end
+        page[slot] = { name = "Slot " .. slot, key = key, macro = "" }
+        added = added + 1
+    end
+    return added
+end
+
+-- fills every page of a profile (nothing happens without a pad size)
+function SDB.FillPages(db)
+    db = db or SDB.db
+    if not SDB.PadSize(db) or type(db.pages) ~= "table" then return 0 end
+    local added = 0
+    for _, page in ipairs(db.pages) do added = added + SDB.FillPage(page, db) end
+    return added
+end
+
+-- cards past the pad size that still hold a macro or an icon, and on how many pages (as if the pad were n cards)
+function SDB.HiddenContent(n, db)
+    db = db or SDB.db
+    local cards, pages = 0, 0
+    for _, page in ipairs(type(db) == "table" and db.pages or {}) do
+        local here = 0
+        for i = n + 1, #page do
+            local d = page[i]
+            if type(d) == "table" and not SDB.IsCardBlank(d.macro, d.icon) then here = here + 1 end
+        end
+        if here > 0 then cards, pages = cards + here, pages + 1 end
+    end
+    return cards, pages
+end
+
+-- -------------------------------------------------------------
 -- Data Management & Schema Migration
 -- -------------------------------------------------------------
 function SDB.CreateBlankDeck(pageIndex, customPrefix, slotCount)
@@ -446,7 +559,7 @@ end
 -- reads and writes of these keys to the shared store. A profile table never holds them itself (an own copy
 -- would shadow the store), so AttachOptions removes any it finds. The first time it runs (no store yet) the
 -- ACTIVE profile's values become the shared ones, so the look you have now is kept.
--- Not in the list, because they belong to the pages: deckSize, matrixOrientation, pages, pageNames, activePage.
+-- Not in the list, because they belong to the pages: deckSize, padSize, padCols, matrixOrientation, pages, pageNames, activePage.
 -- true for { r, g, b } with three numbers from 0 to 1 (a saved color is checked before it is used)
 function SDB.ValidColor(c)
     if type(c) ~= "table" then return false end
@@ -514,11 +627,14 @@ function SDB.GetDefaultProfile()
     return {
         activePage = 1,
         deckSize = SDB.DEFAULT_CARDS,
-        matrixOrientation = "HORIZONTAL", -- with 15 cards this flag draws 3 rows x 5 columns
+        -- one pad size for every page: 15 cards in 3 rows x 5 columns, each page holding the full 36
+        padSize = SDB.DEFAULT_CARDS,
+        padCols = SDB.PadColsFor(SDB.DEFAULT_CARDS, false),
+        matrixOrientation = "HORIZONTAL",
         pageNames = { [1] = "Page 1" },
         pageContexts = {},
         pagePriorities = {},
-        pages = { [1] = SDB.CreateBlankDeck(1, SDB.DEFAULT_PREFIX, SDB.DEFAULT_CARDS) },
+        pages = { [1] = SDB.CreateBlankDeck(1, SDB.DEFAULT_PREFIX, SDB.MAX_CARDS) },
         autoSwitchContext = false,
         -- (the look settings are account-wide, see SDB.OPTION_KEYS)
     }
@@ -547,6 +663,7 @@ function SDB.ValidateDB()
         legacyProfile.activePage = GalleonBridgeDB.activePage or 1
         legacyProfile.deckSize = GalleonBridgeDB.deckSize or 12
         legacyProfile.matrixOrientation = GalleonBridgeDB.matrixOrientation or "HORIZONTAL"
+        legacyProfile.padSize, legacyProfile.padCols = nil, nil -- the old pages keep their own sizes
         legacyProfile.opacity = GalleonBridgeDB.opacity or 1.0
         legacyProfile.uiScale = GalleonBridgeDB.uiScale or 1.0
 
@@ -579,6 +696,8 @@ function SDB.ValidateDB()
     if not GalleonBridgeDB.contextRules then GalleonBridgeDB.contextRules = {} end
     if not GalleonBridgeDB.minimapPos then GalleonBridgeDB.minimapPos = 45 end
     if GalleonBridgeDB.accountSync == nil then GalleonBridgeDB.accountSync = false end
+    -- with a pad size every page holds the full 36 cards; a shorter one (an import, a restored page) is filled up
+    if SDB.db and SDB.FillPages then SDB.FillPages(SDB.db) end
 end
 
 -- =========================================================
@@ -948,7 +1067,9 @@ minimapBtn:SetScript("OnEnter", function(self)
         local totalSlots = 0
 
         if SDB.db.pages and SDB.db.pages[curP] then
-            for _, s in ipairs(SDB.db.pages[curP]) do
+            local page = SDB.db.pages[curP]
+            for i = 1, SDB.PageVisible(page) do
+                local s = page[i]
                 if s.macro and s.macro ~= "" then totalSlots = totalSlots + 1 end
             end
         end
@@ -1206,6 +1327,11 @@ local function HandleSlash(msg)
     local diagArg = Sub("setup")
     if diagArg and SDB.Setup then
         SDB.Setup.Slash(diagArg) -- the setup guide; works without the main window
+        return
+    end
+    diagArg = Sub("padsize")
+    if diagArg and SDB.PadSizeSlash then
+        SDB.PadSizeSlash(diagArg)
         return
     end
     diagArg = Sub("skin")

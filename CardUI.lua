@@ -550,10 +550,11 @@ function C.Relayout()
     local slots = SDB.db and SDB.db.pages and SDB.db.pages[page] or {}
     local ctx = {}
     local y = 0
+    local shown = SDB.PageVisible(slots)
     for i, row in ipairs(SDB.rows or {}) do
         local data = slots[i]
         local h
-        if data and i <= #slots then
+        if data and i <= shown then
             h = C.Fit(row, data, i, m, ctx)
         else
             C.ApplyGeometry(row, m, false)   -- a card beyond this page's size (hidden): only the size
@@ -568,6 +569,13 @@ function C.Relayout()
     end
     local sf = _G["GalleonScrollFrame"]
     local content = sf and sf.GetScrollChild and sf:GetScrollChild()
+    -- the "cards past the pad size" line (RefreshRows) follows the last card
+    local note = SDB.configWindow and SDB.configWindow.hiddenCardsNote
+    if content and note and note:IsShown() then
+        note:ClearAllPoints()
+        note:SetPoint("TOPLEFT", content, "TOPLEFT", 10, -(y + 2))
+        y = y + 22
+    end
     if content then content:SetHeight(math.max(y, 100)) end
 end
 
@@ -580,9 +588,10 @@ function C.OnSelect()
     local slots = SDB.db and SDB.db.pages and SDB.db.pages[page]
     if not slots then return end
     local changed = false
+    local shown = SDB.PageVisible(slots)
     for i, row in ipairs(SDB.rows or {}) do
         local data = slots[i]
-        if data and i <= #slots then
+        if data and i <= shown then
             if C.IsCompact(data, i) ~= (row.sdbCompact and true or false) then changed = true break end
         end
     end

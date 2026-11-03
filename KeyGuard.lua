@@ -226,6 +226,7 @@ function G.Report(emit)
         local bare = {}
         for p, page in ipairs(SDB.db.pages) do
             for s, d in ipairs(page) do
+                if s > SDB.PageVisible(page) then break end -- hidden cards are not bound
                 local key = d.key
                 if key and key ~= "" and not string.find(key, "%-") and #bare < 8 then
                     bare[#bare + 1] = "page " .. p .. " card " .. s .. ": " .. string.upper(key)

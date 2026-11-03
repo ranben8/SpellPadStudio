@@ -224,7 +224,7 @@ end
 function C.FindEmptySlot(page, skipSlot, from)
     local slots = SDB.db.pages[page]
     if not slots then return nil end
-    local n = #slots
+    local n = SDB.PageVisible(slots) -- never a card hidden by the pad size
     from = from or 0
     for i = from + 1, n do
         if i ~= skipSlot and SDB.IsSlotEmpty(slots[i]) then return i end
@@ -489,13 +489,14 @@ local function RefreshGrid(f)
 
     -- mirror the page's own SpellPad shape when it fits the window's 9 x 9 grid (a 1x36 strip would not),
     -- else fall back to the standard layout for that card count
-    local rows, cols = SDB.GetMatrixDimensions(#slots, slots)
+    local shown = SDB.PageVisible(slots, db) -- the cards that profile's pad shows
+    local rows, cols = SDB.GetMatrixDimensions(shown, slots, db)
     if (rows or MAXROWS) > MAXROWS or (cols or MAXCOLS) > MAXCOLS then
-        _, cols = SDB.GetMatrixDimensions(#slots)
+        _, cols = SDB.GetMatrixDimensions(shown)
     end
     cols = math.max(1, math.min(cols or MAXCOLS, MAXCOLS))
 
-    for i = 1, #slots do
+    for i = 1, shown do
         local b = SlotButton(f, i)
         b.slotIndex = i
         b.isSource = (f.mode ~= "pull" and f.selPage == f.srcPage and i == f.srcSlot)

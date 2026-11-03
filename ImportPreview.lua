@@ -269,6 +269,13 @@ function IP.Validate(data)
             end
         end
 
+        -- the profile's pad size and shape (left out by profiles that have none); kept only when they fit
+        local pad = SDB.PadSize(data)
+        if pad then
+            clean.padSize = pad
+            clean.padCols = SDB.PadCols(data)
+        end
+
         local okSize = type(data.deckSize) == "number" and data.deckSize == math.floor(data.deckSize)
             and data.deckSize >= SDB.MIN_CARDS and data.deckSize <= SDB.MAX_CARDS
         if okSize then
@@ -539,6 +546,16 @@ local function Describe(f)
                     .. "so nothing is lost. A snapshot is saved first."
             end
             button = "Overwrite Page"
+        end
+    end
+    -- cards of the string past your pad size come in hidden (a new profile takes the string's own pad size)
+    local pad = f.mode ~= "newprofile" and SDB.PadSize()
+    if pad then
+        local hidden = SDB.HiddenContent(pad, { pages = (data.type == "ALL") and data.pages or { data.slots } })
+        if hidden > 0 then
+            action = action .. " " .. COLOR.orange .. Plural(hidden, "card") .. " past card " .. pad
+                .. (hidden == 1 and " holds" or " hold") .. " a macro or icon; your pad size hides "
+                .. (hidden == 1 and "it" or "them") .. ".|r"
         end
     end
     if (res.counts.code or 0) > 0 then
@@ -892,6 +909,12 @@ function IP.CreateProfile(data, name)
     for folder, c in pairs(data.cycleColors or {}) do colors[folder] = { c[1], c[2], c[3] } end
     p.cycleColors = colors
     p.deckSize = data.deckSize or 12
+    -- the string's pad size; a string without one keeps every page's own size, as the profile it came from had them
+    p.padSize, p.padCols = data.padSize, data.padCols
+    if p.padSize then
+        p.deckSize = p.padSize
+        SDB.FillPages(p)
+    end
     p.activePage = 1
     profiles[clean] = p
     return clean

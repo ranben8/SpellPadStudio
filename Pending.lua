@@ -35,7 +35,8 @@ function P.MarkApplied()
     if pages then
         for p, slots in ipairs(pages) do
             local list = {}
-            for s, data in ipairs(slots) do
+            for s = 1, SDB.PageVisible(slots) do -- hidden cards (past the pad size) are never live
+                local data = slots[s]
                 list[s] = { k = CleanKey(data.key), m = data.macro or "" }
             end
             out[p] = list
@@ -49,7 +50,7 @@ end
 function P.IsDirty(page, slot)
     if not P.hasApplied then return false end
     local data = SDB.db and SDB.db.pages and SDB.db.pages[page] and SDB.db.pages[page][slot]
-    if not data then return false end
+    if not data or slot > SDB.PageVisible(SDB.db.pages[page]) then return false end
     local app = P.applied[page] and P.applied[page][slot]
     local ck = CleanKey(data.key)
     local ak = app and app.k
@@ -65,7 +66,7 @@ function P.List(max)
     local pages = SDB.db and SDB.db.pages
     if not pages then return out, 0 end
     for p, slots in ipairs(pages) do
-        for s = 1, #slots do
+        for s = 1, SDB.PageVisible(slots) do
             if P.IsDirty(p, s) then
                 total = total + 1
                 if not max or #out < max then out[#out + 1] = { page = p, slot = s } end
@@ -141,7 +142,7 @@ function P.Update()
     local pageDirty = {} -- page -> number of cards that differ (the orange square on the Pages list rows)
     local count = 0
     for p, slots in ipairs(SDB.db.pages) do
-        for s = 1, #slots do
+        for s = 1, SDB.PageVisible(slots) do
             if P.IsDirty(p, s) then
                 count = count + 1
                 pageDirty[p] = (pageDirty[p] or 0) + 1
@@ -177,11 +178,13 @@ function P.Report(emit)
         for p, slots in ipairs(pages) do
             if p > 30 then emit("  (more pages not listed)"); break end
             local pending, bound = 0, 0
-            for s = 1, #slots do
+            local shown = SDB.PageVisible(slots)
+            for s = 1, shown do
                 if P.IsDirty(p, s) then pending = pending + 1 end
                 if CleanKey(slots[s].key) then bound = bound + 1 end
             end
-            emit(string.format("  page %d: %d cards, %d with a key, %d pending", p, #slots, bound, pending))
+            emit(string.format("  page %d: %d cards, %d with a key, %d pending", p, shown, bound, pending)
+                .. (shown < #slots and string.format(" (%d more hidden by the pad size)", #slots - shown) or ""))
         end
     end
     local g = SDB.saveBtn and SDB.saveBtn.pendingGlow

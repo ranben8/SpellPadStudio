@@ -184,7 +184,8 @@ function K.StartTrace()
     trace.t0 = GetTime()
     local seen = {}
     local page = SDB.db and SDB.db.pages and SDB.db.pages[SDB.db.activePage or 1]
-    for _, d in ipairs(page or {}) do
+    for i, d in ipairs(page or {}) do
+        if i > SDB.PageVisible(page) then break end
         if type(d) == "table" and d.key and d.key ~= "" then
             local _, suffix = SDB.SplitKey(string.upper(strtrim(d.key)))
             if suffix ~= "" and not seen[suffix] then

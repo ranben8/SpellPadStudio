@@ -1688,9 +1688,11 @@ function D.Combat(emit, arg)
             E("No shown page.")
             return
         end
-        E(string.format("Page %s, %d cards. 'Bound to' is what the game says the key does right now.", tostring(page), #cards))
+        local visible = SDB.PageVisible(cards) -- the cards past the pad size are never bound
+        E(string.format("Page %s, %d cards. 'Bound to' is what the game says the key does right now.", tostring(page), visible))
         local shown = 0
         for slot, d in ipairs(cards) do
+            if slot > visible then break end
             local key = d.key and strtrim(d.key) ~= "" and string.upper(strtrim(d.key)) or nil
             if key and shown < 24 then
                 shown = shown + 1

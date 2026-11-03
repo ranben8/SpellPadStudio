@@ -352,6 +352,7 @@ end
 function S.RefreshAll()
     SDB.activeSlotIndex = nil
     if SDB.Undo then SDB.Undo.ClearAll() end
+    if SDB.FillPages then SDB.FillPages() end -- a page saved before the profile had a pad size gets its full 36 cards
     local cw = SDB.configWindow
     if cw then
         if cw.RefreshPageTabs then cw.RefreshPageTabs() end

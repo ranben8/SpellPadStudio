@@ -29,6 +29,7 @@ H.COMMANDS = {
     { "spells", "open the Arsenal" },
     { "autocomplete", "turn macro suggestions on or off" },
     { "skin", "list the window styles; \"skin <name>\" changes the style" },
+    { "padsize", "show the cards every page shows; \"padsize 12 vertical\" or \"padsize 4x3\" sets it" },
     { "keytest", "write each key press into the chat (to check what your hardware sends)" },
     { "feedback", "show where to report a bug or leave a comment" },
 }

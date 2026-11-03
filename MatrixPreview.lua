@@ -20,9 +20,16 @@ local InCombatLockdown = InCombatLockdown
 -- -------------------------------------------------------------
 -- SpellPad grid dimensions
 -- -------------------------------------------------------------
--- Optional second argument = the page's card list: a shape stored on it (SDB.PageCols, set from the Orientation
--- choice in Options) wins when it fits the card count. Without one the layouts below are used.
-function SDB.GetMatrixDimensions(totalSlots, page)
+-- With a pad size (SDB.PadSize) the shown cards are always drawn in the profile's pad shape. Otherwise the optional
+-- second argument = the page's card list: a shape stored on it (SDB.PageCols, set from the Orientation choice in
+-- Options) wins when it fits the card count, and without one the layouts below are used. `db` = the profile the page
+-- belongs to (another profile's page in the card picker); nil = the active one.
+function SDB.GetMatrixDimensions(totalSlots, page, db)
+    local pad = SDB.PadSize(db)
+    if pad and totalSlots == pad then
+        local cols = SDB.PadCols(db)
+        return pad / cols, cols
+    end
     local stored = SDB.PageCols(page)
     if stored and #page == totalSlots then
         return totalSlots / stored, stored
@@ -532,7 +539,8 @@ function SDB.RefreshMatrixGrid()
     matrixWindow.sdbGlowSeen, matrixWindow.sdbGlowProfile, matrixWindow.sdbGlowPage = true, drawnProfile, curP
 
     local pageSlots = (SDB.db.pages and SDB.db.pages[curP]) or {}
-    local totalSlots = #pageSlots > 0 and #pageSlots or (SDB.db.deckSize or 12)
+    local shownCards = SDB.PageVisible(pageSlots) -- cards past the pad size have no button
+    local totalSlots = shownCards > 0 and shownCards or (SDB.db.deckSize or 12)
     local numRows, numCols = SDB.GetMatrixDimensions(totalSlots, pageSlots)
 
     -- In combat the layout (window size, which buttons are shown, where they sit, new buttons,

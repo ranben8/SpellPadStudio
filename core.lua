@@ -1587,7 +1587,10 @@ function SDB.ApplyBindings(opts)
     for _, pIndex in ipairs(pageOrder) do
         local pageSlots = source[pIndex]
         if pageSlots then
+            -- cards past the pad size are hidden: they keep their data but get no key
+            local visibleCards = SDB.PageVisible(pageSlots)
             for sIndex, data in ipairs(pageSlots) do
+                if sIndex > visibleCards then break end
                 local cleanKey = (data.key and data.key ~= "") and string.upper(strtrim(data.key)) or nil
                 if cleanKey and SDB.IsGameKillKey(cleanKey) then
                     skipped[#skipped + 1] = cleanKey .. " (page " .. pIndex .. ", card " .. sIndex .. ")"
@@ -1690,14 +1693,16 @@ function SDB.PageSharesKeys(page)
     local slots = pages and pages[page]
     if not slots then return false end
     local mine, any = {}, false
-    for _, data in ipairs(slots) do
+    for i, data in ipairs(slots) do
+        if i > SDB.PageVisible(slots) then break end
         local k = data.key and data.key ~= "" and string.upper(strtrim(data.key))
         if k and k ~= "" then mine[k] = true; any = true end
     end
     if not any then return false end
     for p, other in ipairs(pages) do
         if p ~= page then
-            for _, data in ipairs(other) do
+            for i, data in ipairs(other) do
+                if i > SDB.PageVisible(other) then break end
                 local k = data.key and data.key ~= "" and string.upper(strtrim(data.key))
                 if k and mine[k] then return true end
             end
@@ -1711,6 +1716,134 @@ function SDB.ApplyIfPageSharesKeys(page)
     if not SDB.PageSharesKeys(page) then return false end
     SDB.ApplyBindings({ keepPending = true })
     return true
+end
+
+-- -------------------------------------------------------------
+-- Pad size: one size and shape for every page of the profile
+-- -------------------------------------------------------------
+-- The first pad size of a profile fills every page up to the full 36 cards (a profile snapshot is saved first) and
+-- asks before cards that hold something end up hidden. Later changes only show more or fewer cards, so nothing is lost
+-- and nothing is asked; one line says how many cards with a macro or icon are hidden now.
+StaticPopupDialogs["GALLEONBRIDGE_PAD_SIZE_CONFIRM"] = {
+    text = "%s",
+    button1 = "Continue",
+    button2 = "Cancel",
+    OnAccept = function(self, data)
+        if InCombat() then
+            print("|cFFFF4444[SpellPad Studio]|r Can't change the pad size in combat.")
+        elseif type(data) == "table" and data.ok then
+            data.ok()
+        end
+    end,
+    OnCancel = function(self, data)
+        if type(data) == "table" and data.cancel then data.cancel() end
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
+-- Sets the pad size of the active profile: n cards (4 to 36) drawn in `cols` columns (nil, or a number that doesn't
+-- divide n, = the horizontal shape). opts.quiet leaves out the chat line, opts.done runs once the size is in place (also
+-- when nothing had to change), opts.cancel when the question is answered with Cancel. Returns true when it applied,
+-- "asked" while a question is open, false when refused.
+function SDB.SetPadSize(n, cols, opts)
+    opts = opts or {}
+    n = tonumber(n)
+    if not SDB.db or not n or n ~= math.floor(n) or n < SDB.MIN_CARDS or n > SDB.MAX_CARDS then return false end
+    if InCombat() then
+        print("|cFFFF4444[SpellPad Studio]|r Can't change the pad size in combat.")
+        return false
+    end
+    if type(cols) ~= "number" or cols ~= math.floor(cols) or cols < 1 or n % cols ~= 0 then cols = SDB.PadColsFor(n, false) end
+    local db = SDB.db
+    local first = not SDB.PadSize(db)
+    if not first and SDB.PadSize(db) == n and SDB.PadCols(db) == cols then
+        if opts.done then opts.done() end
+        return true
+    end
+    local hiddenCards, hiddenPages = SDB.HiddenContent(n, db)
+
+    local function Commit()
+        if SDB.db ~= db or InCombat() then return end -- the profile was switched, or a fight began, while it asked
+        if first and SDB.Snapshots then SDB.Snapshots.Take("Before Pad Size", "profile") end
+        db.padSize, db.padCols = n, cols
+        db.deckSize = n -- read by the imports that build pages from the game
+        SDB.FillPages(db)
+        if SDB.activeSlotIndex and SDB.activeSlotIndex > n then SDB.activeSlotIndex = nil end
+        SDB.ApplyBindings()
+        if SDB.configWindow and SDB.configWindow.RefreshRows then SDB.configWindow.RefreshRows() end
+        if SDB.RefreshPadIfShown then SDB.RefreshPadIfShown() end
+        local ow = _G["GalleonBridgeOptionsFrame"]
+        if ow and ow.UpdateActiveProfileText then ow.UpdateActiveProfileText() end
+        if not opts.quiet then
+            local rows = n / cols
+            print("|cFF00FF00[SpellPad Studio]|r Every page now shows " .. n .. " cards, " .. rows
+                .. (rows == 1 and " row by " or " rows by ") .. cols .. (cols == 1 and " column." or " columns."))
+        end
+        if hiddenCards > 0 and not first then
+            print("|cFFFF9900[SpellPad Studio]|r " .. SDB.Plural(hiddenCards, "card") .. " with a macro or icon "
+                .. (hiddenCards == 1 and "is" or "are") .. " hidden now, on " .. SDB.Plural(hiddenPages, "page")
+                .. ". Hidden cards don't run; a bigger pad size shows them again.")
+        end
+        if opts.done then opts.done() end
+    end
+
+    if first and hiddenCards > 0 then
+        StaticPopup_Show("GALLEONBRIDGE_PAD_SIZE_CONFIRM", "Use one pad size for every page?\n\nEvery page will show "
+            .. n .. " cards. " .. SDB.Plural(hiddenCards, "card") .. " on " .. SDB.Plural(hiddenPages, "page")
+            .. (hiddenCards == 1 and " holds" or " hold") .. " a macro or icon past card " .. n .. ": "
+            .. (hiddenCards == 1 and "it is hidden, not deleted, and comes back" or "they are hidden, not deleted, and come back")
+            .. " when the pad grows."
+            .. "\n\nA snapshot is saved first.", nil, { ok = Commit, cancel = opts.cancel })
+        return "asked"
+    end
+    Commit()
+    return true
+end
+
+-- /sps padsize: no word = what the profile uses now; "12", "12 vertical" (or v, horizontal, h) or "4x3" (rows x
+-- columns) sets it. A number without a direction keeps the pad's current lie.
+function SDB.PadSizeSlash(arg)
+    if not SDB.db then return end
+    local Y = "|cFFFFFF00[SpellPad Studio]|r "
+    arg = string.lower(strtrim(arg or ""))
+    local pad = SDB.PadSize()
+    if arg == "" then
+        if pad then
+            local cols = SDB.PadCols()
+            print(Y .. "Every page shows " .. pad .. " cards, " .. (pad / cols) .. " rows by " .. cols .. " columns.")
+        else
+            print(Y .. "This profile has no pad size yet: each page keeps its own size and shape.")
+        end
+        print(Y .. "Use /sps padsize 12, /sps padsize 12 vertical or /sps padsize 4x3 (rows x columns) to set one.")
+        return
+    end
+    local rows, cols = string.match(arg, "^(%d+)%s*x%s*(%d+)$")
+    local n
+    if rows then
+        rows, cols = tonumber(rows), tonumber(cols)
+        n = rows * cols
+    else
+        local num, dir = string.match(arg, "^(%d+)%s*(%a*)$")
+        n = tonumber(num)
+        local vertical
+        if dir == "v" or dir == "vertical" then
+            vertical = true
+        elseif dir == "h" or dir == "horizontal" then
+            vertical = false
+        elseif dir == "" then
+            vertical = pad and (pad / SDB.PadCols()) > SDB.PadCols() or false
+        end
+        if n and vertical ~= nil then cols = SDB.PadColsFor(n, vertical) end
+    end
+    if not n or not cols or n < SDB.MIN_CARDS or n > SDB.MAX_CARDS then
+        print("|cFFFF4444[SpellPad Studio]|r Use a size from " .. SDB.MIN_CARDS .. " to " .. SDB.MAX_CARDS
+            .. ", for example /sps padsize 12 vertical or /sps padsize 4x3.")
+        return
+    end
+    SDB.SetPadSize(n, cols)
 end
 
 -- -------------------------------------------------------------

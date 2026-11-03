@@ -39,10 +39,11 @@ end
 local function DescribePage(out, p)
     local slots = SDB.db.pages[p]
     if not slots then return end
-    table.insert(out, "== Page " .. p .. ": " .. PageName(p) .. " (" .. #slots .. (#slots == 1 and " card" or " cards") .. ") ==")
+    local shown = SDB.PageVisible(slots) -- cards hidden by the pad size are left out: they don't run
+    table.insert(out, "== Page " .. p .. ": " .. PageName(p) .. " (" .. shown .. (shown == 1 and " card" or " cards") .. ") ==")
     local used = 0
-    for s, data in ipairs(slots) do
-        if DescribeSlot(out, s, data) then used = used + 1 end
+    for s = 1, shown do
+        if DescribeSlot(out, s, slots[s]) then used = used + 1 end
     end
     if used == 0 then table.insert(out, "  (empty)") end
 end

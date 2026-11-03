@@ -465,6 +465,7 @@ function B.BuildUsage()
     local keep = {}
     for p, slots in ipairs(SDB.db.pages) do
         for s, d in ipairs(slots) do
+            if s > SDB.PageVisible(slots) then break end -- a card hidden by the pad size doesn't run
             local macro = d and d.macro
             if type(macro) == "string" and macro ~= "" then
                 local names = namesOf[macro] or MacroNames(macro)

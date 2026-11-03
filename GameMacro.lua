@@ -692,7 +692,8 @@ function G.BuildImport(only)
         return nil, "You have no game macros with text to import."
     end
 
-    local size = tonumber(SDB.db and SDB.db.deckSize) or SDB.DEFAULT_CARDS or 15
+    -- cards per imported page: the pad size (every page shows that many), else the size of new pages
+    local size = SDB.PadSize() or tonumber(SDB.db and SDB.db.deckSize) or SDB.DEFAULT_CARDS or 15
     size = math.max(SDB.MIN_CARDS or 4, math.min(SDB.MAX_CARDS or 36, math.floor(size)))
     -- keys follow the prefix mode: a Global prefix gives the pages keys, Per Page leaves them blank
     local prefix = (SDB.NewPagePrefix and SDB.NewPagePrefix()) or ""

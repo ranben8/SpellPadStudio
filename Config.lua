@@ -538,6 +538,8 @@ function SDB.ExportAllPagesString()
         -- lets the importer pre-fill the new profile's name ("Default"/"Global" mean nothing to others)
         profileName = (SDB.currentProfileName ~= "Default" and SDB.currentProfileName ~= "Global") and SDB.currentProfileName or nil,
         deckSize = SDB.db.deckSize or 12,
+        padSize = SDB.PadSize(), -- one size and shape for every page (nil = each page its own)
+        padCols = SDB.PadCols(),
         pageNames = SDB.db.pageNames or {},
         pageCols = pageCols,
         pageCycles = pageCycles,
@@ -653,6 +655,7 @@ function SDB.ApplyImportData(data, asNewPage)
         importedColors = { [data.slots.cycle] = data.cycleColor }
     end
     SDB.AdoptCycleColors(importedColors, existedFolders)
+    SDB.FillPages() -- with a pad size every page holds the full 36 cards; the imported ones are filled up
 
     SDB.activeSlotIndex = nil
     if SDB.configWindow then
@@ -1168,7 +1171,7 @@ end
 function SDB.CanShiftDown(page, startIndex)
     local slots = SDB.db.pages[page]
     if not slots or not slots[startIndex] then return false, "That card doesn't exist." end
-    local total = #slots
+    local total = SDB.PageVisible(slots) -- the last SHOWN card: a shift never pushes into the hidden cards
     if startIndex >= total then
         return false, "Can't shift this card."
     end
@@ -1200,7 +1203,7 @@ function SDB.ExecuteShiftDown(page, startIndex)
     end
 
     local slots = SDB.db.pages[page]
-    local totalSlots = #slots
+    local totalSlots = SDB.PageVisible(slots)
 
     if SDB.Snapshots then SDB.Snapshots.Take("Before Shift Down", "page", { page = page, slot = startIndex }) end
     if SDB.Undo then SDB.Undo.ClearAll() end
@@ -2244,7 +2247,7 @@ function SDB.BuildUI()
     function configWindow.AddPage()
         PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
         local nextPageIndex = #SDB.db.pages + 1
-        local slotCount = SDB.db.deckSize or 12
+        local slotCount = SDB.NewPageCards() -- the full 36 with a pad size, of which the pad size is shown
 
         table.insert(SDB.db.pages, SDB.CreateBlankDeck(nextPageIndex, SDB.NewPagePrefix(), slotCount))
         if not SDB.db.pageNames then SDB.db.pageNames = {} end
@@ -2255,7 +2258,7 @@ function SDB.BuildUI()
         if configWindow.RefreshPageTabs then configWindow.RefreshPageTabs() end
         if configWindow.RefreshRows then configWindow.RefreshRows() end
         if SDB.ApplyBindings then SDB.ApplyBindings() end
-        print("|cFF00FF00[SpellPad Studio]|r Page " .. nextPageIndex .. " created with " .. slotCount .. " cards.")
+        print("|cFF00FF00[SpellPad Studio]|r Page " .. nextPageIndex .. " created with " .. (SDB.PadSize() or slotCount) .. " cards.")
     end
 
     -- Delete Page: run by the "-" button by the Pages header and by the page menu
@@ -2485,12 +2488,16 @@ function SDB.BuildUI()
     optionsWindow.statusText = optActiveProfileText
 
     local function UpdateActiveProfileText()
-        -- cards per page = the size of NEW pages; orientation = the grid shape (rows x columns) of the page
-        -- the SpellPad is showing right now
-        local curCount = SDB.db.deckSize or 12
+        -- with a pad size: the cards every page shows and their shape. Without one: cards per page = the size of NEW
+        -- pages; orientation = the grid shape (rows x columns) of the page the SpellPad is showing right now
+        local pad = SDB.PadSize()
+        local curCount = pad or SDB.db.deckSize or 12
         local curPage = SDB.db.pages and SDB.db.pages[SDB.db.activePage or 1]
         local orient = "-"
-        if curPage and #curPage > 0 then
+        if pad then
+            local cols = SDB.PadCols()
+            orient = (pad / cols) .. "x" .. cols .. " (all pages)"
+        elseif curPage and #curPage > 0 then
             local rows, cols = SDB.GetMatrixDimensions(#curPage, curPage)
             orient = rows .. "x" .. cols .. " (this page)"
         end
@@ -2500,7 +2507,7 @@ function SDB.BuildUI()
         -- the two dropdowns of the SpellPad tab show the same values (they are made further down)
         if optionsWindow.deckSizeBtn then optionsWindow.deckSizeBtn:SetText(tostring(curCount)) end
         if optionsWindow.orientBtn then
-            local shape = (curPage and #curPage > 0) and string.match(orient, "^%d+x%d+") or "-"
+            local shape = (pad or (curPage and #curPage > 0)) and string.match(orient, "^%d+x%d+") or "-"
             optionsWindow.orientBtn:SetText(shape)
         end
         optionsWindow.UpdateActiveProfileText = UpdateActiveProfileText
@@ -3438,14 +3445,21 @@ function SDB.BuildUI()
     local deckSizeDropDownFrame = CreateFrame("Frame", "GalleonDeckSizeDropDown", optionsWindow, "UIDropDownMenuTemplate")
     local function InitDeckSizeDropDown(self, level)
         level = level or 1
+        -- with a pad size the choice sets it for every page, keeping the pad's horizontal or vertical lie
+        local pad = SDB.PadSize()
+        local vertical = pad and (pad / SDB.PadCols()) > SDB.PadCols()
         for count = SDB.MIN_CARDS, SDB.MAX_CARDS do
             local info = SafeCreateInfo()
             info.text = tostring(count)
-            info.checked = (SDB.db.deckSize == count)
+            info.checked = ((pad or SDB.db.deckSize) == count)
             info.func = function()
+                PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+                if pad then
+                    SDB.SetPadSize(count, SDB.PadColsFor(count, vertical))
+                    return
+                end
                 SDB.db.deckSize = count
                 if optionsWindow and optionsWindow.UpdateActiveProfileText then optionsWindow.UpdateActiveProfileText() end
-                PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
                 print("|cFF00FF00[SpellPad Studio]|r New pages will have " .. count .. " cards.")
             end
             SafeAddButton(info, level)
@@ -3459,7 +3473,11 @@ function SDB.BuildUI()
     optionsWindow.deckSizeBtn = deckSizeBtn
     deckSizeBtn:SetScript("OnEnter", function(self)
         SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Cards per Page", "control")
-        SDB.Tip.Line("Number of cards (4 to 36) on pages you create from now on. Existing pages keep their size.")
+        if SDB.PadSize() then
+            SDB.Tip.Line("Number of cards (4 to 36) every page shows. Cards past it are hidden, not deleted.")
+        else
+            SDB.Tip.Line("Number of cards (4 to 36) on pages you create from now on. Existing pages keep their size.")
+        end
         SDB.Tip.Done()
     end)
     deckSizeBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -3473,14 +3491,17 @@ function SDB.BuildUI()
         level = level or 1
         -- Every exact rows x columns grid of the page the SpellPad is showing. Each page keeps its own shape
         -- (stored on the page, SDB.SetPageCols), so a profile can mix pages of different sizes.
+        -- With a pad size the shapes are those of the pad size and the choice applies to every page.
         local p = SDB.db.activePage or 1
         local page = SDB.db.pages and SDB.db.pages[p]
-        local n = page and #page or 0
+        local pad = SDB.PadSize()
+        local n = pad or (page and #page or 0)
         if n < 1 then return end
 
         local title = SafeCreateInfo()
         local pageName = SDB.PageName(p)
-        title.text = (string.gsub(pageName, "|", "||")) .. " (" .. n .. (n == 1 and " card)" or " cards)")
+        title.text = pad and ("All pages (" .. n .. " cards)")
+            or ((string.gsub(pageName, "|", "||")) .. " (" .. n .. (n == 1 and " card)" or " cards)"))
         title.isTitle = true
         title.notCheckable = true
         SafeAddButton(title, level)
@@ -3491,6 +3512,11 @@ function SDB.BuildUI()
             info.text = shape.rows .. "x" .. shape.cols
             info.checked = (shape.rows == curRows and shape.cols == curCols)
             info.func = function()
+                if pad then
+                    PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+                    SDB.SetPadSize(pad, shape.cols)
+                    return
+                end
                 if not SDB.SetPageCols(page, shape.cols) then return end
                 if optionsWindow and optionsWindow.UpdateActiveProfileText then optionsWindow.UpdateActiveProfileText() end
                 PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
@@ -3505,8 +3531,13 @@ function SDB.BuildUI()
     optionsWindow.orientBtn = orientBtn
     orientBtn:SetScript("OnEnter", function(self)
         SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Orientation", "control")
-        SDB.Tip.Line("Grid shape of the page the SpellPad is showing, as rows x columns. Each page keeps its own shape.")
-        SDB.Tip.Hint("The choices depend on how many cards the page has.")
+        if SDB.PadSize() then
+            SDB.Tip.Line("Grid shape of every page, as rows x columns.")
+            SDB.Tip.Hint("The choices depend on the cards per page.")
+        else
+            SDB.Tip.Line("Grid shape of the page the SpellPad is showing, as rows x columns. Each page keeps its own shape.")
+            SDB.Tip.Hint("The choices depend on how many cards the page has.")
+        end
         SDB.Tip.Done()
     end)
     orientBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -3528,8 +3559,9 @@ function SDB.BuildUI()
             local db = SDB.db
             local p = db and db.activePage or 1
             local page = db and db.pages and db.pages[p]
-            local cols = page and SDB.PageCols(page) or 0
-            local count = page and #page or 0
+            local pad = SDB.PadSize()
+            local cols = pad and SDB.PadCols() or (page and SDB.PageCols(page) or 0)
+            local count = pad or (page and #page or 0)
             if p ~= lastPage or cols ~= lastCols or count ~= lastCount then
                 lastPage, lastCols, lastCount = p, cols, count
                 optionsWindow.UpdateActiveProfileText()
@@ -4379,7 +4411,8 @@ function SDB.BuildUI()
         local function PageIsEmpty()
             local page = SDB.db and SDB.db.pages and SDB.db.pages[SDB.db.activePage or 1]
             if not page or #page == 0 then return false end
-            for _, d in ipairs(page) do
+            for i = 1, SDB.PageVisible(page) do
+                local d = page[i]
                 if not SDB.IsCardBlank(d.macro, d.icon) then return false end
             end
             return true
@@ -4904,7 +4937,8 @@ function SDB.BuildUI()
                 local sl, sr = scrollFrame:GetLeft(), scrollFrame:GetRight()
                 local sx = cx / scrollFrame:GetEffectiveScale()
                 local inside = sl and sr and sx >= sl - 30 and sx <= sr + 30
-                local padTarget = D.GetPadTarget(#slots, st.src)
+                local shownCards = SDB.PageVisible(slots)
+                local padTarget = D.GetPadTarget(shownCards, st.src)
                 local ok = (inside or padTarget) and true or false
                 D.SetLook(ok)
 
@@ -4915,14 +4949,14 @@ function SDB.BuildUI()
                 st.grey = not ok
 
                 st.pad = padTarget ~= nil
-                st.swap = padTarget or (inside and D.GetSwapTarget(#slots, st.src)) or nil
+                st.swap = padTarget or (inside and D.GetSwapTarget(shownCards, st.src)) or nil
                 if st.swap then
                     st.dest = st.src
                     D.GetBar():Hide()
                     D.ShowGlow(st.swap)
                 elseif inside then
                     D.HideGlow()
-                    local gap = D.GetGap(#slots)
+                    local gap = D.GetGap(shownCards)
                     st.dest = (gap >= st.src) and gap or (gap + 1)
                     if st.dest ~= st.src then D.ShowBar(gap) else D.GetBar():Hide() end
                 else
@@ -4966,7 +5000,7 @@ function SDB.BuildUI()
             elseif commit and page and st.dest ~= st.src and (SDB.db.activePage or 1) == st.page then
                 if SDB.Snapshots then SDB.Snapshots.Take("Before Reorder Cards", "page", { page = st.page }) end
                 if SDB.Undo then SDB.Undo.ClearAll() end
-                local n = #page
+                local n = SDB.PageVisible(page) -- hidden cards past the pad size stay where they are
                 local payload = {}
                 for i = 1, n do
                     payload[i] = { macro = page[i].macro, icon = page[i].icon, matrixText = page[i].matrixText }
@@ -5338,7 +5372,7 @@ function SDB.BuildUI()
             local page = SDB.db.activePage or 1
             local slots = SDB.db.pages[page]
             if not row or not slots or not slots[row.slotIndex] then return end
-            local slot, nSlots = row.slotIndex, #slots
+            local slot, nSlots = row.slotIndex, SDB.PageVisible(slots)
 
             local function Add(text, func, disabled, tipTitle, tipText)
                 local info = SafeCreateInfo()
@@ -5959,8 +5993,10 @@ function SDB.BuildUI()
         local cardMetrics = SDB.CardUI.Metrics() -- header row + a macro box of 5 whole lines of the macro font (CardUI.lua)
         local rowHeight = cardMetrics.rowH
         local fitCtx = {}
+        local shownCards = SDB.PageVisible(currentSlots) -- cards past the pad size are hidden (not deleted)
 
         for i, data in ipairs(currentSlots) do
+            if i > shownCards then break end
             local row = SDB.rows[i]
             if not row then
                 row = CreateFrame("Frame", nil, content, "BackdropTemplate")
@@ -6598,6 +6634,31 @@ function SDB.BuildUI()
         end
 
         SDB.Search.SetNoResults(shown == 0 and SDB.Search.IsActive())
+
+        -- one dim line under the cards when cards past the pad size still hold a macro or an icon (they are inert)
+        local hiddenFull = 0
+        for i = shownCards + 1, #currentSlots do
+            local d = currentSlots[i]
+            if d and not SDB.IsCardBlank(d.macro, d.icon) then hiddenFull = hiddenFull + 1 end
+        end
+        local note = configWindow.hiddenCardsNote
+        if hiddenFull > 0 then
+            if not note then
+                note = content:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+                note:SetWidth(520)
+                note:SetJustifyH("LEFT")
+                configWindow.hiddenCardsNote = note
+            end
+            note:SetText(SDB.Plural(hiddenFull, "card") .. " past the pad size (cards " .. (shownCards + 1) .. " to "
+                .. #currentSlots .. ") still " .. (hiddenFull == 1 and "holds" or "hold")
+                .. " a macro or icon. Hidden cards don't run; a bigger pad size shows them again.")
+            note:ClearAllPoints()
+            note:SetPoint("TOPLEFT", content, "TOPLEFT", 10, -(yOffset + 2))
+            note:Show()
+            yOffset = yOffset + 22
+        elseif note then
+            note:Hide()
+        end
 
         content:SetHeight(math.max(yOffset, 100))
         if SDB.Pending then SDB.Pending.Update() end

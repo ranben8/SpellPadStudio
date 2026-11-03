@@ -65,9 +65,11 @@ function A.Scan()
     for p = 1, #pages do
         local slots = pages[p]
         if type(slots) == "table" then
+            -- only the cards the pad shows count: the ones past the pad size are never bound
+            local shown = SDB.PageVisible(slots)
             -- which slots hold which key on this page (same normalising as ApplyBindings)
             local byKey = {}
-            for s = 1, #slots do
+            for s = 1, shown do
                 local d = slots[s]
                 if type(d) == "table" and type(d.key) == "string" then
                     local k = string.upper(strtrim(d.key))
@@ -79,7 +81,7 @@ function A.Scan()
             end
 
             local pageHit = false
-            for s = 1, #slots do
+            for s = 1, shown do
                 local d = slots[s]
                 if type(d) == "table" then
                     local macro = type(d.macro) == "string" and d.macro or ""
@@ -181,7 +183,7 @@ function A.GoTo(page, slot, profile)
         return
     end
     local pages = SDB.db and SDB.db.pages
-    if not pages or not pages[page] or not pages[page][slot] then
+    if not pages or not pages[page] or not pages[page][slot] or slot > SDB.PageVisible(pages[page]) then
         Chat("That card no longer exists, so the list was refreshed.", "warn")
         A.Refresh()
         return
