@@ -2443,7 +2443,7 @@ function SDB.BuildUI()
     -- Options window
     -- =========================================================
     local optionsWindow = CreateFrame("Frame", "GalleonBridgeOptionsFrame", UIParent, "BackdropTemplate")
-    -- One window, 672 wide, with four tabs (General, Editor, SpellPad, Data) laid out by OptionsUI.lua,
+    -- One window with three tabs (General, SpellPad, Look) laid out by OptionsUI.lua,
     -- which also sets the height of the open tab; the size here is only the starting size.
     optionsWindow:SetSize(594, 420)
     optionsWindow:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
@@ -2482,28 +2482,10 @@ function SDB.BuildUI()
         if SDB.Dock then SDB.Dock.Place(optionsWindow) end
     end
 
-    -- The status block (Data tab). OptionsUI.lua places it and gives it its font.
-    local optActiveProfileText = optionsWindow:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    optActiveProfileText:SetJustifyH("LEFT")
-    optionsWindow.statusText = optActiveProfileText
-
     local function UpdateActiveProfileText()
-        -- with a pad size: the cards every page shows and their shape. Without one: cards per page = the size of NEW
-        -- pages; orientation = the grid shape (rows x columns) of the page the SpellPad is showing right now
+        -- with a pad size: the cards every page shows and their shape. Without one: the size of NEW pages
         local pad = SDB.PadSize()
         local curCount = pad or SDB.db.deckSize or 12
-        local curPage = SDB.db.pages and SDB.db.pages[SDB.db.activePage or 1]
-        local orient = "-"
-        if pad then
-            local cols = SDB.PadCols()
-            orient = (pad / cols) .. "x" .. cols .. " (all pages)"
-        elseif curPage and #curPage > 0 then
-            local rows, cols = SDB.GetMatrixDimensions(#curPage, curPage)
-            orient = rows .. "x" .. cols .. " (this page)"
-        end
-
-        local profName = SDB.currentProfileName or "Default"
-        optActiveProfileText:SetText("Profile: |cFF00FF00" .. profName .. "|r\nCards per page: |cFFFFFFFF" .. curCount .. "|r\nOrientation: |cFFFFFFFF" .. orient .. "|r")
         -- the Custom size dropdowns of the SpellPad tab show the size and shape a choice would use for every page
         -- (they are made further down)
         if optionsWindow.deckSizeBtn then optionsWindow.deckSizeBtn:SetText(tostring(curCount)) end
@@ -2712,48 +2694,14 @@ function SDB.BuildUI()
         optionsWindow.pageCardsFollowToggle = cb
     end
 
-    -- Buttons of the Data tab: Audit, Restore..., Reset Window Positions, Reset Defaults
-    -- (OptionsUI.lua places them; Reset Defaults has red text).
+    -- Reset Defaults and Reset Window Positions (General tab; OptionsUI.lua places them; Reset Defaults has red text).
+    -- Audit and Restore are in the Tools menu of the main window's footer.
     local resetBtn = SDB.UI.Button(optionsWindow, "secondary", "|cFFFF4444Reset Defaults|r", 160, 24)
     optionsWindow.resetBtn = resetBtn
     resetBtn:SetScript("OnClick", function()
         PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
         StaticPopup_Show("GALLEONBRIDGE_CONFIRM_RESET")
     end)
-
-    -- Audit: opens the cross-page audit window (Audit.lua)
-    local auditBtn = SDB.UI.Button(optionsWindow, "secondary", "Audit", 64, 24)
-    optionsWindow.auditBtn = auditBtn
-    auditBtn:SetScript("OnClick", function()
-        PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPEN or 850)
-        if SDB.Audit then SDB.Audit.Toggle() end
-    end)
-    -- (HookScript, not SetScript: the button's own hover and pressed look lives in its OnEnter / OnLeave)
-    auditBtn:HookScript("OnEnter", function(self)
-        SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Audit", "control")
-        SDB.Tip.Line("Lists every card with a macro error or warning across all pages of this profile.")
-        SDB.Tip.Hint("Click a row to jump to that card.")
-        SDB.Tip.Done()
-    end)
-    auditBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
-
-    -- Restore...: opens the snapshot list (Snapshots.lua). In a do-block because BuildUI is near
-    -- Lua's local limit.
-    do
-        local restoreBtn = SDB.UI.Button(optionsWindow, "secondary", "Restore...", 90, 24)
-        restoreBtn:SetScript("OnClick", function()
-            PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
-            if SDB.Snapshots then SDB.Snapshots.Toggle() end
-        end)
-        restoreBtn:HookScript("OnEnter", function(self)
-            SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Restore from Snapshot")
-            SDB.Tip.Line("A snapshot is saved automatically before imports, deletes, shifts, clears and other risky changes.")
-            SDB.Tip.Hint("Also available with /sps restore.")
-            SDB.Tip.Done()
-        end)
-        restoreBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
-        optionsWindow.restoreBtn = restoreBtn
-    end
 
     -- Reset Window Positions: the same as /spellpad reset (Help.lua)
     do
@@ -3161,7 +3109,7 @@ function SDB.BuildUI()
             cycleBtn:SetText((string.gsub(text, "|", "||")))
             if pageLogicWindow.cycleInfo then pageLogicWindow.cycleInfo:SetText(info) end
             if pageLogicWindow.ctxGroupLabel then
-                pageLogicWindow.ctxGroupLabel:SetText(cur and "Context switching (whole folder)" or "Context switching")
+                pageLogicWindow.ctxGroupLabel:SetText(cur and "Context Switching (Whole Folder)" or "Context Switching")
             end
             if pageLogicWindow.ctxRowLabel then
                 pageLogicWindow.ctxRowLabel:SetText(cur and "This folder is used when" or "This page is used when")
@@ -3736,7 +3684,7 @@ function SDB.BuildUI()
         cb:SetScript("OnEnter", function(self)
             SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Flash Button on Key Press", "control")
             SDB.Tip.Line("Flashes a SpellPad button when you press its key.")
-            SDB.Tip.Hint("Cards in the main window flash either way. Set the color in the Colors tab.")
+            SDB.Tip.Hint("Cards in the main window flash either way. Set its color under Colors.")
             SDB.Tip.Done()
         end)
         cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -3848,7 +3796,7 @@ function SDB.BuildUI()
         end
     end)
 
-    -- every control of the Options window exists now; OptionsUI.lua sorts them into the four tabs
+    -- every control of the Options window exists now; OptionsUI.lua sorts them into the three tabs
     if SDB.OptionsUI then SDB.OptionsUI.Options(optionsWindow) end
 
     -- =========================================================

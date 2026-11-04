@@ -1216,8 +1216,14 @@ function U.Dropdown(parent, w, text)
     b.GetFontString = function() return fs end
     -- a disabled dropdown greys its text (the Profiles window disables it while the Global profile is on)
     local enable, disable = b.Enable, b.Disable
-    b.Enable = function(self) enable(self); fs:SetFontObject("GameFontHighlightSmall") end
-    b.Disable = function(self) disable(self); fs:SetFontObject("GameFontDisableSmall") end
+    local onFont, offFont = "GameFontHighlightSmall", "GameFontDisableSmall"
+    b.Enable = function(self) enable(self); fs:SetFontObject(onFont) end
+    b.Disable = function(self) disable(self); fs:SetFontObject(offFont) end
+    -- the settings windows put dropdowns next to buttons, whose text is the larger font: the dropdown follows them
+    b.UseButtonFont = function(self)
+        onFont, offFont = "GameFontHighlight", "GameFontDisable"
+        fs:SetFontObject(self:IsEnabled() and onFont or offFont)
+    end
     b.SetEnabled = function(self, v) if v then self:Enable() else self:Disable() end end
     b:SetText(text)
     return b

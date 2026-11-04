@@ -3,7 +3,7 @@ local addonName, SDB = ...
 -- -------------------------------------------------------------
 -- Cross-page audit panel: every card with a problem, across all pages
 -- -------------------------------------------------------------
--- Opened by the "Audit" button in the Options window.
+-- Opened from the Tools menu in the main window's footer.
 --   SDB.Audit.Scan()            returns the list of problem cards (no UI needed)
 --   SDB.Audit.Open() / Toggle() show the window (it scans when it opens)
 --   SDB.Audit.Refresh()         scan again and redraw

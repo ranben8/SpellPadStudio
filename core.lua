@@ -1136,7 +1136,7 @@ function SDB.UnbindPrefix(pageIndex)
     end
     if #list > 1 and n > 1 then
         StaticPopup_Show("GALLEONBRIDGE_PREFIX_CONFIRM", "Remove the prefix from " .. n .. " pages?\n\nEvery card on those pages loses its key. "
-            .. "A snapshot is saved first, so Options > Restore... can bring them back.", nil, function()
+            .. "A snapshot is saved first, so Tools > Restore... can bring them back.", nil, function()
             ClearKeys(list)
             print("|cFF00FF00[SpellPad Studio]|r Prefix removed from " .. n .. " pages.")
         end)
@@ -1188,7 +1188,7 @@ function SDB.SetPrefixMode(global)
     if differ > 0 then
         StaticPopup_Show("GALLEONBRIDGE_PREFIX_CONFIRM", "Use the prefix " .. prefix .. " on all " .. #SDB.db.pages .. " pages?\n\n"
             .. SDB.Plural(differ, "page") .. (differ == 1 and " uses" or " use") .. " another prefix or no keys, and every card key there "
-            .. "changes to " .. prefix .. " plus its own key. A snapshot is saved first, so Options > Restore... can bring them back.", nil, Turn)
+            .. "changes to " .. prefix .. " plus its own key. A snapshot is saved first, so Tools > Restore... can bring them back.", nil, Turn)
         return true
     end
     Turn()

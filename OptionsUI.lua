@@ -7,7 +7,7 @@ local addonName, SDB = ...
 -- handlers and tooltips); this file only SORTS them: it makes the tab strips and the inset groups, moves each
 -- control into its group (SetParent + new anchors) and sizes the window to the open tab.
 --
---   SDB.OptionsUI.Options(win)      four tabs: General, Editor, SpellPad, Data
+--   SDB.OptionsUI.Options(win)      three tabs: General, SpellPad, Look
 --   SDB.OptionsUI.PageOptions(win)  three labelled groups: page name, key prefix, context switching
 --   SDB.OptionsUI.Profiles(win)     two tabs: Profiles, Share
 --
@@ -60,14 +60,16 @@ local function AddCheck(g, c)
     g.cur = g.cur + 28
 end
 
--- label above the bar, steppers on both sides, Low / High under the ends: about 55 units
+-- label and value on one line above the bar, steppers on both sides, no Low / High captions: about 45 units
 local function AddSlider(g, s)
     if not s then return end
     Take(g, s)
+    if s.lowLabel then s.lowLabel:Hide() end
+    if s.highLabel then s.highLabel:Hide() end
     local pad = SDB.UI.SLIDER_PAD or 17
     s:SetWidth(math.min(g.w - 2 * PAD - 2 * pad - 4, 230)) -- a wide group does not stretch the bar
     s:SetPoint("TOPLEFT", g, "TOPLEFT", PAD + pad + 2, -(g.cur + 18))
-    g.cur = g.cur + 18 + 19 + 14 + 6
+    g.cur = g.cur + 18 + 19 + 8
 end
 
 -- a label on the left, a dropdown-looking button on the right
@@ -80,6 +82,20 @@ local function AddRow(g, label, c, w)
     c:SetWidth(w)
     c:SetPoint("TOPRIGHT", g, "TOPRIGHT", -PAD, -g.cur)
     g.cur = g.cur + 30
+    return fs
+end
+
+-- a label with the dropdown-looking button under it, as wide as the group (for a label or a value that is too long to
+-- share a row)
+local function AddRowBelow(g, label, c)
+    if not c then return end
+    local fs = g:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    fs:SetPoint("TOPLEFT", g, "TOPLEFT", PAD, -(g.cur + 2))
+    fs:SetText(label)
+    Take(g, c)
+    c:SetPoint("TOPLEFT", g, "TOPLEFT", PAD, -(g.cur + 20))
+    c:SetPoint("TOPRIGHT", g, "TOPRIGHT", -PAD, -(g.cur + 20))
+    g.cur = g.cur + 20 + 24 + 6
     return fs
 end
 
@@ -128,6 +144,12 @@ local function Stack(parent, x, w, list, y0)
 end
 
 local function Named(name) return name and _G[name] or nil end
+
+-- a dropdown-looking button in a settings window shows its value in the same font as the buttons beside it
+local function ButtonFont(c)
+    if c and c.UseButtonFont then c:UseButtonFont() end
+    return c
+end
 
 -- ---------------------------------------------------------------
 -- Resizing a window: the top edge stays where it is
@@ -319,7 +341,7 @@ local function BuildPadSizeGroup(g, win)
     local label = g:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     label:SetPoint("TOPLEFT", g, "TOPLEFT", PAD, -(g.cur + 4))
     label:SetText("Custom size")
-    local cards, shape = win.deckSizeBtn, win.orientBtn
+    local cards, shape = ButtonFont(win.deckSizeBtn), ButtonFont(win.orientBtn)
     if cards and shape then
         Take(g, cards)
         cards:SetWidth(70)
@@ -395,21 +417,17 @@ local function OptionsBody(win)
     local function Tab(name, build) return { name = name, build = build } end
     local spec = {}
 
-    -- General: windows, and how the addon behaves around them
+    -- General: windows, the key prefix, the macro editor and the housekeeping
     spec[1] = Tab("General", function(content)
-        local h1 = Stack(content, 16, COL_W, { { title = "Windows", fill = function(g)
-            AddSlider(g, ctl.opacity)
-            AddSlider(g, ctl.scale)
-            AddTiles(g, ctl.style)
-            AddCheck(g, ctl.thick) -- nil on Forever
-            AddCheck(g, ctl.lockWin)
-        end }, { title = "Key Prefix", fill = BuildPrefixGroup } })
-        local h2 = Stack(content, 16 + COL_W + GAP, COL_W, {
-            { title = "Behavior", fill = function(g)
-                AddCheck(g, ctl.minimap)
-                AddCheck(g, ctl.autoHide)
-                AddCheck(g, ctl.help)
-                AddCheck(g, ctl.pageFollow)
+        local h1 = Stack(content, 16, COL_W, {
+            { title = "Windows", fill = function(g)
+                AddSlider(g, ctl.opacity)
+                AddSlider(g, ctl.scale)
+                AddTiles(g, ctl.style)
+                AddCheck(g, ctl.thick) -- nil on Forever
+                AddCheck(g, ctl.lockWin)
+                g.cur = g.cur + 4
+                AddButton(g, win.resetPositionsBtn, 190, 24)
             end },
             { title = "Getting Started", fill = function(g)
                 local b = SDB.UI.Button(g, "secondary", "Setup Guide...", 150, 24)
@@ -420,49 +438,40 @@ local function OptionsBody(win)
                 AddButton(g, b, 150, 24)
                 AddNote(g, "Connects your keypad step by step: its buttons, their keys, a test and your first spell.", 2)
             end },
+            { title = "Maintenance", fill = function(g)
+                AddButton(g, win.resetBtn, 160, 24)
+                AddNote(g, "Resets the Default profile to its starting page. Asks first and saves a snapshot.", 2)
+            end },
+        })
+        local h2 = Stack(content, 16 + COL_W + GAP, COL_W, {
+            { title = "Behavior", fill = function(g)
+                AddCheck(g, ctl.minimap)
+                AddCheck(g, ctl.autoHide)
+                AddCheck(g, ctl.help)
+                AddCheck(g, ctl.pageFollow)
+            end },
+            { title = "Key Prefix", fill = BuildPrefixGroup },
+            { title = "Macro Editor", fill = function(g)
+                AddSlider(g, ctl.font)
+                AddCheck(g, ctl.color)
+                AddCheck(g, ctl.spell)
+                AddCheck(g, ctl.auto)
+            end },
         })
         return math.max(h1, h2)
     end)
 
-    -- Editor: the macro boxes on the cards
-    spec[2] = Tab("Editor", function(content)
-        return Stack(content, 16, OPT_W - 32, { { title = "Macro Editor", fill = function(g)
-            AddSlider(g, ctl.font)
-            AddCheck(g, ctl.color)
-            AddCheck(g, ctl.spell)
-            AddCheck(g, ctl.auto)
-        end } })
-    end)
-
-    -- SpellPad: the on-screen button window
-    spec[3] = Tab("SpellPad", function(content)
+    -- SpellPad: the on-screen button window (its size, look and effects are on the Look tab)
+    spec[2] = Tab("SpellPad", function(content)
         local top = Group(content, 16, 0, OPT_W - 32, "Pad Size")
         BuildPadSizeGroup(top, win)
         local topH = Finish(top)
         local y0 = topH + GAP
         local h1 = Stack(content, 16, COL_W, {
-            { title = "Layout and Behavior", fill = function(g)
+            { title = "Behavior", fill = function(g)
                 AddCheck(g, Named("GalleonMopLock"))
                 AddCheck(g, Named("GalleonMopClickSound"))
-                AddCheck(g, Named("GalleonMopChangeGlow"))
-                AddCheck(g, Named("GalleonMopKeyFlash"))
                 AddCheck(g, Named("GalleonMopNoTooltips"))
-            end },
-            { title = "Size and Opacity", fill = function(g)
-                AddSlider(g, Named("GalleonMatrixScaleSlider"))
-                AddSlider(g, Named("GalleonMatrixBgSlider"))
-                AddSlider(g, Named("GalleonMatrixButtonOpacitySlider"))
-                AddSlider(g, Named("GalleonMatrixSpacingSlider"))
-            end },
-        }, y0)
-        local h2 = Stack(content, 16 + COL_W + GAP, COL_W, {
-            { title = "Visibility", fill = function(g)
-                AddCheck(g, Named("GalleonMopAlways"))
-                AddCheck(g, Named("GalleonMopCombatHide"))
-                AddCheck(g, Named("GalleonMopHideEmpty"))
-                AddCheck(g, Named("GalleonMopNoBg"))
-                AddCheck(g, Named("GalleonMopHoverFade"))
-                AddSlider(g, Named("GalleonMatrixFadeSlider"))
             end },
             { title = "On Each Button", fill = function(g)
                 AddCheck(g, Named("GalleonMopShowKeys"))
@@ -472,17 +481,57 @@ local function OptionsBody(win)
                 AddCheck(g, Named("GalleonMopDim"))
             end },
         }, y0)
+        local h2 = Stack(content, 16 + COL_W + GAP, COL_W, {
+            { title = "Visibility", fill = function(g)
+                AddCheck(g, Named("GalleonMopAlways"))
+                AddCheck(g, Named("GalleonMopCombatHide"))
+                AddCheck(g, Named("GalleonMopHideEmpty"))
+                AddCheck(g, Named("GalleonMopHoverFade"))
+                AddSlider(g, Named("GalleonMatrixFadeSlider"))
+            end },
+        }, y0)
         return math.max(h1, h2)
     end)
 
-    -- Colors: the SpellPad's fill, line and glow (PadColors.lua makes the controls)
-    spec[4] = Tab("Colors", function(content)
+    -- Look: how the SpellPad is drawn (PadColors.lua makes the color controls). Size and Effects on the left, the
+    -- colors on the right, each flash checkbox on the same tab as its color.
+    spec[3] = Tab("Look", function(content)
         local PC = SDB.PadColors
-        if not PC then return 100 end
-        local pickerNote = PC.PickerAvailable()
-            and "Click a swatch to pick a color, or type a hex code and press Enter. Opacity is set in the SpellPad tab."
-            or "Type a hex code and press Enter. Opacity is set in the SpellPad tab."
         local h1 = Stack(content, 16, COL_W, {
+            { title = "Size and Opacity", fill = function(g)
+                AddSlider(g, Named("GalleonMatrixScaleSlider"))
+                AddSlider(g, Named("GalleonMatrixBgSlider"))
+                AddSlider(g, Named("GalleonMatrixButtonOpacitySlider"))
+                AddSlider(g, Named("GalleonMatrixSpacingSlider"))
+                AddCheck(g, Named("GalleonMopNoBg"))
+            end },
+            { title = "Effects", fill = function(g)
+                AddCheck(g, Named("GalleonMopChangeGlow"))
+                AddCheck(g, Named("GalleonMopKeyFlash"))
+                if not PC then return end
+                local b1 = SDB.UI.Button(g, "secondary", "Flash Background", 120, 24)
+                b1:SetScript("OnClick", function()
+                    PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+                    PC.FlashGlow()
+                end)
+                local b2 = SDB.UI.Button(g, "secondary", "Flash Buttons", 120, 24)
+                b2:SetScript("OnClick", function()
+                    PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+                    PC.FlashButtons()
+                end)
+                Take(g, b1)
+                b1:SetPoint("TOPLEFT", g, "TOPLEFT", PAD, -(g.cur + 4))
+                Take(g, b2)
+                b2:SetPoint("LEFT", b1, "RIGHT", 8, 0)
+                g.cur = g.cur + 4 + 24 + 8
+                AddNote(g, "The two buttons show each flash once on the SpellPad, even when its checkbox is off.", 2)
+            end },
+        })
+        if not PC then return h1 end
+        local pickerNote = PC.PickerAvailable()
+            and "Click a swatch to pick a color, or type a hex code and press Enter. Opacity is set under Size and Opacity."
+            or "Type a hex code and press Enter. Opacity is set under Size and Opacity."
+        local h2 = Stack(content, 16 + COL_W + GAP, COL_W, {
             { title = "Preset", fill = function(g)
                 local chips, ch = PC.PresetChips(g, 248)
                 Take(g, chips)
@@ -490,60 +539,19 @@ local function OptionsBody(win)
                 g.cur = g.cur + ch + 8
                 PC.presetNote = AddNote(g, "", 3)
             end },
-            { title = "Try It", fill = function(g)
-                local b1 = SDB.UI.Button(g, "secondary", "Flash Background", 140, 24)
-                b1:SetScript("OnClick", function()
-                    PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
-                    PC.FlashGlow()
-                end)
-                AddButton(g, b1, 140, 24)
-                local b2 = SDB.UI.Button(g, "secondary", "Flash Buttons", 140, 24)
-                b2:SetScript("OnClick", function()
-                    PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
-                    PC.FlashButtons()
-                end)
-                AddButton(g, b2, 140, 24)
-                AddNote(g, "Shows each flash once on the SpellPad, even when its checkbox is off.", 1)
+            { title = "Colors", fill = function(g)
+                for _, kind in ipairs(PC.KINDS) do
+                    local row = PC.Row(g, kind)
+                    row:SetPoint("TOPLEFT", g, "TOPLEFT", PAD, -g.cur)
+                    row:SetPoint("TOPRIGHT", g, "TOPRIGHT", -PAD, -g.cur)
+                    g.cur = g.cur + 32
+                end
+                AddNote(g, "The background flash shows when the page or profile changes; the button flash when a key is pressed, on the SpellPad and on its card.", 4)
+                AddNote(g, pickerNote, 4)
             end },
         })
-        local h2 = Stack(content, 16 + COL_W + GAP, COL_W, { { title = "Colors", fill = function(g)
-            for _, kind in ipairs(PC.KINDS) do
-                local row = PC.Row(g, kind)
-                row:SetPoint("TOPLEFT", g, "TOPLEFT", PAD, -g.cur)
-                row:SetPoint("TOPRIGHT", g, "TOPRIGHT", -PAD, -g.cur)
-                g.cur = g.cur + 32
-            end
-            AddNote(g, "The background flash shows when the page or profile changes; the button flash when a key is pressed, on the SpellPad and on its card.", 4)
-            AddNote(g, pickerNote, 4)
-        end } })
         content:HookScript("OnShow", PC.RefreshAll)
         PC.RefreshAll()
-        return math.max(h1, h2)
-    end)
-
-    -- Data: what the profile holds, and the tools around it
-    spec[5] = Tab("Data", function(content)
-        local h1 = Stack(content, 16, COL_W, { { title = "This Profile", fill = function(g)
-            local st = win.statusText
-            if st then
-                st:SetParent(g)
-                st:SetFontObject("GameFontHighlight")
-                st:ClearAllPoints()
-                st:SetPoint("TOPLEFT", g, "TOPLEFT", PAD, -g.cur)
-                st:SetWidth(g.w - 2 * PAD)
-                st:SetJustifyH("LEFT")
-                st:SetSpacing(3)
-                g.cur = g.cur + 3 * 15 + 12
-            end
-            AddButton(g, win.auditBtn, 120, 24)
-            AddButton(g, win.restoreBtn, 120, 24)
-        end } })
-        local h2 = Stack(content, 16 + COL_W + GAP, COL_W, { { title = "Maintenance", fill = function(g)
-            AddButton(g, win.resetPositionsBtn, 190, 24)
-            AddNote(g, "Moves every window back to its default place. The SpellPad stays where it is.", 2)
-            AddButton(g, win.resetBtn, 160, 24)
-            AddNote(g, "Resets the Default profile to its starting page. Asks first and saves a snapshot.", 2)
-        end } })
         return math.max(h1, h2)
     end)
 
@@ -584,11 +592,7 @@ local function PageOptionsBody(win)
     root:SetHeight(10)
 
     -- 1. page name: the name in a flat field with Rename beside it, Copy Page under it
-    local g1 = Group(root, 16, y, gw, nil)
-    local lab1 = g1:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    lab1:SetPoint("TOPLEFT", g1, "TOPLEFT", PAD, -12)
-    lab1:SetText("Page name")
-    g1.cur = 30
+    local g1 = Group(root, 16, y, gw, "Page Name")
     local field = SDB.UI.Panel(g1, "flat")
     field:SetHeight(24)
     field:SetPoint("TOPLEFT", g1, "TOPLEFT", PAD, -g1.cur)
@@ -612,11 +616,7 @@ local function PageOptionsBody(win)
     y = y + h1 + GAP
 
     -- 2. key prefix: a key cap with the editing box on top of it
-    local g2 = Group(root, 16, y, gw, nil)
-    local lab2 = g2:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    lab2:SetPoint("TOPLEFT", g2, "TOPLEFT", PAD, -12)
-    lab2:SetText("Key prefix")
-    g2.cur = 30
+    local g2 = Group(root, 16, y, gw, "Key Prefix")
     local box = win.prefixBox
     if box then
         StripBox(box)
@@ -645,12 +645,8 @@ local function PageOptionsBody(win)
     y = y + h2 + GAP
 
     -- 3. page cycle: the pages !PAGE Forward / Backward walk; the text under the dropdown follows the page
-    local g3 = Group(root, 16, y, gw, nil)
-    local labC = g3:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    labC:SetPoint("TOPLEFT", g3, "TOPLEFT", PAD, -12)
-    labC:SetText("Page folder")
-    g3.cur = 30
-    AddRow(g3, "This page is in", win.cycleBtn, 150)
+    local g3 = Group(root, 16, y, gw, "Page Folder")
+    AddRow(g3, "This page is in", ButtonFont(win.cycleBtn), 150)
     local info = g3:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     info:SetPoint("TOPLEFT", g3, "TOPLEFT", PAD, -g3.cur)
     info:SetWidth(g3.w - 2 * PAD)
@@ -673,14 +669,10 @@ local function PageOptionsBody(win)
     y = y + hC + GAP
 
     -- 4. context switching (for a page in a named cycle these act on the whole cycle)
-    local g4 = Group(root, 16, y, gw, nil)
-    local lab4 = g4:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    lab4:SetPoint("TOPLEFT", g4, "TOPLEFT", PAD, -12)
-    lab4:SetText("Context switching")
-    win.ctxGroupLabel = lab4
-    g4.cur = 30
+    local g4 = Group(root, 16, y, gw, "Context Switching")
+    win.ctxGroupLabel = g4.title
     AddCheck(g4, Named("GalleonPageLogicAutoSwitch"))
-    win.ctxRowLabel = AddRow(g4, "This page is used when", win.ctxBtn, 120)
+    win.ctxRowLabel = AddRowBelow(g4, "This page is used when", ButtonFont(win.ctxBtn))
     AddCheck(g4, Named("GalleonPageLogicPrio"))
     local h4 = Finish(g4)
     y = y + h4
@@ -729,7 +721,7 @@ local function ProfilesBody(win)
     spec[1] = { name = "Profiles", build = function(content)
         return Stack(content, 16, gw, {
             { title = "Current Profile", fill = function(g)
-                Take(g, u.select)
+                Take(g, ButtonFont(u.select))
                 u.select:SetWidth(190)
                 u.select:SetPoint("TOPLEFT", g, "TOPLEFT", PAD, -g.cur)
                 Take(g, u.rename)
@@ -763,15 +755,19 @@ local function ProfilesBody(win)
         box:SetParent(content)
         box:ClearAllPoints()
         box:SetPoint("TOPLEFT", content, "TOPLEFT", 16, -20)
-        local x = 16
+        local ge = Group(content, 16, 20 + 175 + 10, gw, "Export")
+        u.expPage:SetWidth(112)
+        u.expAll:SetWidth(112) -- four buttons and their gaps have to fit the group's 400 units
+        local x = PAD
         for _, key in ipairs({ "expPage", "expAll", "asText", "clear" }) do
             local b = u[key]
-            b:SetParent(content)
-            b:ClearAllPoints()
-            b:SetPoint("TOPLEFT", content, "TOPLEFT", x, -(20 + 175 + 10))
+            Take(ge, b)
+            b:SetPoint("TOPLEFT", ge, "TOPLEFT", x, -ge.cur)
             x = x + b:GetWidth() + 8
         end
-        local g = Group(content, 16, 20 + 175 + 10 + 24 + 10, gw, "Import")
+        ge.cur = ge.cur + 24 + 8
+        local eh = Finish(ge)
+        local g = Group(content, 16, 20 + 175 + 10 + eh + 10, gw, "Import")
         local function Place(b, col)
             Take(g, b)
             b:SetPoint("TOPLEFT", g, "TOPLEFT", PAD + col * 208 + (col == 1 and -4 or 0), -g.cur)
@@ -781,7 +777,7 @@ local function ProfilesBody(win)
         Place(u.impProf, 0); Place(u.impAdd, 1)
         g.cur = g.cur + 34
         local gh = Finish(g)
-        return 20 + 175 + 10 + 24 + 10 + gh
+        return 20 + 175 + 10 + eh + 10 + gh
     end }
 
     local bar = BuildTabs(win, PR_W, spec, function(i) SDB.profilesTab = i end)

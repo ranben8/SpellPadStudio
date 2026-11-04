@@ -2,7 +2,7 @@ local addonName, SDB = ...
 
 -- SpellPad colors: the fill and line of the SpellPad window, the background flash (the glow on a page or profile
 -- change) and the button flash (a pressed key). This file holds the presets, the hex
--- codes and the game's color picker; the Options > Colors tab only places what it makes (OptionsUI.lua). The
+-- codes and the game's color picker; the Options > Look tab only places what it makes (OptionsUI.lua). The
 -- colors themselves are account-wide settings (Init.lua) that MatrixPreview.lua reads through SDB.PadColor.
 --
 -- A color can be changed three ways: click its swatch (the game's own picker, changes show live and Cancel puts

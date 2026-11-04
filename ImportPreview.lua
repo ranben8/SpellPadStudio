@@ -540,7 +540,7 @@ local function Describe(f)
             if macros > 0 then
                 action = COLOR.red .. "Overwrites page " .. cur .. " '" .. Pipes(curName) .. "'|r, which has "
                     .. Plural(macros, "card") .. " with macros. Its keys, macros, icons and names are all replaced. "
-                    .. "A snapshot is saved first (Options > Restore...)."
+                    .. "A snapshot is saved first (Tools > Restore...)."
             else
                 action = COLOR.orange .. "Fills page " .. cur .. " '" .. Pipes(curName) .. "'|r. It has no macros, "
                     .. "so nothing is lost. A snapshot is saved first."
