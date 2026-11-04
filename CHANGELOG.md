@@ -1,4 +1,4 @@
-# SpellPad Studio 1.5.0 (beta)
+# SpellPad Studio 1.5.0
 
 The SpellPad can now tell a button's state without color, and its icon colors can be adjusted for color vision.
 
@@ -19,7 +19,7 @@ The SpellPad can now tell a button's state without color, and its icon colors ca
 
 ## Known issues
 
-- Forever: not tested there yet; it will be checked at Forever's launch. This update adds image files, so restart the game fully after updating instead of only reloading.
+- Forever: not tested there yet; it will be checked at Forever's launch.
 
 # SpellPad Studio 1.4.5 (beta)
 
