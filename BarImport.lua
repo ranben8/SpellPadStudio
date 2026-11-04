@@ -39,6 +39,8 @@ local function FirstSlot(bar)
     return bar.first
 end
 
+local ASSISTANT_ID = 1229376 -- the Single-Button Assistant spell (the Arsenal lists it too)
+
 local function SpellName(id)
     local name
     if C_Spell and C_Spell.GetSpellInfo then
@@ -80,7 +82,11 @@ end
 function B.Resolve(kind, id, sub)
     if kind == "spell" then
         if sub == "assistedcombat" then
-            return nil, "Single-Button Assistant (its spell changes by itself)", "assistant"
+            -- the slot reports whatever spell the assistant recommends right now, which changes by itself; the
+            -- button itself is the Single-Button Assistant spell
+            local name = SpellName(ASSISTANT_ID)
+            if not name then return nil, "Single-Button Assistant has no name on this client", "assistant" end
+            return { text = "#showtooltip\n/cast " .. name, what = "Single-Button Assistant" }
         end
         local name = SpellName(id)
         if not name then return nil, "no name for spell " .. tostring(id), "unknown" end
@@ -147,7 +153,7 @@ end
 -- note text per skip reason: singular, plural
 local SKIP_NOTES = {
     flyout = { "flyout skipped", "flyouts skipped" },
-    assistant = { "Single-Button Assistant button skipped", "Single-Button Assistant buttons skipped" },
+    assistant = { "Single-Button Assistant button skipped (its name couldn't be read)", "Single-Button Assistant buttons skipped (its name couldn't be read)" },
     itemdata = { "item skipped (its name hadn't loaded)", "items skipped (their names hadn't loaded)" },
     unknown = { "action skipped (it couldn't be read)", "actions skipped (they couldn't be read)" },
 }
@@ -496,7 +502,7 @@ local function MakeRow(parent, index)
         if Selectable(d) then
             SDB.Tip.Line("Click to " .. (P.pick[self.index] and "leave this bar out." or "import this bar."))
             if d.blocked > 0 then
-                SDB.Tip.Hint("Faded slots can't be imported (flyouts, the Single-Button Assistant, unreadable actions).")
+                SDB.Tip.Hint("Faded slots can't be imported (flyouts, unreadable actions).")
             end
         else
             SDB.Tip.Hint("Nothing on this bar can be imported.")

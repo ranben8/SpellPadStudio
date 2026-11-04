@@ -126,6 +126,22 @@ function B.CollectSpells()
         end
     end)
 
+    -- Retail only: the Single-Button Assistant is a spell every character has, but it sits in the top right of the
+    -- spellbook, outside its skill lines, so the walk above never finds it. It goes first in the "General" group.
+    if SDB.Client and SDB.Client.isRetail and C_Spell and C_Spell.GetSpellInfo then
+        local ok, info = pcall(C_Spell.GetSpellInfo, 1229376)
+        if ok and type(info) == "table" and type(info.name) == "string" and info.name ~= ""
+            and not IsSecret(info.name) and not seen[info.name:lower()] then
+            seen[info.name:lower()] = true
+            local entry = { name = info.name, lname = info.name:lower(), icon = info.iconID, id = 1229376, cat = "General", kind = "spell" }
+            local at = #list + 1
+            for i, e in ipairs(list) do
+                if e.cat == "General" then at = i break end
+            end
+            table.insert(list, at, entry)
+        end
+    end
+
     B.spellCache = list
     return list
 end

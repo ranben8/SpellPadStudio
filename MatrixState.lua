@@ -42,13 +42,6 @@ local function IsSecret(v)
     return false
 end
 
-local TINT = {
-    ok       = { 1, 1, 1 },
-    range    = { 0.8, 0.1, 0.1 },
-    nomana   = { 0.5, 0.5, 1.0 },
-    unusable = { 0.4, 0.4, 0.4 },
-}
-
 local function MatrixFrame() return _G["GalleonBridgeMatrixFrame"] end
 
 local function EnsureDiag(btn)
@@ -70,6 +63,7 @@ end
 local function ResolveItemID(name)
     local n = tonumber(name)
     if n then return n end
+    if SDB.ItemCache then return SDB.ItemCache.IDByName(name) end
     if C_Item and C_Item.GetItemInfoInstant then
         local id = C_Item.GetItemInfoInstant(name)
         if id then return id end
@@ -331,19 +325,145 @@ local function ApplyProc(btn)
 end
 
 -- -------------------------------------------------------------
--- Icon tint: out of range (red) > no mana (blue) > unusable (grey)
+-- Icon tint, state badge and icon color mode
 -- -------------------------------------------------------------
-local whiteColor, redColor
+-- Out of range > no mana > unusable: the first state that applies tints the icon (the colors are the
+-- SpellPad's state colors, Options > Color Aids). Each state can also show a badge in the top right corner
+-- and the unusable state can gray the icon, so none of them depends on color alone. The icon color mode
+-- (gray, or one color channel turned down) multiplies into every tint. All of it only changes textures,
+-- so it works in combat too.
+local BADGE_DIR = "Interface\\AddOns\\SpellPadStudio\\textures\\"
+MS.BADGE = {
+    range = BADGE_DIR .. "cue_range.tga",
+    nomana = BADGE_DIR .. "cue_mana.tga",
+    unusable = BADGE_DIR .. "cue_unusable.tga",
+}
+local STATE_KIND = { range = "range", nomana = "mana", unusable = "unusable" }
+
+MS.aidGen = 0
+local aids, aidsGen
+
+-- The settings as one table, rebuilt only after AidsChanged. `tint` holds the final vertex color of each
+-- state: the state color times the icon color mode's gain.
+local function Aids()
+    if aids and aidsGen == MS.aidGen then return aids end
+    local db = SDB.db or {}
+    local a = {
+        tintRange = not db.matrixNoRangeTint,
+        dim = not db.matrixNoDim,
+        cueRange = db.matrixCueRange and true or false,
+        cueMana = db.matrixCueMana and true or false,
+        cueUnusable = db.matrixCueUnusable and true or false,
+    }
+    local mode = db.matrixIconMode
+    a.gray = (mode == "gray")
+    local s = tonumber(db.matrixIconStrength) or 0.5
+    if s < 0.1 then s = 0.1 elseif s > 1 then s = 1 end
+    local g = 1 - 0.8 * s
+    local gr, gg, gb = 1, 1, 1
+    if mode == "r" then gr = g elseif mode == "g" then gg = g elseif mode == "b" then gb = g end
+    a.tint = { ok = { gr, gg, gb } }
+    for state, kind in pairs(STATE_KIND) do
+        local r, gc, b = SDB.PadColor(kind)
+        a.tint[state] = { r * gr, gc * gg, b * gb }
+    end
+    aids, aidsGen = a, MS.aidGen
+    return a
+end
+MS.Aids = Aids
+
+-- Which tint, badge and desaturation a button gets. rangeOut is true or false, use is "ok", "nomana" or "unusable".
+function MS.Decide(a, rangeOut, use)
+    local tintKey = "ok"
+    if rangeOut and a.tintRange then
+        tintKey = "range"
+    elseif a.dim and use == "nomana" then
+        tintKey = "nomana"
+    elseif a.dim and use == "unusable" then
+        tintKey = "unusable"
+    end
+    local cueKey
+    if rangeOut and a.cueRange then
+        cueKey = "range"
+    elseif use == "nomana" and a.cueMana then
+        cueKey = "nomana"
+    elseif use == "unusable" and a.cueUnusable then
+        cueKey = "unusable"
+    end
+    local desat = a.gray or (use == "unusable" and a.cueUnusable) or false
+    return tintKey, cueKey, desat
+end
+
+function MS.PaintIcon(icon, badge, a, tintKey, cueKey, desat)
+    local c = a.tint[tintKey] or a.tint.ok
+    icon:SetVertexColor(c[1], c[2], c[3])
+    if icon.SetDesaturated then icon:SetDesaturated(desat and true or false) end
+    if badge then
+        if cueKey then
+            badge:SetTexture(MS.BADGE[cueKey])
+            badge:SetAlpha(1)
+            badge:Show()
+        else
+            badge:Hide()
+        end
+    end
+end
+
+-- The Options previews: paint a texture the way a button in `state` ("ready", "range", "nomana" or "unusable")
+-- looks with the current settings. `force` ("range", "mana" or "unusable") shows that state's badge even while
+-- its box is off, so the example shows what the box would do.
+function MS.PaintState(icon, badge, state, force)
+    local base = Aids()
+    local a = setmetatable({}, { __index = base })
+    if force == "range" then a.cueRange = true end
+    if force == "mana" then a.cueMana = true end
+    if force == "unusable" then a.cueUnusable = true end
+    local use = "ok"
+    if state == "nomana" or state == "unusable" then use = state end
+    local tintKey, cueKey, desat = MS.Decide(a, state == "range", use)
+    MS.PaintIcon(icon, badge, a, tintKey, cueKey, desat)
+end
+
+-- Paints a sample with the icon color mode only (no state): used by the mode preview
+function MS.PaintMode(icon, mode, strength)
+    local g = 1 - 0.8 * math.max(0.1, math.min(1, strength or 0.5))
+    local r, gg, b = 1, 1, 1
+    if mode == "r" then r = g elseif mode == "g" then gg = g elseif mode == "b" then b = g end
+    icon:SetVertexColor(r, gg, b)
+    if icon.SetDesaturated then icon:SetDesaturated(mode == "gray") end
+end
+
+-- A setting changed: every button is painted again at once
+function MS.AidsChanged()
+    MS.aidGen = MS.aidGen + 1
+    MS.dirtyAll = true
+    if MS.RefreshAll then MS.RefreshAll() end
+end
+
+local colorGen, whiteColor, redColor
 
 local function ApplyTint(btn)
     local icon = btn.icon
     if not icon then return end
     local diag = EnsureDiag(btn)
+    local a = Aids()
+    if btn.msAidGen ~= MS.aidGen then
+        btn.msAidGen = MS.aidGen
+        btn.msTint = nil
+    end
 
-    -- range (only while there is a target, and not when "Out-of-range red" is off in the Options window)
+    -- an empty card shows no icon, so there is nothing to tint or badge
+    if btn.sdbEmpty then
+        if btn.cue then btn.cue:Hide() end
+        btn.msTint = nil
+        diag.tint = "empty"
+        return
+    end
+
+    -- range (only while there is a target; needed for the red tint and for the badge)
     local rangeOut, rangeSecret, rangeValue = false, false, nil
-    local rangeOn = not (SDB.db and SDB.db.matrixNoRangeTint)
-    if rangeOn and UnitExists and UnitExists("target") then
+    local rangeOn = a.tintRange or a.cueRange
+    if rangeOn and not btn.sdbNav and UnitExists and UnitExists("target") then
         local r
         if btn.spellID then
             if C_Spell and C_Spell.IsSpellInRange then
@@ -369,9 +489,9 @@ local function ApplyTint(btn)
     end
     diag.range = rangeOn and (rangeSecret and "secret" or "ok") or "off"
 
-    -- usability (can be switched off with /sps matrixdim)
+    -- usability (the grey / blue tint can be switched off, /sps matrixdim; the badges need the answer too)
     local use = "ok"
-    if SDB.db and not SDB.db.matrixNoDim then
+    if not btn.sdbNav and (a.dim or a.cueMana or a.cueUnusable) then
         local usable, noMana
         if btn.spellID then
             if C_Spell and C_Spell.IsSpellUsable then
@@ -400,6 +520,16 @@ local function ApplyTint(btn)
             elseif usable == false then
                 use = "unusable"
             end
+            -- a consumable that isn't in the bags counts as unusable, so its icon is dimmed
+            if use == "ok" and btn.msStackable and btn.msItemID and not btn.spellID then
+                local have
+                if C_Item and C_Item.GetItemCount then
+                    have = C_Item.GetItemCount(btn.msItemID)
+                elseif GetItemCount then
+                    have = GetItemCount(btn.msItemID)
+                end
+                if not IsSecret(have) and have == 0 then use = "unusable" end
+            end
             diag.use = "ok"
         end
     else
@@ -407,32 +537,50 @@ local function ApplyTint(btn)
     end
     btn.msUse = use
 
-    local key
-    if rangeOut then key = "range"
-    elseif use == "nomana" then key = "nomana"
-    elseif use == "unusable" then key = "unusable"
-    else key = "ok" end
+    local tintKey, cueKey, desat = MS.Decide(a, rangeOut, use)
 
-    if rangeSecret and key == "ok" then
-        -- the range answer is secret: only a call that takes the secret can colour from it
-        if icon.SetVertexColorFromBoolean and CreateColor then
-            whiteColor = whiteColor or CreateColor(1, 1, 1, 1)
-            redColor = redColor or CreateColor(TINT.range[1], TINT.range[2], TINT.range[3], 1)
+    if rangeSecret and cueKey == nil and tintKey == "ok" and (a.tintRange or a.cueRange) then
+        -- the range answer is secret: only a call that takes the secret can draw from it
+        local c = a.tint.ok
+        icon:SetVertexColor(c[1], c[2], c[3])
+        if icon.SetDesaturated then icon:SetDesaturated(desat and true or false) end
+        diag.tint = "held"
+        if a.tintRange and icon.SetVertexColorFromBoolean and CreateColor then
+            if colorGen ~= MS.aidGen then
+                colorGen = MS.aidGen
+                local r = a.tint.range
+                whiteColor = CreateColor(c[1], c[2], c[3], 1)
+                redColor = CreateColor(r[1], r[2], r[3], 1)
+            end
             if pcall(icon.SetVertexColorFromBoolean, icon, rangeValue, whiteColor, redColor) then
-                btn.msTint = nil
                 diag.tint = "secret-bool"
-                return
             end
         end
-        diag.tint = "held"                    -- nothing safe to do: leave the colour as it is
+        if a.cueRange and btn.cue and btn.cue.SetAlphaFromBoolean then
+            btn.cue:SetTexture(MS.BADGE.range)
+            btn.cue:Show()
+            -- true = in range = no badge
+            if pcall(btn.cue.SetAlphaFromBoolean, btn.cue, rangeValue, 0, 1) then
+                btn.msCueSecret = true
+            else
+                btn.cue:Hide()
+            end
+        elseif btn.cue then
+            btn.cue:Hide()
+        end
+        btn.msTint = nil
         return
     end
 
+    if btn.msCueSecret then
+        btn.msCueSecret = nil
+        btn.msTint = nil
+    end
     diag.tint = "plain"
-    if btn.msTint ~= key then
-        local c = TINT[key]
-        icon:SetVertexColor(c[1], c[2], c[3])
-        btn.msTint = key
+    local sig = tintKey .. "|" .. (cueKey or "-") .. (desat and "|d" or "|n")
+    if btn.msTint ~= sig then
+        MS.PaintIcon(icon, btn.cue, a, tintKey, cueKey, desat)
+        btn.msTint = sig
     end
 end
 
@@ -598,6 +746,7 @@ end
 function MS.ToggleDim()
     if not SDB.db then return end
     SDB.db.matrixNoDim = (not SDB.db.matrixNoDim) or nil
+    MS.aidGen = MS.aidGen + 1
     print("|cFF00FF00[SpellPad Studio]|r Dim unusable buttons turned "
         .. (SDB.db.matrixNoDim and "off" or "on") .. ". Range tint is unaffected.")
     MS.dirtyAll = true
@@ -608,6 +757,7 @@ end
 function MS.SetDim(on)
     if not SDB.db then return end
     SDB.db.matrixNoDim = (not on) or nil
+    MS.aidGen = MS.aidGen + 1
     MS.dirtyAll = true
 end
 
@@ -616,6 +766,7 @@ end
 function MS.SetRangeTint(on)
     if not SDB.db then return end
     SDB.db.matrixNoRangeTint = (not on) or nil
+    MS.aidGen = MS.aidGen + 1
     MS.dirtyAll = true
 end
 
@@ -675,6 +826,13 @@ function MS.Report(emit)
             .. ", hidden by this addon on " .. hidden .. " of " .. total .. " buttons, SetHideCountdownNumbers exists="
             .. YN(first and first.cooldown and first.cooldown.SetHideCountdownNumbers)
             .. ", the game's own setting countdownForCooldowns = " .. tostring(cvar))
+    end
+    do
+        local a = Aids()
+        emit("Color aids: badges range=" .. YN(a.cueRange) .. " mana=" .. YN(a.cueMana) .. " unusable=" .. YN(a.cueUnusable)
+            .. ", icon mode=" .. tostring(SDB.db and SDB.db.matrixIconMode or "off")
+            .. ", SetAlphaFromBoolean=" .. YN(first and first.cue and first.cue.SetAlphaFromBoolean)
+            .. ", badge textures built=" .. YN(first and first.cue))
     end
     local kb = SDB.cardKeyBases
     emit("Card keys watched (icons of cards with [mod:...] don't flip while one is held): "

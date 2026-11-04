@@ -1473,8 +1473,11 @@ function SDB.UpdateSlotIconAndTooltip(iconFrame, macroText, customIcon)
                 end
             end
 
-            if not spellID and C_Item and C_Item.GetItemIconByID then
-                local itemIcon = C_Item.GetItemIconByID(target)
+            if not spellID then
+                -- an item by name: the game only knows names it has seen this session, so one that resolved
+                -- once is remembered (ItemCache.lua) and still shows its icon while the item is not owned
+                local itemIcon = SDB.ItemCache and SDB.ItemCache.IconByName(target)
+                if not itemIcon and C_Item and C_Item.GetItemIconByID then itemIcon = C_Item.GetItemIconByID(target) end
                 if itemIcon then
                     stdTexture = itemIcon
                 end
@@ -1527,6 +1530,8 @@ function SDB.UpdateSlotIconAndTooltip(iconFrame, macroText, customIcon)
     end
     iconFrame.spellID = spellID
     iconFrame.targetName = (actType == "page" and PAGE_TITLES[target]) or target
+    -- !PAGE cards steer the SpellPad itself: their title is not an item, so MatrixState must never read it as one
+    iconFrame.sdbNav = (actType == "page") or nil
     iconFrame.invSlot = invSlot
 
     -- SpellPad buttons: a card with no macro text and no icon is drawn as a calm empty square instead of a

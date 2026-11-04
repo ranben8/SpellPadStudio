@@ -16,6 +16,7 @@ libs\LibDeflate\LibDeflate.lua
 
 Init.lua
 core.lua
+ItemCache.lua
 Skin.lua
 Dock.lua
 Style.lua
@@ -36,6 +37,7 @@ AutoName.lua
 Library.lua
 MountDrop.lua
 PadColors.lua
+ColorAids.lua
 Pending.lua
 KeyTest.lua
 CardActions.lua

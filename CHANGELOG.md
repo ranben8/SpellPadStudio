@@ -1,3 +1,26 @@
+# SpellPad Studio 1.5.0 (beta)
+
+The SpellPad can now tell a button's state without color, and its icon colors can be adjusted for color vision.
+
+## New
+
+- **Options > Color Aids.** A new tab next to Look. Everything on it is off by default, and every example is a small live button that cycles between the normal look and the effect, so you can see what a box does before you tick it.
+- **State badges.** Three boxes put a small badge in the corner of a SpellPad button: an arrow when its spell is out of range, a droplet when you lack the mana, and a crossed circle (with the icon turned gray) when it can't be used. The red, blue and gray tints still work and stay on top; the badge is the second signal for players who can't rely on color. They also work in combat.
+- **Icon color mode.** Off, Grayscale, or Mute Red, Green or Blue with a strength slider. It changes how every SpellPad icon is drawn. This is a contrast aid, not a color-blindness correction: WoW doesn't let an addon remix color channels, so it can only turn one channel down or remove color.
+- **State colors.** The tint of the out-of-range, no-mana and unusable states can be set with the game's color picker or a hex code, with a Reset button each. The Red-Green Friendly and Blue-Yellow Friendly presets now set them too (yellow against blue for red-green, red against pink for blue-yellow). They are not tested on real color vision differences, so the badges are the dependable aid.
+
+## Changes
+
+- The out-of-range badge and the red tint are independent: you can have the badge without the red tint. The same goes for the no-mana and unusable states and "Dim unusable buttons".
+- A preset you applied before now reads "Custom" until you apply it again, because presets cover three more colors.
+- The `!PAGE` navigation buttons (Next Page, Previous Page, a page number) are never grayed, tinted or badged as unusable on the SpellPad.
+- Items you create yourself (a mage's Conjured Mana Bun, a warlock's Healthstone, and others once the game has seen them) now show their real icon on cards and the SpellPad even when none is in your bags, instead of a question mark. On the SpellPad a consumable you have none of is dimmed, and its count reads 0.
+- **Single-Button Assistant in the Arsenal (Retail).** It is listed first under General on the Spells tab, so you can put it on a card or SpellPad button with a click or a drag. Import Action Bars now imports an action bar slot that holds it, instead of skipping it.
+
+## Known issues
+
+- Forever: not tested there yet; it will be checked at Forever's launch. This update adds image files, so restart the game fully after updating instead of only reloading.
+
 # SpellPad Studio 1.4.5 (beta)
 
 Pages can now live in folders, and a folder can switch by itself when its context starts.

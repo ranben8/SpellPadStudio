@@ -7,7 +7,7 @@ local addonName, SDB = ...
 -- handlers and tooltips); this file only SORTS them: it makes the tab strips and the inset groups, moves each
 -- control into its group (SetParent + new anchors) and sizes the window to the open tab.
 --
---   SDB.OptionsUI.Options(win)      three tabs: General, SpellPad, Look
+--   SDB.OptionsUI.Options(win)      four tabs: General, SpellPad, Look, Color Aids
 --   SDB.OptionsUI.PageOptions(win)  three labelled groups: page name, key prefix, context switching
 --   SDB.OptionsUI.Profiles(win)     two tabs: Profiles, Share
 --
@@ -548,9 +548,39 @@ local function OptionsBody(win)
                 end
                 AddNote(g, "The background flash shows when the page or profile changes; the button flash when a key is pressed, on the SpellPad and on its card.", 4)
                 AddNote(g, pickerNote, 4)
+                AddNote(g, "Badges, an icon color mode and the button state colors are on the Color Aids tab.", 3)
             end },
         })
         content:HookScript("OnShow", PC.RefreshAll)
+        PC.RefreshAll()
+        return math.max(h1, h2)
+    end)
+
+    -- Color Aids: badges, an icon color mode and the state colors (ColorAids.lua makes the controls; the examples
+    -- run only while this tab is shown)
+    spec[4] = Tab("Color Aids", function(content)
+        local CA, PC = SDB.ColorAids, SDB.PadColors
+        if not (CA and PC) then return 60 end
+        local H = { PAD = PAD, Take = Take, AddNote = AddNote, AddSlider = AddSlider }
+        local h1 = Stack(content, 16, COL_W, {
+            { title = "State Badges", fill = function(g) CA.FillCues(g, H) end },
+            { title = "State Colors", fill = function(g) CA.FillColors(g, H) end },
+        })
+        local h2 = Stack(content, 16 + COL_W + GAP, COL_W, {
+            { title = "Icon Color Mode", fill = function(g) CA.FillMode(g, H) end },
+            { title = "Presets", fill = function(g)
+                local chips, ch = PC.PresetChips(g, 248)
+                Take(g, chips)
+                chips:SetPoint("TOPLEFT", g, "TOPLEFT", PAD, -g.cur)
+                g.cur = g.cur + ch + 8
+                AddNote(g, "The same presets as on the Look tab. They set the SpellPad colors and the state colors together.", 3)
+            end },
+        })
+        content:HookScript("OnShow", function()
+            CA.RefreshAll()
+            PC.RefreshAll()
+        end)
+        CA.RefreshAll()
         PC.RefreshAll()
         return math.max(h1, h2)
     end)

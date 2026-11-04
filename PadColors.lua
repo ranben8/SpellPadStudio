@@ -21,16 +21,27 @@ SDB.PadColors = SDB.PadColors or {}
 local PC = SDB.PadColors
 
 PC.KINDS = { "fill", "line", "glow", "flash" }
-local LABELS = { fill = "Fill", line = "Line", glow = "Background flash", flash = "Button flash" }
+-- the tint of a button by state (MatrixState.lua); a preset sets these too
+PC.STATE_KINDS = { "range", "mana", "unusable" }
+PC.ALL_KINDS = { "fill", "line", "glow", "flash", "range", "mana", "unusable" }
+local LABELS = {
+    fill = "Fill", line = "Line", glow = "Background flash", flash = "Button flash",
+    range = "Out of range", mana = "No mana", unusable = "Unusable",
+}
 
--- Default leaves all four colors unset (the built-in look). The two "Friendly" presets use colors from the
--- Okabe-Ito set, which is chosen to stay apart for the common kinds of color blindness; their two flashes are
--- picked to differ from each other as well as from the fill.
+-- Default leaves every color unset (the built-in look). A preset names only the colors it changes; the others
+-- stay at their built-in value. The two "Friendly" presets use colors from the Okabe-Ito set, which is chosen to
+-- stay apart for the common kinds of color blindness; their two flashes are picked to differ from each other as
+-- well as from the fill. Their state tints stay on the axis the viewer can still tell apart (yellow against blue
+-- for red-green, red against pink for blue-yellow). None of this was tried with real color vision differences, so
+-- the badges in Options > Color Aids are the dependable aid.
 PC.PRESETS = {
     { name = "Default" },
     { name = "High Contrast", fill = "000000", line = "FFFFFF", glow = "FFEE00", flash = "FFFFFF" },
-    { name = "Red-Green Friendly", fill = "0A1220", line = "7FB2E5", glow = "E69F00", flash = "56B4E9" },
-    { name = "Blue-Yellow Friendly", fill = "0E1214", line = "A8B8BC", glow = "D55E00", flash = "009E73" },
+    { name = "Red-Green Friendly", fill = "0A1220", line = "7FB2E5", glow = "E69F00", flash = "56B4E9",
+        range = "FFBF40", mana = "6699FF" },
+    { name = "Blue-Yellow Friendly", fill = "0E1214", line = "A8B8BC", glow = "D55E00", flash = "009E73",
+        range = "D93333", mana = "F2A6C8" },
 }
 
 local TOLERANCE = 1.01 / 255 -- a picker hands back floats; a hex code is whole steps of 1/255
@@ -63,12 +74,12 @@ function PC.IsDefaultValue(kind)
     return Near(r, dr) and Near(g, dg) and Near(b, db)
 end
 
--- The preset the three colors add up to, or "Custom"
+-- The preset the colors add up to, or "Custom". A color a preset does not name has to be at its built-in value.
 function PC.PresetName()
     for _, p in ipairs(PC.PRESETS) do
         local same = true
-        for _, kind in ipairs(PC.KINDS) do
-            if p.fill == nil then
+        for _, kind in ipairs(PC.ALL_KINDS) do
+            if p[kind] == nil then
                 same = same and PC.IsDefaultValue(kind)
             else
                 local r, g, b = SDB.PadColor(kind)
@@ -82,8 +93,8 @@ function PC.PresetName()
 end
 
 function PC.ApplyPreset(p)
-    for _, kind in ipairs(PC.KINDS) do
-        if p.fill == nil then
+    for _, kind in ipairs(PC.ALL_KINDS) do
+        if p[kind] == nil then
             SDB.SetPadColor(kind, nil)
         else
             SDB.SetPadColor(kind, FromHex(p[kind]))
@@ -138,7 +149,7 @@ end
 PC.rows = {}
 PC.presetChips = {}
 
-local PRESET_NOTE = "Sets all four colors together. Two presets are made for color blindness."
+local PRESET_NOTE = "Sets the SpellPad and button state colors together. Two presets are made for color blindness."
 
 function PC.RefreshAll()
     for _, row in pairs(PC.rows) do row:Refresh() end
@@ -258,7 +269,7 @@ function PC.PresetChips(parent, w)
             self.sdbHot = true
             self:Apply(self.look)
             SDB.Tip.Begin(self, "ANCHOR_RIGHT", p.name, "control")
-            SDB.Tip.Line(p.fill == nil and "Back to the built-in colors." or "Sets all four colors together.")
+            SDB.Tip.Line(p.fill == nil and "Back to the built-in colors." or "Sets the SpellPad and button state colors together.")
             SDB.Tip.Done()
         end)
         chip:SetScript("OnLeave", function(self)

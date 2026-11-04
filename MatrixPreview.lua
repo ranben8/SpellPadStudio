@@ -163,6 +163,10 @@ local MATRIX_LOOK = {
     emptyLine = { 0.27, 0.27, 0.30, 0.8 },
     emptyKey = { 0.45, 0.45, 0.50 }, -- the faint key shown on an empty button when "Show keys" is on
     flash = { 1.0, 0.85, 0.2 }, -- the flash of a button and its card when its key is pressed (KeyTest.lua)
+    -- the tint of an icon by state (MatrixState.lua): out of range, no mana, unusable
+    range = { 0.8, 0.1, 0.1 },
+    mana = { 0.5, 0.5, 1.0 },
+    unusable = { 0.4, 0.4, 0.4 },
     -- the glow on a page or profile change: a gold wash behind the buttons that fades out
     glow = { 1.0, 0.85, 0.2 },
     glowPeak = 0.6,  -- strongest alpha at full backdrop opacity
@@ -245,7 +249,12 @@ function SDB.FlashPadGlow(force)
 end
 
 -- The fill, line, glow and key flash colors: the saved setting, else the built-in look (MATRIX_LOOK). `kind` is "fill", "line", "glow" or "flash".
-local PAD_COLOR_KEYS = { fill = "matrixFillColor", line = "matrixLineColor", glow = "matrixGlowColor", flash = "matrixFlashColor" }
+local PAD_COLOR_KEYS = {
+    fill = "matrixFillColor", line = "matrixLineColor", glow = "matrixGlowColor", flash = "matrixFlashColor",
+    range = "matrixRangeColor", mana = "matrixManaColor", unusable = "matrixUnusableColor",
+}
+-- the three state tints are drawn by MatrixState.lua, which has to hear about a change
+local STATE_COLORS = { range = true, mana = true, unusable = true }
 
 function SDB.PadColorDefault(kind)
     local d = MATRIX_LOOK[kind]
@@ -274,6 +283,7 @@ function SDB.SetPadColor(kind, r, g, b)
         SDB.db[key] = { clamp(r), clamp(g), clamp(b) }
     end
     if SDB.UpdateMatrixAppearance then SDB.UpdateMatrixAppearance() end
+    if STATE_COLORS[kind] and SDB.MatrixState and SDB.MatrixState.AidsChanged then SDB.MatrixState.AidsChanged() end
 end
 
 -- (Re)builds the flat backdrop when the pixel size changed. Returns true when it did. The caller
@@ -645,6 +655,14 @@ function SDB.RefreshMatrixGrid()
             emptyKey:SetTextColor(MATRIX_LOOK.emptyKey[1], MATRIX_LOOK.emptyKey[2], MATRIX_LOOK.emptyKey[3])
             emptyKey:Hide()
             btn.emptyKey = emptyKey
+
+            -- The state badge (top right): out of range, no mana or unusable, when its box is ticked in
+            -- Options > Color Aids. Hidden until MatrixState.lua draws a state.
+            local cue = countFrame:CreateTexture(nil, "OVERLAY")
+            cue:SetSize(18, 18)
+            cue:SetPoint("TOPRIGHT", -4, -4)
+            cue:Hide()
+            btn.cue = cue
 
             -- Authentic action-bar golden inner border glow
             local hoverGlow = btn:CreateTexture(nil, "OVERLAY")

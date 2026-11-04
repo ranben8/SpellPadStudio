@@ -588,7 +588,7 @@ SDB.OPTION_DEFAULTS = {
     opacity = 1.0, uiScale = 1.0, hideMinimap = false, autoHideCombat = false, lockWindows = false,
     matrixAlwaysShow = false, matrixScale = 1.0, matrixBackdropOpacity = 1.0, matrixHideBackdrop = false,
     matrixHideEmpty = false, matrixHideCombat = false, matrixNoTooltips = false, matrixMouseoverFade = false,
-    matrixFadeOpacity = 0.25, matrixChangeGlow = true, matrixKeyFlash = true,
+    matrixFadeOpacity = 0.25, matrixChangeGlow = true, matrixKeyFlash = true, matrixIconStrength = 0.5,
 }
 SDB.OPTION_KEYS = {
     opacity = true, uiScale = true, hideMinimap = true, autoHideCombat = true, lockWindows = true,
@@ -600,6 +600,11 @@ SDB.OPTION_KEYS = {
     matrixFillColor = true, matrixLineColor = true, matrixGlowColor = true, matrixFlashColor = true,
     -- What the SpellPad buttons show (all four default to nil = the default look)
     matrixShowKeys = true, matrixHideNames = true, matrixNoCooldownNumbers = true, matrixNoRangeTint = true,
+    -- Color aids (ColorAids.lua): the tint colors of the three button states, which states also get a badge,
+    -- and an icon color mode ("gray", "r", "g" or "b"; nil = off) with its strength
+    matrixRangeColor = true, matrixManaColor = true, matrixUnusableColor = true,
+    matrixCueRange = true, matrixCueMana = true, matrixCueUnusable = true,
+    matrixIconMode = true, matrixIconStrength = true,
 }
 
 local OPTIONS_MT = {
@@ -662,8 +667,21 @@ function SDB.ValidateDB()
     -- the old "Disable tooltips in combat" key (now matrixNoTooltips): drop the stored value
     if type(GalleonBridgeDB.options) == "table" then
         GalleonBridgeDB.options.matrixNoCombatTooltip = nil
-        for _, k in ipairs({ "matrixFillColor", "matrixLineColor", "matrixGlowColor", "matrixFlashColor" }) do
+        for _, k in ipairs({ "matrixFillColor", "matrixLineColor", "matrixGlowColor", "matrixFlashColor",
+            "matrixRangeColor", "matrixManaColor", "matrixUnusableColor" }) do
             if not SDB.ValidColor(GalleonBridgeDB.options[k]) then GalleonBridgeDB.options[k] = nil end
+        end
+        local o = GalleonBridgeDB.options
+        for _, k in ipairs({ "matrixCueRange", "matrixCueMana", "matrixCueUnusable" }) do
+            if o[k] ~= true then o[k] = nil end
+        end
+        local m = o.matrixIconMode
+        if m ~= "gray" and m ~= "r" and m ~= "g" and m ~= "b" then o.matrixIconMode = nil end
+        local s = o.matrixIconStrength
+        if type(s) ~= "number" or s ~= s then
+            o.matrixIconStrength = nil
+        else
+            o.matrixIconStrength = math.max(0.1, math.min(1, s))
         end
     end
 
