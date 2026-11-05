@@ -18,7 +18,7 @@ local QUESTION = 134400
 -- The Mainline numbering of action slots, read with /sps bars on Retail 12.1.5: the main bar shows slots 1 to 12
 -- (page 1) or 13 to 24 (page 2), the side and bottom bars own fixed ranges. The slots between 73 and 144 are the
 -- stance, form and vehicle bars and are not imported. `prefix` names the buttons of a bar, whose own action field
--- is preferred over `first` when the client gives one.
+-- is preferred over `first` when it is an absolute slot (see FirstSlot).
 B.BARS = {
     { name = "Action Bar 1", first = 1 },
     { name = "Action Bar 1 (page 2)", first = 13 },
@@ -32,11 +32,20 @@ B.BARS = {
 }
 local BONUS_FIRST, BONUS_LAST = 73, 144
 
+-- Forever reports a multibar button's position (1 to 12) in `action`, not its slot, so a value that small is not
+-- trusted and the known range is used instead.
 local function FirstSlot(bar)
     local button = bar.prefix and _G[bar.prefix .. "1"]
     local a = button and button.action
-    if type(a) == "number" and not (issecretvalue and issecretvalue(a)) then return a end
+    if type(a) == "number" and not (issecretvalue and issecretvalue(a)) and a > BAR_SLOTS then return a end
     return bar.first
+end
+
+-- first slot of the bar whose buttons are named `prefix` (the /sps bars report uses it)
+function B.FirstSlotOf(prefix)
+    for _, bar in ipairs(B.BARS) do
+        if bar.prefix == prefix then return FirstSlot(bar) end
+    end
 end
 
 local ASSISTANT_ID = 1229376 -- the Single-Button Assistant spell (the Arsenal lists it too)
@@ -103,6 +112,8 @@ function B.Resolve(kind, id, sub)
             if C_Item and C_Item.RequestLoadItemDataByID then pcall(C_Item.RequestLoadItemDataByID, id) end
             return nil, "item " .. tostring(id) .. " has no name yet (the game loads item data in the background)", "itemdata"
         end
+        -- the bar names this item by ID, so remember its name for cards that mention it while none are owned
+        if SDB.ItemCache then SDB.ItemCache.Learn(name, id) end
         return { text = "#showtooltip\n/use " .. name }
 
     elseif kind == "macro" then

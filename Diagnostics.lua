@@ -1159,13 +1159,16 @@ function D.Retail(emit, arg)
                 if file then classes[#classes + 1] = { file = file, name = name } end
             end
         end
-        if #classes == 0 and T and T.CLASS_ORDER then
-            for _, cf in ipairs(T.CLASS_ORDER) do classes[#classes + 1] = { file = cf, name = cf } end
+        -- the client may not list every class it lets you create, so the template classes are added too
+        local seen = {}
+        for _, c in ipairs(classes) do seen[c.file] = true end
+        for _, cf in ipairs((T and T.CLASS_ORDER) or {}) do
+            if not seen[cf] then classes[#classes + 1] = { file = cf, name = cf } end
         end
         table.sort(classes, function(a, b) return a.file < b.file end)
         local inBrowse = {}
         for _, cf in ipairs((T and T.CLASS_ORDER) or {}) do inBrowse[cf] = true end
-        E("Retail knows " .. #classes .. " classes. The Class menu shows your class first and the 'Browse Other Classes' list (T.CLASS_ORDER).")
+        E("This client lists " .. #classes .. " classes. The Class menu shows your class first and the 'Browse Other Classes' list (T.CLASS_ORDER).")
         local without = {}
         for _, c in ipairs(classes) do
             local list = T and T.CLASS and T.CLASS[c.file]
@@ -1350,6 +1353,24 @@ function D.RetailIds(emit, arg)
         for i = 3, #grp do
             local ok, text = pcall(line, grp[2], grp[i])
             emit(ok and text or ("  " .. tostring(grp[i]) .. ": failed: " .. tostring(text)))
+        end
+    end
+
+    local IC = SDB.ItemCache
+    if IC and IC.SEED_FOREVER then
+        emit("")
+        emit("== ITEM CACHE (items the addon remembers by name) ==")
+        emit("  C_Item.RequestLoadItemDataByID: " .. tostring(C_Item and C_Item.RequestLoadItemDataByID ~= nil))
+        local t = GalleonBridgeDB and GalleonBridgeDB.itemIDs or {}
+        local n = 0
+        for _ in pairs(t) do n = n + 1 end
+        emit("  Names stored: " .. n)
+        local byID = {}
+        for name, id in pairs(t) do byID[id] = name end
+        emit("  Classic-era made items seeded on Forever (name, and whether it is stored):")
+        for _, id in ipairs(IC.SEED_FOREVER) do
+            local ok, text = pcall(line, "i", id)
+            emit((ok and text or ("  " .. id .. ": failed")) .. (byID[id] and "  [stored]" or ""))
         end
     end
 
@@ -1703,7 +1724,10 @@ function D.Combat(emit, arg)
                 end
                 local btn = SDB.secureButtons and SDB.secureButtons["GalleonSecBtn_P" .. page .. "_S" .. slot]
                 local live
-                if btn then
+                local cardText = tostring(d.macro or "")
+                if string.find(cardText, "^%s*!PAGE") or string.find(cardText, "^%s*!BIND") then
+                    live = "no macro button by design (!PAGE and !BIND cards)"
+                elseif btn then
                     local ok, t = pcall(btn.GetAttribute, btn, "macrotext")
                     live = ok and (tostring(t or "") == tostring(d.macro or "") and "same as the card" or "DIFFERS from the card (not applied yet)") or "?"
                 else
@@ -2129,7 +2153,7 @@ do
 
         -- which bar frame shows which slots right now (the main bar's slots follow the page and the form)
         E("")
-        E("Bar frames (slot numbers come from each button's own action field)")
+        E("Bar frames (slot numbers come from each button's own action field, or from the known ranges when it is only the button number)")
         local owner = {}
         for _, bar in ipairs(BARS) do
             local label, prefix, frameName = bar[1], bar[2], bar[3]
@@ -2141,6 +2165,8 @@ do
                     count = count + 1
                     local a = b.action
                     if type(a) == "number" and not (issecretvalue and issecretvalue(a)) then
+                        local base = a <= 12 and SDB.BarImport and SDB.BarImport.FirstSlotOf(prefix)
+                        if base then a = base + i - 1 end
                         first = first or a
                         last = a
                         owner[a] = label

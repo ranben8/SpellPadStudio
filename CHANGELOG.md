@@ -1,3 +1,22 @@
+# SpellPad Studio 1.5.1
+
+Verified on WoW Forever's launch build, and a few fixes found while checking it.
+
+## Fixes
+
+- **Import Action Bars on Forever.** With some action bar addons loaded, Forever reports every side and bottom bar's buttons as slots 1 to 12, so the import copied your main bar into each of them. The import now uses each bar's known slot range, and the `/sps bars` report shows the right slots.
+- **Question marks on conjured items.** A card such as `/use Conjured Water` showed a question mark whenever none were in your bags. The addon now remembers the names of the items on your action bars and the items the bar import reads, and on Forever it also knows the Classic-era conjured food and water, mana gems, healthstones, soulstones, spellstones and firestones, so their real icons show (dimmed on the SpellPad while you have none).
+
+## Changes
+
+- The Joke emote and the Role Check group command are gone: neither command exists on either client.
+- `/sps retail` also lists the classes the addon has templates for when the client doesn't report one (Forever leaves Druid out of its own class list).
+- The key list in `/sps combat` no longer says "not applied yet" for `!PAGE` and `!BIND` cards, which have no live macro by design.
+
+## Known issues
+
+- Forever has no mounts or dual specialization yet, so the Mounted and Flying page contexts and the two Class Specializations entries are untested there.
+
 # SpellPad Studio 1.5.0
 
 The SpellPad can now tell a button's state without color, and its icon colors can be adjusted for color vision.

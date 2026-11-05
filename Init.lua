@@ -207,7 +207,7 @@ SDB.EMOTE_CATEGORIES = {
             { text = "Sigh", macro = "/sigh" }, { text = "Shrug", macro = "/shrug" },
             { text = "Facepalm", macro = "/facepalm" }, { text = "Cry", macro = "/cry" },
             { text = "Dance", macro = "/dance" }, { text = "Gasp", macro = "/gasp" },
-            { text = "Bored", macro = "/bored" }, { text = "Joke", macro = "/joke", client = "forever" },
+            { text = "Bored", macro = "/bored" },
             { text = "Silly", macro = "/silly" }, { text = "Flirt", macro = "/flirt" },
         },
     },
@@ -237,7 +237,6 @@ SDB.EMOTE_CATEGORIES = {
 
 SDB.GROUP_COMMANDS = {
     { text = "Ready Check", macro = "/readycheck" },
-    { text = "Role Check", macro = "/rolecheck", client = "forever" },
     { text = "Pull Timer (10s)", macro = "/countdown 10" },
     { text = "Leave Party", macro = "/leave" },
     { text = "Invite Target", macro = "/invite %t" },
