@@ -1031,6 +1031,14 @@ do
                 end
             else
                 emit(rest)
+                -- a game key action that this client doesn't have is a soft warning, like an unknown spell name
+                if strict and first == "!" then
+                    local action = string.match(rest, "^!BIND%s+(.+)$")
+                    if action and SDB.GameKeys and SDB.GameKeys.Known(strtrim(action)) == false then
+                        issues[#issues + 1] = "|cFFFF9900Line " .. lineNo .. ": '" .. string.gsub(strtrim(action), "|", "||")
+                            .. "' isn't a key action this game has, so the card's key does nothing.|r"
+                    end
+                end
             end
         end
 

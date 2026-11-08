@@ -1504,6 +1504,7 @@ function SDB.UpdateSlotIconAndTooltip(iconFrame, macroText, customIcon)
     local setIcon = EquipSetIcon(cleanMacro)
     local custom = customIcon and customIcon ~= ""
     local randomMountIcon = SDB.MountDrop and SDB.MountDrop.RandomIcon(cleanMacro)
+    local gameKeyIcon = SDB.GameKeys and SDB.GameKeys.IconForMacro(cleanMacro)
 
     -- Standard spell / item / equipment-slot lookup. Cards only do it when it decides the icon;
     -- SpellPad buttons always do it, because their cooldown, range, count and glow need the IDs.
@@ -1572,6 +1573,9 @@ function SDB.UpdateSlotIconAndTooltip(iconFrame, macroText, customIcon)
     -- 1e. The random favorite mount as /cast or as the /run call it needs
     elseif randomMountIcon then
         texture = randomMountIcon
+    -- 1f. A game key action (!BIND ACTION): the game's own icon for it, or its addon's icon
+    elseif gameKeyIcon then
+        texture = gameKeyIcon
     -- 2. Page navigation icon
     elseif actType == "page" then
         texture = PAGE_ARROWS[target] or "Interface\\Icons\\INV_Misc_Note_01"

@@ -740,11 +740,11 @@ local function BuildWindow()
     MakeTab("macros", "Easy\nMacros", 168)
     MakeTab("mine", "My\nMacros", 245)
 
-    -- the Macros tab's categories: two rows of three chips (shown on that tab only)
+    -- the Macros tab's categories: two rows of four chips (shown on that tab only)
     f.cats = {}
     for i, c in ipairs(SDB.Library and SDB.Library.CATEGORIES or {}) do
-        local chip = SDB.UI.ChoiceChip(f, c.label, 98, 22)
-        chip:SetPoint("TOPLEFT", 14 + ((i - 1) % 3) * 101, -134 - math.floor((i - 1) / 3) * 26)
+        local chip = SDB.UI.ChoiceChip(f, c.label, 72, 22)
+        chip:SetPoint("TOPLEFT", 14 + ((i - 1) % 4) * 76, -134 - math.floor((i - 1) / 4) * 26)
         chip:SetScript("OnClick", function() B.SetCat(c.key) end)
         chip:Hide()
         f.cats[c.key] = chip

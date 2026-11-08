@@ -8,6 +8,7 @@ Page folders get easier to grow and easier to read. This beta was tested on WoW 
 - **The active folder is marked.** The folder of the page you are on gets a faint wash in its color behind its header and pages in the Pages list.
 - **Click a folder header to go to its first page.** It works on every group header (folders, Default, Context pages, Skipped) and does nothing when you are already inside that group.
 - **Toggle Run / Walk and Toggle Auto Run** in Easy Macros > Advanced > Movement & Interaction. They run from a key; clicking them on the SpellPad does nothing, and the tooltip says so.
+- **Game Keys in the Arsenal.** A new Game Keys chip on the Easy Macros tab lists the game's own key actions (open the spellbook, the map, your bags, target commands, raid markers and more) under the headings of the Key Bindings screen. A card holds `!BIND ACTION`, so its key runs that action. Each one has an icon, and bindings that belong to an installed addon use that addon's icon when it has one. Cards with these actions name themselves. Movement, turning, jump, camera, action bar and debug bindings are left out on purpose. These cards run from their key only; clicking them on the SpellPad does nothing. `/sps binds` shows what the game offers on your client.
 
 ## Changes
 

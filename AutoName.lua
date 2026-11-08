@@ -75,6 +75,10 @@ function SDB.AutoName(macro)
         if string.find(text, h[1]) then return h[2] end
     end
 
+    -- a game key action ("!BIND TOGGLEQUESTLOG") is named by the game's own text for it
+    local gameKey = SDB.GameKeys and SDB.GameKeys.NameForMacro(text)
+    if gameKey then return gameKey end
+
     local T = SDB.Templates
     local tmpl = T and T.NameForMacro and T.NameForMacro(text)
     if tmpl and tmpl ~= "" then return Plain(tmpl) end

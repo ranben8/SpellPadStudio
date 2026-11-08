@@ -1339,6 +1339,7 @@ local ARG_REPORTS = {
     macros = { "Game Macro Report", function() return SDB.GameMacro and SDB.GameMacro.Report end, true },
     builder = { "SpellPad Builder Report", function() return SDB.Builder and SDB.Builder.Report end },
     keyscan = { "Key Scan Report", function() return SDB.Diag and SDB.Diag.KeyScan end },
+    binds = { "Game Keys Report", function() return SDB.GameKeys and SDB.GameKeys.Report end, true },
 }
 
 local function HandleSlash(msg)

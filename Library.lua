@@ -2,7 +2,7 @@ local addonName, SDB = ...
 
 -- -------------------------------------------------------------
 -- Macro library: the ready-made macros (class templates, group and raid commands, emotes, travel, interface
--- toggles, advanced commands) as flat lists for the Macros tab of the Spell Browser, and the insert into the
+-- toggles, advanced commands) and the game's own key actions as flat lists for the Macros tab of the Spell Browser, and the insert into the
 -- selected card. The lists are the ones Init.lua and Templates.lua already cut down to this client; nothing is
 -- cached, so an entry whose spell was just learned shows up on the next refresh.
 -- -------------------------------------------------------------
@@ -18,6 +18,7 @@ L.CATEGORIES = {
     { key = "advanced", label = "Advanced" },
     { key = "travel", label = "Travel" },
     { key = "interface", label = "Interface" },
+    { key = "gamekeys", label = "Game Keys" },
 }
 
 local function ClassName(cf)
@@ -120,6 +121,22 @@ end
 
 function BUILD.interface(out)
     AddList(out, nil, SDB.INTERFACE_ELEMENTS)
+end
+
+-- The game's own key actions (GameKeys.lua), under the headings of the Key Bindings screen. The hand-made entries
+-- above already cover some of them and keep their own wording.
+function BUILD.gamekeys(out)
+    local GK = SDB.GameKeys
+    if not GK then return end
+    local skip = GK.Curated()
+    for _, e in ipairs(GK.List()) do
+        if not skip[e.action] then
+            Add(out, e.headerText, e.name, "!BIND " .. e.action, GK.Icon(e.action))
+            local entry = out[#out]
+            -- a search for "bind" must not hit every row, so the searchable text is the action name only
+            if entry then entry.mlname = e.action:lower() end
+        end
+    end
 end
 
 -- The entries of one category. withCategory = true puts the chip's name in front of each heading (used when a search
