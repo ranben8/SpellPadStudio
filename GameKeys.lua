@@ -33,6 +33,7 @@ local function Plain(text)
     if type(text) ~= "string" then return nil end
     text = string.gsub(text, "|c%x%x%x%x%x%x%x%x", "")
     text = string.gsub(text, "|r", "")
+    text = string.gsub(text, "%s+", " ") -- some addons put a line break inside a binding's name
     text = strtrim(text)
     return text ~= "" and text or nil
 end
@@ -59,6 +60,8 @@ local PREFIX_REASON = {
     { "^CAMERAZOOM", "camera" }, { "^VEHICLECAMERAZOOM", "camera" }, { "^NEXTVIEW", "camera" }, { "^PREVVIEW", "camera" },
     { "^SETVIEW", "camera" }, { "^SAVEVIEW", "camera" }, { "^RESETVIEW", "camera" }, { "^FLIPCAMERAYAW", "camera" },
     { "^CENTERCAMERA", "camera" }, { "^VEHICLEAIM", "vehicle aim" }, { "^HEADER", "heading" },
+    -- the game puts a text row (PREFACE_HOUSING_LAYOUT_BINDINGS) before some groups; it is not a binding
+    { "^PREFACE", "heading" },
     { "^STREAMDECKBRIDGE", "this addon" },
 }
 
@@ -156,7 +159,8 @@ local function Norm(s)
     return (string.gsub(string.lower(s), "[^%w]", ""))
 end
 
--- Installed addons that name an icon in their .toc (IconTexture), for matching an addon's binding heading.
+-- Installed addons, for matching an addon's bindings: folder and title (normalised), the title as shown, and the icon
+-- its .toc names (IconTexture), if any.
 local addonIcons
 local function AddonIcons()
     if addonIcons then return addonIcons end
@@ -170,9 +174,9 @@ local function AddonIcons()
             local name, title = getInfo(i)
             if name and not string.find(name, "^Blizzard_") and name ~= addonName then
                 local icon = getMeta(name, "IconTexture")
-                if type(icon) == "string" and icon ~= "" then
-                    addonIcons[#addonIcons + 1] = { folder = Norm(name), title = Norm(title), icon = tonumber(icon) or icon, name = name }
-                end
+                if type(icon) ~= "string" or icon == "" then icon = nil end
+                addonIcons[#addonIcons + 1] = { folder = Norm(name), title = Norm(title), icon = icon and (tonumber(icon) or icon),
+                    name = name, display = Plain(title) or name }
             end
         end
     end)
@@ -180,13 +184,14 @@ local function AddonIcons()
 end
 
 local iconByHeader = {}
--- The icon of the installed addon a binding heading belongs to, or nil. The game doesn't say which addon registered a
--- binding, so the heading's key and text are compared with each addon's folder name and title.
+-- The icon, folder name and title of the installed addon a binding heading belongs to, or nil. The game doesn't say
+-- which addon registered a binding, so the heading's key and text are compared with each addon's folder name and title.
+-- The icon is nil when that addon names none.
 function GK.AddonIcon(headerKey, headerText)
     if not headerKey or BLIZZARD_HEADER[headerKey] then return nil end
     local hit = iconByHeader[headerKey]
     if hit ~= nil then
-        if hit then return hit.icon, hit.name end
+        if hit then return hit.icon, hit.name, hit.display end
         return nil
     end
     local keys = {}
@@ -219,7 +224,8 @@ function GK.AddonIcon(headerKey, headerText)
         end
     end
     iconByHeader[headerKey] = found or false
-    return found and found.icon or nil, found and found.name
+    if found then return found.icon, found.name, found.display end
+    return nil
 end
 
 local iconByName = {}
@@ -230,7 +236,7 @@ local iconByName = {}
 function GK.AddonIconByName(action, readable)
     local hit = iconByName[action]
     if hit ~= nil then
-        if hit then return hit.icon, hit.name end
+        if hit then return hit.icon, hit.name, hit.display end
         return nil
     end
     local a1, a2 = Norm(action), Norm(readable)
@@ -252,7 +258,8 @@ function GK.AddonIconByName(action, readable)
         end
     end
     iconByName[action] = best or false
-    return best and best.icon or nil, best and best.name
+    if best then return best.icon, best.name, best.display end
+    return nil
 end
 
 -- -------------------------------------------------------------
@@ -310,6 +317,28 @@ local function Scan()
                 end
             end
         end
+        -- An addon's bindings sit under the addon's own name, all of one addon together (several addons share the
+        -- generic AddOns heading, and some register without a heading of their own).
+        for _, e in ipairs(list) do
+            if e.header and not BLIZZARD_HEADER[e.header] then
+                local _, _, display = GK.AddonIcon(e.header, e.headerText)
+                if not display then _, _, display = GK.AddonIconByName(e.action, e.name) end
+                if display then e.headerOriginal, e.headerText = e.headerText, display end
+            end
+        end
+        local order, buckets = {}, {}
+        for _, e in ipairs(list) do
+            if not buckets[e.headerText] then
+                buckets[e.headerText] = {}
+                order[#order + 1] = e.headerText
+            end
+            table.insert(buckets[e.headerText], e)
+        end
+        local grouped = {}
+        for _, heading in ipairs(order) do
+            for _, e in ipairs(buckets[heading]) do grouped[#grouped + 1] = e end
+        end
+        cache.list = grouped
     end)
     if not ok then info.error = tostring(err) end
     return cache
@@ -336,7 +365,9 @@ function GK.Icon(action)
     local e = Scan().index[action]
     -- an addon's binding: that addon's own icon, else the plain gear
     if e and e.header and not BLIZZARD_HEADER[e.header] then
-        return (GK.AddonIcon(e.header, e.headerText)) or (GK.AddonIconByName(action, e.name)) or GENERIC_ICON
+        local icon, _, display = GK.AddonIcon(e.header, e.headerText)
+        if not display then icon = GK.AddonIconByName(action, e.name) end
+        return icon or GENERIC_ICON
     end
     local icon = NAME_ICON[action]
     if icon then return icon end
@@ -426,13 +457,19 @@ function GK.Report(emit, arg)
     local curated, dup = GK.Curated(), 0
     for _, e in ipairs(scan.list) do if curated[e.action] then dup = dup + 1 end end
     E("Offered but already a hand-made Easy Macros entry (shown only there): " .. dup)
+    local unnamed = {}
+    for _, e in ipairs(scan.list) do
+        if e.name == e.action then unnamed[#unnamed + 1] = e.action end
+    end
+    E("Offered without a readable name (shown by their action name): " .. #unnamed)
+    for i = 1, math.min(#unnamed, 20) do E("  " .. unnamed[i]) end
     E("")
 
     E("Headings (offered / left out), and the addon icon found for addon headings:")
     local order, seen = {}, {}
     for _, e in pairs(scan.index) do
         local key = e.header or "?"
-        if not seen[key] then seen[key] = { text = e.headerText, offered = 0, out = 0 }; order[#order + 1] = key end
+        if not seen[key] then seen[key] = { text = e.headerOriginal or e.headerText, offered = 0, out = 0 }; order[#order + 1] = key end
         if e.reason then seen[key].out = seen[key].out + 1 else seen[key].offered = seen[key].offered + 1 end
     end
     table.sort(order)
@@ -441,7 +478,7 @@ function GK.Report(emit, arg)
         local line = string.format("  %-34s %-22s %3d / %3d", key, tostring(h.text), h.offered, h.out)
         if not BLIZZARD_HEADER[key] then
             local icon, addon = GK.AddonIcon(key, h.text)
-            line = line .. "   addon heading: " .. (addon and ("matches " .. addon .. ", icon " .. tostring(icon)) or "no installed addon with an icon matches")
+            line = line .. "   addon heading: " .. (addon and ("matches " .. addon .. ", " .. (icon and ("icon " .. tostring(icon)) or "no icon named")) or "no installed addon matches")
         end
         E(line)
     end
@@ -452,22 +489,25 @@ function GK.Report(emit, arg)
         if e.header and not BLIZZARD_HEADER[e.header] then
             total = total + 1
             local src
-            if GK.AddonIcon(e.header, e.headerText) then
-                src = "heading"
+            local original = e.headerOriginal or e.headerText
+            local _, byHeading = GK.AddonIcon(e.header, original)
+            if byHeading then
+                src = "heading '" .. tostring(original) .. "' -> " .. byHeading
             else
                 local _, addon = GK.AddonIconByName(e.action, e.name)
-                src = addon and ("name -> " .. addon) or "none, gear icon"
+                src = addon and ("name -> " .. addon) or "no addon found, grouped under '" .. tostring(original) .. "'"
             end
             if shown < 70 then
                 shown = shown + 1
-                E(string.format("  %-34s %-34s %-18s %s", e.action, e.name, tostring(e.headerText), src))
+                E(string.format("  %-34s %-34s %-22s %s", e.action, e.name, tostring(e.headerText), src))
             end
         end
     end
     if total > shown then E("  ... and " .. (total - shown) .. " more") end
     E("")
-    local withIcon = AddonIcons()
-    E("Installed addons that name an IconTexture: " .. #withIcon)
+    local installed, withIcon = AddonIcons(), 0
+    for _, a in ipairs(installed) do if a.icon then withIcon = withIcon + 1 end end
+    E("Installed addons: " .. #installed .. ", of which name an IconTexture: " .. withIcon)
     if arg == "full" then
         E("")
         E("Offered entries (action | shown as | icon):")
