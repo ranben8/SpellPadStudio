@@ -469,6 +469,43 @@ function SDB.StyleMatrixButton(btn, idx)
     end
 end
 
+-- A card with a #show / #showtooltip line that resolved to one spell, item or equipped slot behaves like a
+-- plain action button: hovering it shows the game's own tooltip. Returns false (nothing left showing) when the
+-- card is anything else or the game can't build the tooltip, so the caller falls back to the SpellPad tooltip.
+function SDB.PadGameTooltip(btn, macro)
+    if btn.sdbNav or not macro then return false end
+    local lower = string.lower(macro)
+    if not (string.find(lower, "^%s*#show") or string.find(lower, "\n%s*#show")) then return false end
+    local spellID, invSlot = btn.spellID, btn.invSlot
+    local itemID
+    if not spellID and not invSlot and btn.targetName then
+        itemID = btn.msItemID or tonumber(btn.targetName)
+        if not itemID and SDB.ItemCache then itemID = SDB.ItemCache.IDByName(btn.targetName) end
+    end
+    if not (spellID or invSlot or itemID) then return false end
+
+    GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
+    local ok = pcall(function()
+        if invSlot then
+            GameTooltip:SetInventoryItem("player", invSlot)
+        elseif spellID then
+            GameTooltip:SetSpellByID(spellID)
+        else
+            GameTooltip:SetItemByID(itemID)
+        end
+    end)
+    if not ok or GameTooltip:NumLines() == 0 then
+        GameTooltip:Hide()
+        return false
+    end
+    if btn.conflictAction then
+        local c = SDB.Colors.rgb.ORANGE
+        GameTooltip:AddLine("Key conflict: replaces default action " .. btn.conflictAction, c[1], c[2], c[3], true)
+    end
+    GameTooltip:Show()
+    return true
+end
+
 -- Empty card (btn.sdbEmpty, set by SDB.UpdateSlotIconAndTooltip for SpellPad buttons): no icon, a faint line,
 -- and with "Show keys" on the card's key sits faintly in the middle. A card with a macro or an icon shows its
 -- icon and (with "Show keys") the key in the top left corner. Only textures and colours change, so this is
@@ -753,7 +790,9 @@ function SDB.RefreshMatrixGrid()
 
                 local curPage = SDB.db.activePage or 1
                 local slotData = SDB.db.pages[curPage] and SDB.db.pages[curPage][self.slotIndex]
-                if slotData then
+                if slotData and SDB.PadGameTooltip(self, slotData.macro) then
+                    return
+                elseif slotData then
                     -- the card's custom name, else the name taken from its macro, else "Card n"
                     local cardName, nameKind = SDB.CardName(slotData, self.slotIndex)
                     SDB.Tip.Begin(self, "ANCHOR_RIGHT", (string.gsub(cardName, "|", "||")), "thing")
