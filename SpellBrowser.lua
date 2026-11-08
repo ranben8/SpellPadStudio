@@ -853,6 +853,9 @@ local function BuildWindow()
             if e.kind == "macro" then
                 SDB.Tip.Begin(self, "ANCHOR_RIGHT", e.name, "data")
                 SDB.Tip.Text(Esc(e.macro))
+                if string.match(e.macro or "", "^!BIND") then
+                    SDB.Tip.Hint("Runs from the card's key only. A SpellPad click does nothing.")
+                end
                 SDB.Tip.Hint(e.game and "Click to replace the selected card with a copy of this macro."
                     or "Click to replace the selected card with this macro.")
                 SDB.Tip.Hint("Drag onto a card or SpellPad button.")

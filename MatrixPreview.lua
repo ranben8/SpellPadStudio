@@ -771,6 +771,9 @@ function SDB.RefreshMatrixGrid()
                         SDB.Tip.Hint("(No macro)")
                     end
                     if SDB.PadPickup then SDB.PadPickup.AddTooltipHint(slotData.macro) end -- grey hint on cards that can be picked up
+                    if string.match(strtrim(slotData.macro or ""), "^!BIND") then
+                        SDB.Tip.Hint("Runs from its key only. Clicking this button does nothing.") -- a binding can't be run by a click
+                    end
                     if nameKind == "auto" then SDB.Tip.Hint("This card's name was auto-applied.") end
                 else
                     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")

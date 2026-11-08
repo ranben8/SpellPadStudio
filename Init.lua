@@ -323,6 +323,10 @@ SDB.MOVEMENT_COMMANDS = {
     { text = "Stop Casting", macro = "/stopcasting", icon = "Interface\\Icons\\Spell_Nature_TimeStop" },
     { text = "Interact with Target", macro = "/interact", icon = "Interface\\Icons\\INV_Misc_Key_03" },
     { text = "Dismount / Leave Vehicle", macro = "/dismount\n/leavevehicle", icon = "Interface\\Vehicles\\UI-Vehicles-Button-Exit-Up" },
+    -- The game's own movement toggles are protected functions, and a macro can't run a key binding, so these are !BIND
+    -- cards: the game runs the binding itself, from the card's key only (a SpellPad click does nothing).
+    { text = "Toggle Run / Walk", macro = "!BIND TOGGLERUN", icon = "Interface\\Icons\\Ability_Druid_Dash" },
+    { text = "Toggle Auto Run", macro = "!BIND TOGGLEAUTORUN", icon = "Interface\\Icons\\Ability_Hunter_Pathfinding" },
 }
 
 -- An icon string may end in SDB.ICON_FLIP: the same file drawn mirrored left to right. SDB.SetIconTexture puts such an
