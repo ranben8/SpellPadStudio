@@ -1,3 +1,23 @@
+# SpellPad Studio 1.6.0 (beta)
+
+Page folders get easier to grow and easier to read. This beta was tested on WoW Forever only; Retail is untested.
+
+## New
+
+- **New pages join your folder.** The `+` next to Pages now puts the new page at the end of the folder you are in (or the Default folder) and copies that folder's `!PAGE Forward` and `!PAGE Backward` cards onto it, with their keys, so the new page can step through the folder right away. Turn it off for all pages in Options > General > Behavior (`New pages join their folder`), or for one folder in Page Options (`New pages join this folder`). The setting travels with exported pages and profiles. The `+` tooltip says where the page will go.
+- **The active folder is marked.** The folder of the page you are on gets a faint wash in its color behind its header and pages in the Pages list.
+- **Click a folder header to go to its first page.** It works on every group header (folders, Default, Context pages, Skipped) and does nothing when you are already inside that group.
+- **Toggle Run / Walk and Toggle Auto Run** in Easy Macros > Advanced > Movement & Interaction. They run from a key; clicking them on the SpellPad does nothing, and the tooltip says so.
+
+## Changes
+
+- A page made with `+` no longer stores the name `Page N`, so it always shows its current number. Two pages can no longer both read `Page 5` after pages are moved. Stored names that are only `Page <number>` are cleared on load; a page you renamed to something else keeps its name.
+
+## Known issues
+
+- Not tested on Retail yet.
+- Forever has no mounts or dual specialization yet, so the Mounted context and the two Class Specializations entries are untested there.
+
 # SpellPad Studio 1.5.1
 
 Verified on WoW Forever's launch build, and a few fixes found while checking it.
