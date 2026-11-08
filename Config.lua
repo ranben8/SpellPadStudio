@@ -130,7 +130,14 @@ StaticPopupDialogs["GALLEONBRIDGE_RENAME_PAGE"] = {
         local editBox = self.editBox or _G[self:GetName() .. "EditBox"]
         local newName = strtrim(editBox and editBox:GetText() or "")
         local curP = SDB.db.activePage or 1
-        if newName ~= "" then
+        if newName ~= "" and SDB.IsAutoPageName(newName) then
+            -- "Page 5" is how an unnamed page reads anyway; stored, it would go stale when pages are renumbered
+            SDB.db.pageNames[curP] = nil
+            if SDB.configWindow and SDB.configWindow.RefreshPageTabs then
+                SDB.configWindow.RefreshPageTabs()
+            end
+            print("|cFF00FF00[SpellPad Studio]|r Page " .. curP .. " has no name now, so it shows its number.")
+        elseif newName ~= "" then
             SDB.db.pageNames[curP] = newName
             if SDB.configWindow and SDB.configWindow.RefreshPageTabs then
                 SDB.configWindow.RefreshPageTabs()
@@ -501,6 +508,7 @@ function SDB.ExportActivePageString()
         cycle = sourceSlots.cycle,
         noCycle = sourceSlots.noCycle,
         cycleColor = SDB.PageCycle(curP) and SDB.CycleColorIsSet(sourceSlots.cycle) and { SDB.CycleColor(sourceSlots.cycle) } or nil,
+        cycleNavOff = (SDB.PageCycle(curP) and not SDB.FolderNavOn(sourceSlots.cycle)) or nil, -- the folder's new-page switch is off
         slots = cloned,
     }
 
@@ -512,6 +520,8 @@ function SDB.ExportAllPagesString()
     local pageCols = {} -- SpellPad shape per page (only pages that have one)
     local pageCycles, pageNoCycle = {}, {} -- page cycle per page (only pages that have one)
     local cycleColors = {} -- folder name -> color, for folders that have one
+    local cycleNavOff = {} -- folder name (or "Default") -> true, for folders whose new-page switch is off
+    if not SDB.FolderNavOn(SDB.DEFAULT_FOLDER_KEY) then cycleNavOff[SDB.DEFAULT_FOLDER_KEY] = true end
     for pIdx, slots in ipairs(SDB.db.pages) do
         pagesCloned[pIdx] = {}
         pageCols[pIdx] = SDB.PageCols(slots)
@@ -521,6 +531,7 @@ function SDB.ExportAllPagesString()
         if folder and cycleColors[folder] == nil and SDB.CycleColorIsSet(folder) then
             cycleColors[folder] = { SDB.CycleColor(folder) }
         end
+        if folder and not SDB.FolderNavOn(folder) then cycleNavOff[folder] = true end
         for sIdx, s in ipairs(slots) do
             pagesCloned[pIdx][sIdx] = {
                 name = s.name or ("Slot " .. sIdx),
@@ -545,6 +556,7 @@ function SDB.ExportAllPagesString()
         pageCycles = pageCycles,
         pageNoCycle = pageNoCycle,
         cycleColors = cycleColors,
+        cycleNavOff = cycleNavOff,
         pages = pagesCloned,
     }
 
@@ -630,7 +642,7 @@ function SDB.ApplyImportData(data, asNewPage)
             SDB.db.pages[curP] = data.slots
             data.slots.main = wasMain -- the overwritten page stays the main page
             if data.name then
-                SDB.db.pageNames[curP] = data.name
+                SDB.db.pageNames[curP] = (not SDB.IsAutoPageName(data.name)) and data.name or nil
             end
             print("|cFF00FF00[SpellPad Studio]|r Page " .. curP .. " overwritten by the import.")
         end
@@ -655,6 +667,12 @@ function SDB.ApplyImportData(data, asNewPage)
         importedColors = { [data.slots.cycle] = data.cycleColor }
     end
     SDB.AdoptCycleColors(importedColors, existedFolders)
+    -- the folders' new-page switch: only a folder that is new here takes the string's "off"
+    local importedNav = data.cycleNavOff
+    if data.type == "PAGE" then
+        importedNav = (data.slots and data.slots.cycle and data.cycleNavOff == true) and { [data.slots.cycle] = true } or nil
+    end
+    SDB.AdoptCycleNav(importedNav, existedFolders)
     SDB.FillPages() -- with a pad size every page holds the full 36 cards; the imported ones are filled up
 
     SDB.activeSlotIndex = nil
@@ -1718,6 +1736,15 @@ function SDB.BuildUI()
         addBtn:SetScript("OnClick", function() if configWindow.AddPage then configWindow.AddPage() end end)
         addBtn:HookScript("OnEnter", function(self)
             SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Add Page", "feature")
+            -- where the new page will land, when the switches say it joins a folder (the same rule configWindow.AddPage uses)
+            local plan = SDB.NewPageFolder and SDB.NewPageFolder()
+            if plan then
+                if plan.name then
+                    SDB.Tip.Hint("Goes into folder '" .. (string.gsub(plan.name, "|", "||")) .. "'.")
+                else
+                    SDB.Tip.Hint("Goes into the Default folder.")
+                end
+            end
             SDB.Tip.Done()
         end)
         addBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
@@ -1786,7 +1813,7 @@ function SDB.BuildUI()
         if h then return h end
         h = CreateFrame("Button", nil, pageContent)
         h:SetSize(124, 20)
-        h:RegisterForClicks("RightButtonUp")
+        h:RegisterForClicks("LeftButtonUp", "RightButtonUp")
         h.label = h:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         h.label:SetPoint("LEFT", h, "LEFT", 6, 0)
         h.label:SetJustifyH("LEFT")
@@ -1810,9 +1837,12 @@ function SDB.BuildUI()
         rule:SetPoint("BOTTOMLEFT", h, "BOTTOMLEFT", 4, 0)
         rule:SetPoint("BOTTOMRIGHT", h, "BOTTOMRIGHT", -4, 0)
         h:SetScript("OnClick", function(self, mouseButton)
-            if mouseButton == "RightButton" and self.cycleName and configWindow.OpenCycleMenu then
-                configWindow.OpenCycleMenu(self.cycleName)
+            if mouseButton == "RightButton" then
+                if self.cycleName and configWindow.OpenCycleMenu then configWindow.OpenCycleMenu(self.cycleName) end
+                return
             end
+            if SDB.PageDrag and SDB.PageDrag.Recent and SDB.PageDrag.Recent() then return end
+            configWindow.GoToGroup(self.groupLabel)
         end)
         h:SetScript("OnEnter", function(self)
             local title = self.fullText or ""
@@ -1823,13 +1853,17 @@ function SDB.BuildUI()
                     SDB.Tip.Colored("GOLD", "Context: " .. self.contextName)
                     if not self.contextOn then SDB.Tip.Hint("Contextual page switching is off.") end
                 end
+                SDB.Tip.Hint("Click to go to its first page.")
                 SDB.Tip.Hint("Right-click to rename it or change its color or context.")
-            elseif self.kind == "default" then
-                SDB.Tip.Text("The pages !PAGE Forward / Backward step through when a page has no folder of its own.")
-            elseif self.kind == "context" then
-                SDB.Tip.Text("Pages with a context rule of their own. Pages that share a context step through !PAGE Forward / Backward together.")
             else
-                SDB.Tip.Text("Pages set to None: !PAGE Forward / Backward skip them.")
+                if self.kind == "default" then
+                    SDB.Tip.Text("The pages !PAGE Forward / Backward step through when a page has no folder of its own.")
+                elseif self.kind == "context" then
+                    SDB.Tip.Text("Pages with a context rule of their own. Pages that share a context step through !PAGE Forward / Backward together.")
+                else
+                    SDB.Tip.Text("Pages set to None: !PAGE Forward / Backward skip them.")
+                end
+                SDB.Tip.Hint("Click to go to its first page.")
             end
             SDB.Tip.Done()
         end)
@@ -1844,6 +1878,7 @@ function SDB.BuildUI()
         h:ClearAllPoints()
         h:SetPoint("TOPLEFT", pageContent, "TOPLEFT", 0, -y)
         h.kind, h.pageCount = kind, count
+        h.groupLabel = (kind == "named") and ("n:" .. name) or kind
         h.cycleName = (kind == "named") and name or nil
         local trigger = kind == "named" and SDB.ctx and SDB.ctx.cycleContexts and SDB.ctx.cycleContexts[name] or nil
         local ctxName, icon = SDB.ContextInfo(trigger)
@@ -1892,6 +1927,46 @@ function SDB.BuildUI()
         return h
     end
 
+    -- The group a page is listed under, as the string the headers carry ("n:Name" for a folder, else the kind).
+    function configWindow.GroupLabel(p)
+        local kind, name = SDB.PageGroup(p)
+        return (kind == "named") and ("n:" .. name) or kind
+    end
+
+    -- A click on a group header goes to the group's first page, like a tab click; nothing happens when the active page
+    -- is already in that group.
+    function configWindow.GoToGroup(label)
+        if not label or configWindow.GroupLabel(SDB.db.activePage) == label then return end
+        for p = 1, #SDB.db.pages do
+            if configWindow.GroupLabel(p) == label then
+                PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+                configWindow.ActivatePage(p)
+                return
+            end
+        end
+    end
+
+    -- A faint wash behind the group of the active page (its header and rows), in the folder's color. One texture per
+    -- run of the group in the list, drawn on the list itself so the rows and their gold band stay on top.
+    configWindow.pageWashes = {}
+    function configWindow.PlaceGroupWash(n, y1, y2, r, g, b, a)
+        local t = configWindow.pageWashes[n]
+        if not t then
+            t = pageContent:CreateTexture(nil, "BACKGROUND")
+            if t.SetSnapToPixelGrid then
+                t:SetSnapToPixelGrid(false)
+                t:SetTexelSnappingBias(0)
+            end
+            configWindow.pageWashes[n] = t
+        end
+        t:SetColorTexture(r, g, b, a)
+        t:ClearAllPoints()
+        t:SetPoint("TOPLEFT", pageContent, "TOPLEFT", 0, -y1)
+        t:SetPoint("TOPRIGHT", pageContent, "TOPRIGHT", 0, -y1)
+        t:SetHeight(y2 - y1)
+        t:Show()
+    end
+
     local function RefreshPageTabs()
         local PS = SDB.PageSearch
         -- The page search clears itself when the active page changes by anything other than picking a tab
@@ -1927,6 +2002,20 @@ function SDB.BuildUI()
         -- changes from the row above
         for _, h in pairs(configWindow.cycleHeaders) do h:Hide() end
         local lastLabel, headerN = nil, 0
+        for _, t in ipairs(configWindow.pageWashes) do t:Hide() end
+        local activeLabel = configWindow.GroupLabel(activeP)
+        local washN, runStart, runLabel, runName = 0, nil, nil, nil
+        -- ends the run of the group that was being listed at list position endY; the active group's runs get the wash
+        local function CloseRun(endY)
+            if not runStart or runLabel ~= activeLabel or endY <= runStart then return end
+            washN = washN + 1
+            if runName then
+                local cr, cg, cb = SDB.CycleColor(runName)
+                configWindow.PlaceGroupWash(washN, runStart, endY, cr, cg, cb, 0.10)
+            else
+                configWindow.PlaceGroupWash(washN, runStart, endY, 0.85, 0.85, 0.85, 0.06)
+            end
+        end
         local counts = { named = {}, default = 0, skipped = 0, context = 0 }
         for q = 1, #SDB.db.pages do
             local k, n = SDB.PageGroup(q)
@@ -1938,7 +2027,9 @@ function SDB.BuildUI()
             local label = (kind == "named") and ("n:" .. cname) or kind
             local header -- the header above this row, when the row starts a group (the page drag aims at it)
             if label ~= lastLabel then
+                CloseRun(y - 2) -- the previous row ended 2 units above the pitch
                 lastLabel = label
+                runStart, runLabel, runName = y, label, (kind == "named") and cname or nil
                 headerN = headerN + 1
                 header = configWindow.ShowCycleHeader(headerN, y, kind, cname, kind == "named" and counts.named[cname] or counts[kind])
                 y = y + 22
@@ -2044,6 +2135,7 @@ function SDB.BuildUI()
             y = y + 28
         end
 
+        CloseRun(y - 2)
         pageContent:SetHeight(math.max(y, 100))
         if configWindow.UpdateProfileFooter then configWindow.UpdateProfileFooter() end -- the sidebar footer shows the profile name
     end
@@ -2243,22 +2335,120 @@ function SDB.BuildUI()
         print("|cFF00FF00[SpellPad Studio]|r Page '" .. (string.gsub(sourceName, "|", "||")) .. "' copied to page " .. nextPageIndex .. ".")
     end
 
-    -- Add Page: run by the "+" button by the Pages header
-    function configWindow.AddPage()
-        PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
-        local nextPageIndex = #SDB.db.pages + 1
-        local slotCount = SDB.NewPageCards() -- the full 36 with a pad size, of which the pad size is shown
+    -- Add Page: run by the "+" button by the Pages header. With the switches on (SDB.NewPageFolder) the page joins the
+    -- folder of the active page, goes last in it and gets the folder's Forward / Backward cards; see core.lua.
+    do
+        -- the new page's keys when it joins a folder in per-page prefix mode: the same keys as the folder's first page, so
+        -- the same keypad button runs the same card position on every page of the folder (copied nav cards fire at once).
+        -- Positions the first page doesn't have get its prefix and their own default key, unless that key is taken.
+        local function CopyKeys(deck, top, prefix)
+            local used = {}
+            for i = 1, #deck do
+                local k = top[i] and top[i].key or ""
+                deck[i].key = (i <= #top) and k or ""
+                if deck[i].key ~= "" then used[string.upper(deck[i].key)] = true end
+            end
+            for i = #top + 1, #deck do
+                local k = prefix ~= "" and SDB.SUFFIX_MAP[i] and (prefix .. SDB.SUFFIX_MAP[i]) or ""
+                if k ~= "" and not used[string.upper(k)] then
+                    deck[i].key = k
+                    used[string.upper(k)] = true
+                end
+            end
+            if SDB.FixGameKillKeys then SDB.FixGameKillKeys(deck) end
+        end
 
-        table.insert(SDB.db.pages, SDB.CreateBlankDeck(nextPageIndex, SDB.NewPagePrefix(), slotCount))
-        if not SDB.db.pageNames then SDB.db.pageNames = {} end
-        SDB.db.pageNames[nextPageIndex] = "Page " .. nextPageIndex
-        SDB.db.activePage = nextPageIndex
-        SDB.manualPage = nextPageIndex -- also the page context switching falls back to
-        SDB.activeSlotIndex = nil
-        if configWindow.RefreshPageTabs then configWindow.RefreshPageTabs() end
-        if configWindow.RefreshRows then configWindow.RefreshRows() end
-        if SDB.ApplyBindings then SDB.ApplyBindings() end
-        print("|cFF00FF00[SpellPad Studio]|r Page " .. nextPageIndex .. " created with " .. (SDB.PadSize() or slotCount) .. " cards.")
+        -- copies every !PAGE Forward / Backward card of the folder's first page to the same position of the new page;
+        -- returns which kinds were copied and the positions that didn't fit
+        local function CopyNavCards(deck, top)
+            local kinds, skipped = {}, {}
+            local shownTop = SDB.PageVisible(top)
+            local shownNew = SDB.PageVisible(deck)
+            for i = 1, shownTop do
+                local d = top[i]
+                local kind = d and SDB.PageCommand(d.macro)
+                if kind == "forward" or kind == "backward" then
+                    local target = deck[i]
+                    if i > shownNew or not target or not SDB.IsCardBlank(target.macro, target.icon) then
+                        skipped[#skipped + 1] = i
+                    else
+                        target.macro = d.macro
+                        target.icon = d.icon
+                        target.matrixText = d.matrixText
+                        kinds[kind] = true
+                    end
+                end
+            end
+            return kinds, skipped
+        end
+
+        function configWindow.AddPage()
+            PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+            local nextPageIndex = #SDB.db.pages + 1
+            local slotCount = SDB.NewPageCards() -- the full 36 with a pad size, of which the pad size is shown
+            local plan = SDB.NewPageFolder and SDB.NewPageFolder()
+            local top = plan and SDB.db.pages[plan.top]
+            local topName = plan and SDB.PageName(plan.top)
+
+            local deck = SDB.CreateBlankDeck(nextPageIndex, SDB.NewPagePrefix(), slotCount)
+            if top and not SDB.PrefixIsGlobal() then CopyKeys(deck, top, SDB.PagePrefix(plan.top)) end
+            local kinds, skipped = {}, {}
+            if top then kinds, skipped = CopyNavCards(deck, top) end
+
+            table.insert(SDB.db.pages, deck)
+            -- no stored name: an unnamed page shows its current number, which stays right when pages are renumbered
+            if not SDB.db.pageNames then SDB.db.pageNames = {} end
+            SDB.db.pageNames[nextPageIndex] = nil
+            SDB.db.activePage = nextPageIndex
+            SDB.manualPage = nextPageIndex -- also the page context switching falls back to
+            SDB.activeSlotIndex = nil
+
+            -- join the folder and move to its end; a page that joins no folder still goes last in the Default folder,
+            -- so the list never grows a second Default section. Grouping renumbers pages, so the new page is found
+            -- again by its table.
+            do
+                if plan and plan.name then
+                    SDB.SetPageCycle(nextPageIndex, plan.name, false, true)
+                elseif SDB.GroupPages then
+                    SDB.GroupPages(true)
+                end
+                for i, pg in ipairs(SDB.db.pages) do
+                    if pg == deck then
+                        SDB.db.activePage = i
+                        SDB.manualPage = i
+                        nextPageIndex = i
+                        break
+                    end
+                end
+            end
+
+            if configWindow.RefreshPageTabs then configWindow.RefreshPageTabs() end
+            if configWindow.RefreshRows then configWindow.RefreshRows() end
+            if SDB.ApplyBindings then SDB.ApplyBindings() end
+
+            if InCombatLockdown() then
+                print("|cFFFF9900[SpellPad Studio]|r Pages can't be regrouped in combat, so the new page stays at the end of the list until the next change of folders.")
+            end
+            if not plan then
+                print("|cFF00FF00[SpellPad Studio]|r Page " .. nextPageIndex .. " created with " .. (SDB.PadSize() or slotCount) .. " cards.")
+                return
+            end
+            local where = plan.name and ("folder '" .. (string.gsub(plan.name, "|", "||")) .. "'") or "the Default folder"
+            local with = ""
+            if kinds.forward and kinds.backward then
+                with = " with Forward and Backward cards"
+            elseif kinds.forward then
+                with = " with a Forward card"
+            elseif kinds.backward then
+                with = " with a Backward card"
+            end
+            print("|cFF00FF00[SpellPad Studio]|r Page " .. nextPageIndex .. " created in " .. where .. with .. ".")
+            if #skipped > 0 then
+                print("|cFFFFFF00[SpellPad Studio]|r " .. (#skipped == 1 and "One Forward / Backward card" or (#skipped .. " Forward / Backward cards"))
+                    .. " of page '" .. (string.gsub(topName or "", "|", "||")) .. "' didn't fit on the new page (card "
+                    .. table.concat(skipped, ", ") .. ").")
+            end
+        end
     end
 
     -- Delete Page: run by the "-" button by the Pages header and by the page menu
@@ -2694,6 +2884,26 @@ function SDB.BuildUI()
         optionsWindow.pageCardsFollowToggle = cb
     end
 
+    -- "New pages join their folder" (account-wide, true or nil in GalleonBridgeDB.newPageInFolderOff; on by
+    -- default). Read by configWindow.AddPage through SDB.NewPageFolder; each folder can also opt out in Page Options.
+    do
+        local cb = SDB.UI.CheckButton(optionsWindow, "GalleonNewPageInFolderToggle", "New pages join their folder")
+        cb:SetChecked(SDB.NewPageInFolderOn())
+        cb:SetScript("OnClick", function(self)
+            GalleonBridgeDB.newPageInFolderOff = (not self:GetChecked()) or nil
+            PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+        end)
+        cb:SetScript("OnEnter", function(self)
+            SDB.Tip.Begin(self, "ANCHOR_RIGHT", "New Pages Join Their Folder", "control")
+            SDB.Tip.Line("A page made with + goes last into the folder of the page you are on, and gets a copy of the !PAGE Forward and !PAGE Backward cards of that folder's first page.")
+            SDB.Tip.Hint("Off: + adds a plain page at the end of the list. Each folder can also turn this off in Page Options.")
+            SDB.Tip.Done()
+        end)
+        cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        optionsWindow:HookScript("OnShow", function() cb:SetChecked(SDB.NewPageInFolderOn()) end)
+        optionsWindow.newPageInFolderToggle = cb
+    end
+
     -- Reset Defaults and Reset Window Positions (General tab; OptionsUI.lua places them; Reset Defaults has red text).
     -- Audit and Restore are in the Tools menu of the main window's footer.
     local resetBtn = SDB.UI.Button(optionsWindow, "secondary", "|cFFFF4444Reset Defaults|r", 160, 24)
@@ -3115,6 +3325,43 @@ function SDB.BuildUI()
                 pageLogicWindow.ctxRowLabel:SetText(cur and "This folder is used when" or "This page is used when")
             end
             if pageLogicWindow.RefreshColorUI then pageLogicWindow.RefreshColorUI() end
+            if pageLogicWindow.RefreshNavUI then pageLogicWindow.RefreshNavUI() end
+        end
+
+        -- "New pages join this folder": the folder's own switch for configWindow.AddPage (SDB.db.cycleNavOff). It only
+        -- counts while the switch in Options is on, so it is greyed out with a note when that one is off, and for a page
+        -- in no folder new pages can join. OptionsUI.lua places pageLogicWindow.navCb and .navNote.
+        do
+            local cb = SDB.UI.CheckButton(pageLogicWindow, "GalleonPageLogicNewPageFolder", "New pages join this folder")
+            local note = pageLogicWindow:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+            note:SetJustifyH("LEFT")
+            pageLogicWindow.navCb, pageLogicWindow.navNote = cb, note
+            cb:SetScript("OnClick", function(self)
+                local key = SDB.FolderNavKey(SDB.db.activePage or 1)
+                if key then SDB.SetFolderNavOn(key, self:GetChecked()) end
+                PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+            end)
+            cb:SetScript("OnEnter", function(self)
+                SDB.Tip.Begin(self, "ANCHOR_RIGHT", "New Pages Join This Folder", "control")
+                SDB.Tip.Line("While you are on a page of this folder, + adds the new page last in this folder and copies the !PAGE Forward and !PAGE Backward cards of its first page.")
+                SDB.Tip.Hint("Off: + adds a plain page at the end of the list.")
+                SDB.Tip.Done()
+            end)
+            cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+            function pageLogicWindow.RefreshNavUI()
+                local key = SDB.FolderNavKey(SDB.db.activePage or 1)
+                local master = SDB.NewPageInFolderOn()
+                cb:SetChecked(key and SDB.FolderNavOn(key) or false)
+                cb:SetEnabled((key and master) and true or false)
+                if not key then
+                    note:SetText("New pages can only join a named folder or the Default folder.")
+                elseif not master then
+                    note:SetText("Turned off in Options.")
+                else
+                    note:SetText("")
+                end
+            end
         end
 
         -- The folder's color: a swatch per palette color (a check on the chosen one) and a hex box, for the folder

@@ -401,14 +401,19 @@ function SDB.NextFolderColor(except)
     return HexToRGB(AUTO_FOLDER_COLORS[folders % #AUTO_FOLDER_COLORS + 1])
 end
 
--- drops the colors of folders that no page uses any more
+-- drops the colors and the new-page switch (SDB.db.cycleNavOff) of folders that no page uses any more; the Default
+-- folder's switch always stays
 function SDB.PruneCycleColors()
-    local colors = SDB.db and SDB.db.cycleColors
-    if type(colors) ~= "table" then return end
-    local inUse = {}
+    if not SDB.db then return end
+    local inUse = { [SDB.DEFAULT_FOLDER_KEY] = true }
     for _, n in ipairs(SDB.CycleNames()) do inUse[n] = true end
-    for name in pairs(colors) do
-        if not inUse[name] then colors[name] = nil end
+    for _, field in ipairs({ "cycleColors", "cycleNavOff" }) do
+        local t = SDB.db[field]
+        if type(t) == "table" then
+            for name in pairs(t) do
+                if not inUse[name] then t[name] = nil end
+            end
+        end
     end
 end
 
@@ -429,9 +434,68 @@ function SDB.AdoptCycleColors(colors, existed)
     SDB.PruneCycleColors()
 end
 
+-- New pages in folders. A page made with "+" joins the folder of the active page (a named folder, or the Default
+-- folder) and gets a copy of the !PAGE Forward / Backward cards of that folder's first page, so it can be stepped
+-- into and out of at once. Two switches decide it: an account-wide one in Options (GalleonBridgeDB.newPageInFolderOff,
+-- true = off) and one per folder in Page Options (SDB.db.cycleNavOff[name] = true = off, by folder name like the colors;
+-- the Default folder uses the key "Default", which no folder can be named). A page in the Context pages or Skipped
+-- group makes a plain page at the end of the list, as before.
+SDB.DEFAULT_FOLDER_KEY = "Default"
+
+-- the key the per-folder switch of page p is stored under, or nil when p is in no folder new pages can join
+function SDB.FolderNavKey(p)
+    local kind, name = SDB.PageGroup(p)
+    if kind == "named" then return name end
+    if kind == "default" then return SDB.DEFAULT_FOLDER_KEY end
+    return nil
+end
+
+function SDB.NewPageInFolderOn()
+    return not (GalleonBridgeDB and GalleonBridgeDB.newPageInFolderOff)
+end
+
+function SDB.FolderNavOn(key)
+    if not key then return false end
+    local t = SDB.db and SDB.db.cycleNavOff
+    return not (type(t) == "table" and t[key])
+end
+
+function SDB.SetFolderNavOn(key, on)
+    if not SDB.db or type(key) ~= "string" then return end
+    if on then
+        if type(SDB.db.cycleNavOff) == "table" then SDB.db.cycleNavOff[key] = nil end
+        return
+    end
+    if type(SDB.db.cycleNavOff) ~= "table" then SDB.db.cycleNavOff = {} end
+    SDB.db.cycleNavOff[key] = true
+end
+
+-- After an import added pages: a folder that is new here takes the string's "off" switch; folders that existed keep
+-- their own setting, and the Default folder's switch is never changed by adding pages.
+function SDB.AdoptCycleNav(navOff, existed)
+    if not SDB.db or type(navOff) ~= "table" then return end
+    for _, name in ipairs(SDB.CycleNames()) do
+        if navOff[name] == true and not (existed and existed[name]) then SDB.SetFolderNavOn(name, false) end
+    end
+end
+
+-- Where a page made now from the active page goes: the folder name (nil for the Default folder) and the folder's first
+-- page, or nil when it should be made as a plain page (a switch is off, or the active page is in no such folder).
+function SDB.NewPageFolder()
+    if not SDB.NewPageInFolderOn() then return nil end
+    local p = SDB.db and SDB.db.activePage or 1
+    local key = SDB.FolderNavKey(p)
+    if not key or not SDB.FolderNavOn(key) then return nil end
+    local name = SDB.PageCycle(p)
+    local members = name and SDB.CycleMembers(name) or SDB.StepMembers(p)
+    if #members == 0 then return nil end
+    return { name = name, top = members[1] }
+end
+
 -- Puts page p into the named cycle `name`, into the Default cycle (name nil) or, with skip, out of all cycles.
--- Returns true when something changed, nil when nothing needed to, false and a reason when refused.
-function SDB.SetPageCycle(p, name, skip)
+-- Returns true when something changed, nil when nothing needed to, false and a reason when refused. `quiet` leaves out
+-- the chat line of the regrouping (a page made with "+" says where it went itself).
+function SDB.SetPageCycle(p, name, skip, quiet)
     local pg = PageTable(p)
     if not pg then return false, "That page no longer exists." end
     skip = skip and true or false
@@ -465,12 +529,13 @@ function SDB.SetPageCycle(p, name, skip)
     if old and old ~= name and not SDB.FindCycle(old) then
         DropCycleRules(old)
         SDB.SetCycleColor(old, nil)
+        SDB.SetFolderNavOn(old, true)
     end
     if lostRule then
         print("|cFFFF9900[SpellPad Studio]|r Page " .. p .. "'s own context was removed. The folder '"
             .. (string.gsub(name, "|", "||")) .. "' decides when it is used.")
     end
-    SDB.GroupPages()
+    SDB.GroupPages(quiet)
     if SDB.EvaluateContextState then SDB.EvaluateContextState() end
     return true
 end
@@ -479,8 +544,8 @@ end
 -- never jump over a different group. Groups keep the order of their first page; pages of the Context pages group are
 -- sorted by context (same context side by side); everything else keeps its order. Reordering renumbers pages the way a
 -- drag in the Pages list does (names, context rules, `!PAGE n` cards, page snapshots); a profile snapshot is taken
--- first. Returns how many moves it made. Not in combat.
-function SDB.GroupPages()
+-- first. Returns how many moves it made. Not in combat. `quiet` leaves out the chat line.
+function SDB.GroupPages(quiet)
     local n = SDB.db and SDB.db.pages and #SDB.db.pages or 0
     if n < 2 or InCombatLockdown() then return 0 end
     local keys, subs, first, triggerFirst = {}, {}, {}, {}
@@ -513,7 +578,7 @@ function SDB.GroupPages()
         if w and w.RefreshRows then w.RefreshRows() end
         if SDB.RefreshPadIfShown then SDB.RefreshPadIfShown() end
         if SDB.ApplyBindings then SDB.ApplyBindings({ keepPending = true }) end
-        print("|cFF00FF00[SpellPad Studio]|r Pages grouped by folder. Restore can undo it.")
+        if not quiet then print("|cFF00FF00[SpellPad Studio]|r Pages grouped by folder. Restore can undo it.") end
     end
     return moved
 end
@@ -538,6 +603,10 @@ function SDB.RenameCycle(old, new)
         local r, g, b = SDB.CycleColor(old)
         SDB.SetCycleColor(old, nil)
         SDB.SetCycleColor(clean, r, g, b)
+    end
+    if not SDB.FolderNavOn(old) then
+        SDB.SetFolderNavOn(old, true)
+        SDB.SetFolderNavOn(clean, false)
     end
     EachRuleSet(function(r)
         for _, key in ipairs({ "cycleContexts", "cyclePriorities" }) do

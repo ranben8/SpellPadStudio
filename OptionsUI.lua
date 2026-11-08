@@ -411,6 +411,7 @@ local function OptionsBody(win)
         style = win.styleSwatches, thick = win.thickCheck, lockWin = Named("GalleonLockFramesToggle"),
         minimap = Named("GalleonMinimapToggle"), autoHide = Named("GalleonAutoHideToggle"),
         help = Named("GalleonHelpTooltipsToggle"), pageFollow = Named("GalleonPageCardsFollowToggle"),
+        newPageFolder = Named("GalleonNewPageInFolderToggle"),
         font = win.fontSlider, color = Named("GalleonColorTextToggle"),
         spell = Named("GalleonSpellCheckToggle"), auto = Named("GalleonAutocompleteToggle"),
     }
@@ -449,6 +450,7 @@ local function OptionsBody(win)
                 AddCheck(g, ctl.autoHide)
                 AddCheck(g, ctl.help)
                 AddCheck(g, ctl.pageFollow)
+                AddCheck(g, ctl.newPageFolder)
             end },
             { title = "Key Prefix", fill = BuildPrefixGroup },
             { title = "Macro Editor", fill = function(g)
@@ -694,6 +696,14 @@ local function PageOptionsBody(win)
         Take(g3, win.colorRow)
         win.colorRow:SetPoint("TOPLEFT", g3, "TOPLEFT", PAD, -g3.cur)
         g3.cur = g3.cur + 22 + 8
+    end
+    -- the folder's own switch for new pages, and the note that says why it is greyed out
+    if win.navCb then
+        AddCheck(g3, win.navCb)
+        Take(g3, win.navNote)
+        win.navNote:SetPoint("TOPLEFT", g3, "TOPLEFT", PAD, -(g3.cur - 4))
+        win.navNote:SetWidth(g3.w - 2 * PAD)
+        g3.cur = g3.cur + 13 + 4
     end
     local hC = Finish(g3)
     y = y + hC + GAP

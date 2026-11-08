@@ -231,6 +231,7 @@ function IP.Validate(data)
         SDB.SetPageCols(slots, data.cols) -- the page's SpellPad shape, kept only if it fits the card count
         CleanCycle(slots, data.cycle, data.noCycle)
         clean.cycleColor = slots.cycle and CleanColor(data.cycleColor) or nil
+        clean.cycleNavOff = (slots.cycle and data.cycleNavOff == true) or nil -- the folder's new-page switch is off
         clean.slots = slots
         clean.name = CleanName(data.name, st)
     elseif data.type == "ALL" then
@@ -266,6 +267,16 @@ function IP.Validate(data)
                     local c = CleanColor(data.cycleColors[folder])
                     if c then clean.cycleColors[folder] = c end
                 end
+            end
+        end
+
+        -- folders whose new-page switch is off: only folders some page uses, and the Default folder
+        clean.cycleNavOff = {}
+        if type(data.cycleNavOff) == "table" then
+            if data.cycleNavOff[SDB.DEFAULT_FOLDER_KEY] == true then clean.cycleNavOff[SDB.DEFAULT_FOLDER_KEY] = true end
+            for p = 1, np do
+                local folder = clean.pages[p].cycle
+                if folder and data.cycleNavOff[folder] == true then clean.cycleNavOff[folder] = true end
             end
         end
 
@@ -908,6 +919,9 @@ function IP.CreateProfile(data, name)
     local colors = {}
     for folder, c in pairs(data.cycleColors or {}) do colors[folder] = { c[1], c[2], c[3] } end
     p.cycleColors = colors
+    local navOff = {}
+    for folder, v in pairs(data.cycleNavOff or {}) do if v == true then navOff[folder] = true end end
+    p.cycleNavOff = navOff
     p.deckSize = data.deckSize or 12
     -- the string's pad size; a string without one keeps every page's own size, as the profile it came from had them
     p.padSize, p.padCols = data.padSize, data.padCols

@@ -78,6 +78,12 @@ function SDB.PageName(p, db)
     return (db and db.pageNames and db.pageNames[p]) or ("Page " .. p)
 end
 
+-- "Page 5" and the like: the name every unnamed page shows. It is never stored, because a stored one would keep its
+-- number when the page is renumbered (two pages could both read "Page 5").
+function SDB.IsAutoPageName(name)
+    return type(name) == "string" and string.match(name, "^%s*[Pp][Aa][Gg][Ee]%s+%d+%s*$") ~= nil
+end
+
 -- How a page is named in a chat line: 'Heal' (quoted, pipes doubled) when it has a name, else its number.
 function SDB.PageTag(p, db)
     db = db or SDB.db
@@ -653,7 +659,7 @@ function SDB.GetDefaultProfile()
         padSize = SDB.DEFAULT_CARDS,
         padCols = SDB.PadColsFor(SDB.DEFAULT_CARDS, false),
         matrixOrientation = "HORIZONTAL",
-        pageNames = { [1] = "Page 1" },
+        pageNames = {},
         pageContexts = {},
         pagePriorities = {},
         pages = { [1] = SDB.CreateBlankDeck(1, SDB.DEFAULT_PREFIX, SDB.MAX_CARDS) },
@@ -721,6 +727,23 @@ function SDB.ValidateDB()
             else
                 for folder, c in pairs(prof.cycleColors) do
                     if type(folder) ~= "string" or not SDB.ValidColor(c) then prof.cycleColors[folder] = nil end
+                end
+            end
+        end
+        -- page names that are only "Page <number>" (the name an unnamed page shows anyway; older versions stored it for
+        -- every page made with +, and it went stale when pages were renumbered)
+        if type(prof) == "table" and type(prof.pageNames) == "table" then
+            for p, name in pairs(prof.pageNames) do
+                if SDB.IsAutoPageName(name) then prof.pageNames[p] = nil end
+            end
+        end
+        -- folders whose new-page switch is off: name -> true, nothing else
+        if type(prof) == "table" and prof.cycleNavOff ~= nil then
+            if type(prof.cycleNavOff) ~= "table" then
+                prof.cycleNavOff = nil
+            else
+                for folder, v in pairs(prof.cycleNavOff) do
+                    if type(folder) ~= "string" or v ~= true then prof.cycleNavOff[folder] = nil end
                 end
             end
         end
