@@ -361,7 +361,17 @@ StaticPopupDialogs["GALLEONBRIDGE_SET_MATRIX_TEXT"] = {
     OnAccept = function(self, data)
         local editBox = self.editBox or _G[self:GetName() .. "EditBox"]
         local newText = strtrim(editBox and editBox:GetText() or "")
-        SDB.db.pages[data.page][data.slot].matrixText = newText
+        local slot = SDB.db.pages[data.page] and SDB.db.pages[data.page][data.slot]
+        if not slot then return end
+        if newText ~= (slot.matrixText or "") then
+            -- this overwrites card data, so snapshot and card Undo first, as Clear and a card drop do
+            if SDB.Snapshots then
+                SDB.Snapshots.Take("Before Change Name", "page", { page = data.page, slot = data.slot })
+            end
+            local row = (data.page == (SDB.db.activePage or 1)) and SDB.rows and SDB.rows[data.slot] or nil
+            if row and SDB.Undo then SDB.Undo.Remember(row, slot.macro or "") end
+        end
+        slot.matrixText = newText
 
         SDB.RefreshPadIfShown()
         if SDB.configWindow and SDB.configWindow.RefreshRows then SDB.configWindow.RefreshRows() end
@@ -1389,8 +1399,15 @@ end
 -- Sets the chosen icon on the target card, remembers it in the recents list, closes the picker
 function iconPicker.ApplyIcon(tex)
     local p, s = iconPicker.targetPage, iconPicker.targetSlot
-    if p and s and SDB.db.pages[p] and SDB.db.pages[p][s] then
-        SDB.db.pages[p][s].icon = tex
+    local data = p and s and SDB.db.pages[p] and SDB.db.pages[p][s]
+    if data then
+        if tex ~= data.icon then
+            -- this overwrites card data, so snapshot and card Undo first, as Clear and a card drop do
+            if SDB.Snapshots then SDB.Snapshots.Take("Before Change Icon", "page", { page = p, slot = s }) end
+            local row = (p == (SDB.db.activePage or 1)) and SDB.rows and SDB.rows[s] or nil
+            if row and SDB.Undo then SDB.Undo.Remember(row, data.macro or "") end
+        end
+        data.icon = tex
         SDB.IconRecents.Add(tex)
         if SDB.configWindow and SDB.configWindow.RefreshRows then SDB.configWindow.RefreshRows() end
         SDB.RefreshPadIfShown()
@@ -1655,9 +1672,6 @@ function SDB.BuildUI()
             end
         end
     end)
-    configWindow:HookScript("OnShow", function(self)
-        if not InCombatLockdown() then self:SetPropagateKeyboardInput(true) end
-    end)
     configWindow:SetSize(790, 720) -- tall enough for the footer bar under the sidebar and the card list
     configWindow:SetPoint("CENTER")
     configWindow:SetMovable(true)
@@ -1687,7 +1701,14 @@ function SDB.BuildUI()
     local openSound = SOUNDKIT and SOUNDKIT.IG_CHARACTER_INFO_OPEN or 839
     local closeSound = SOUNDKIT and SOUNDKIT.IG_CHARACTER_INFO_CLOSE or 840
 
-    configWindow:SetScript("OnShow", function() PlaySound(openSound) end)
+    configWindow:SetScript("OnShow", function(self)
+        PlaySound(openSound)
+        -- Pass-through is re-armed HERE and not in a HookScript: a SetScript for the same script type
+        -- removes that type's hooks, so an OnShow hook installed above this line would be dropped.
+        -- Without it, an ESC whose next-frame reset lands inside the combat lockdown leaves the
+        -- window swallowing every key until the next press out of combat.
+        if not InCombatLockdown() then self:SetPropagateKeyboardInput(true) end
+    end)
     configWindow:SetScript("OnHide", function()
         PlaySound(closeSound)
         SDB.listeningSlot = nil
@@ -6628,24 +6649,30 @@ function SDB.BuildUI()
                 local undoBtn = SDB.Skin.NewIconButton(row, "undo", 16, "|cFF00CCFFU|r")
 
                 undoBtn:SetScript("OnClick", function()
-                    -- only undo text that was remembered for THIS profile + page + slot
-                    local undoText = SDB.Undo.Recall(row)
-                    if undoText then
+                    -- only undo a state that was remembered for THIS profile + page + slot
+                    local u = SDB.Undo.RecallState(row)
+                    if u then
+                        local undoText = u.text
                         local curP = SDB.db.activePage or 1
                         local curS = row.slotIndex
-                        if SDB.db.pages[curP] and SDB.db.pages[curP][curS] then
+                        local data = SDB.db.pages[curP] and SDB.db.pages[curP][curS]
+                        if data then
                             if row.macroBox:HasFocus() then
                                 row.macroBox:ClearFocus()
                             end
 
-                            SDB.db.pages[curP][curS].macro = undoText
+                            data.macro = undoText
+                            data.icon = u.icon
+                            data.matrixText = u.name
                             row.macroBox.isRefreshing = true
                             row.macroBox:SetText(undoText)
                             row.macroBox.isRefreshing = false
 
-                            SDB.UpdateSlotIconAndTooltip(row.iconBtn, undoText, SDB.db.pages[curP][curS].icon)
+                            SDB.UpdateSlotIconAndTooltip(row.iconBtn, undoText, data.icon)
                             PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
                             if SDB.ApplyBindings then SDB.ApplyBindings() end
+                            -- redraw at once: the name field, the ghost size and the plate follow the card
+                            RefreshRows()
 
                             SDB.RefreshPadIfShown()
                             SDB.Undo.UpdateButton(row, undoText)

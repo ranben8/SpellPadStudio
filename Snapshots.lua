@@ -610,27 +610,41 @@ SDB.Undo = SDB.Undo or {}
 function SDB.Undo.Remember(row, text, fromFocus)
     if not row or not SDB.db then return end
     if fromFocus and row.undoState and row.undoState.sticky and SDB.Undo.Recall(row) then return end
+    local page = SDB.db.activePage or 1
+    local data = SDB.db.pages and SDB.db.pages[page] and SDB.db.pages[page][row.slotIndex]
     row.undoState = {
         sticky = not fromFocus,
         profile = SDB.currentProfileName,
-        page = SDB.db.activePage or 1,
+        page = page,
         slot = row.slotIndex,
         text = text or "",
+        -- The icon and the custom name travel with the text. The card data is the only place those two
+        -- live (no edit box buffers them), so Change Icon and Change Name would have nothing to undo.
+        icon = data and data.icon or nil,
+        name = data and data.matrixText or nil,
     }
     SDB.Undo.UpdateButton(row)
 end
 
--- The card's Undo button is dimmed while an undo would change nothing: no remembered text for this card, or the
--- remembered text is what the card holds now. `current` = the card's text if the caller has it (the macro box is
--- ahead of the saved data while typing); otherwise the box is read. The button stays clickable, the click is a no-op.
+-- The card's Undo button is dimmed while an undo would change nothing: nothing remembered for this card, or its
+-- remembered text, icon and name are already what the card holds. `current` = the card's text if the caller has it
+-- (the macro box is ahead of the saved data while typing); otherwise the box is read. The button stays clickable,
+-- the click is a no-op.
 function SDB.Undo.UpdateButton(row, current)
     local btn = row and row.undoBtn
     if not btn then return end
-    local remembered = SDB.Undo.Recall(row)
+    local u = SDB.Undo.RecallState(row)
     if current == nil then
         current = row.macroBox and row.macroBox.GetText and row.macroBox:GetText() or ""
     end
-    local base = (remembered ~= nil and remembered ~= current) and 1 or 0.55
+    local differs = false
+    if u then
+        local page = SDB.db and SDB.db.activePage or 1
+        local data = SDB.db and SDB.db.pages and SDB.db.pages[page] and SDB.db.pages[page][row.slotIndex]
+        differs = u.text ~= current
+            or (data ~= nil and (u.icon ~= data.icon or u.name ~= data.matrixText))
+    end
+    local base = differs and 1 or 0.55
     if SDB.CardUI then
         -- the card also dims its quiet buttons until it is hovered or selected (CardUI.lua); this is the level when lit
         row.sdbUndoBase = base
@@ -640,14 +654,20 @@ function SDB.Undo.UpdateButton(row, current)
     end
 end
 
--- Returns the remembered text only if it still belongs to this card's profile/page/slot
-function SDB.Undo.Recall(row)
+-- Returns the whole remembered state only if it still belongs to this card's profile/page/slot
+function SDB.Undo.RecallState(row)
     local u = row and row.undoState
     if u and SDB.db and u.profile == SDB.currentProfileName
         and u.page == (SDB.db.activePage or 1) and u.slot == row.slotIndex then
-        return u.text
+        return u
     end
     return nil
+end
+
+-- The remembered macro text on its own; an empty string is a real answer, nil means nothing remembered
+function SDB.Undo.Recall(row)
+    local u = SDB.Undo.RecallState(row)
+    return u and u.text or nil
 end
 
 -- Ctrl+Z (Cmd+Z on Mac); Shift is allowed (there is no redo), Alt is not

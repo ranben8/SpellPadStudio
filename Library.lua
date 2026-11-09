@@ -371,7 +371,3 @@ function L.EndDrag(commit)
         if SDB.SpellBrowser and SDB.SpellBrowser.Refresh then SDB.SpellBrowser.Refresh() end
     end
 end
-
-function L.IsDragging()
-    return drag ~= nil
-end
