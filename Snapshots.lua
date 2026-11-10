@@ -200,6 +200,15 @@ local function RemapKeys(t, map)
     for k, v in pairs(moved) do t[k] = v end
 end
 
+-- "!PAGE n" with the number `map` moved page n to, or nil when the text is no such card or its number stays
+local function FollowedPageCard(text, map)
+    if type(text) ~= "string" then return nil end
+    local lead, num, rest = string.match(text, "^(%s*!PAGE%s+)(%d+)(.*)$")
+    local to = num and map[tonumber(num)]
+    if to and to ~= tonumber(num) then return lead .. to .. rest end
+    return nil
+end
+
 function S.MovePage(src, dest, forceFollow)
     local db = SDB.db
     if not db or not db.pages then return false end
@@ -230,6 +239,10 @@ function S.MovePage(src, dest, forceFollow)
         RemapKeys(r.pagePriorities, map)
     end)
 
+    -- A re-bind that leaves unapplied edits alone reads this record by page number, so what is live moves with its page.
+    local live = SDB.Pending and type(SDB.Pending.applied) == "table" and SDB.Pending.applied or nil
+    if live then RemapKeys(live, map) end
+
     if SDB.manualPage and map[SDB.manualPage] then SDB.manualPage = map[SDB.manualPage] end
     if db.activePage and map[db.activePage] then db.activePage = map[db.activePage] end
     if type(SDB.lastContextPage) == "number" and map[SDB.lastContextPage] then SDB.lastContextPage = map[SDB.lastContextPage] end
@@ -253,15 +266,20 @@ function S.MovePage(src, dest, forceFollow)
         local page = db.pages[k]
         if type(page) == "table" then
             for _, slot in ipairs(page) do
-                local m = type(slot) == "table" and slot.macro
-                if type(m) == "string" then
-                    local lead, num, rest = string.match(m, "^(%s*!PAGE%s+)(%d+)(.*)$")
-                    local to = num and map[tonumber(num)]
-                    if to and to ~= tonumber(num) then
-                        slot.macro = lead .. to .. rest
-                        rewritten = rewritten + 1
-                    end
+                local updated = type(slot) == "table" and FollowedPageCard(slot.macro, map)
+                if updated then
+                    slot.macro = updated
+                    rewritten = rewritten + 1
                 end
+            end
+        end
+    end
+    -- the live copy of those cards changes with them, or a followed card would read as an unapplied edit
+    if follow and live then
+        for _, list in pairs(live) do
+            for _, card in ipairs(list) do
+                local updated = FollowedPageCard(card.m, map)
+                if updated then card.m = updated end
             end
         end
     end

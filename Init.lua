@@ -504,6 +504,11 @@ function SDB.FillPage(page, db)
     end
     if not prefix and db.prefixMode == "global" then prefix = db.globalPrefix end
     prefix = prefix or ""
+    -- the spare key for ALT-F4 must not be one a later card of this fill is due to get
+    local planned = {}
+    for slot = #page + 1, SDB.MAX_CARDS do
+        if SDB.SUFFIX_MAP[slot] then planned[SDB.SUFFIX_MAP[slot]] = true end
+    end
     local added = 0
     for slot = #page + 1, SDB.MAX_CARDS do
         local key = ""
@@ -512,7 +517,7 @@ function SDB.FillPage(page, db)
             if SDB.IsGameKillKey(prefix .. sfx) then
                 sfx = nil
                 for _, s in ipairs(SDB.REPLACEMENT_SUFFIXES) do
-                    if not used[s] then sfx = s break end
+                    if not used[s] and not planned[s] then sfx = s break end
                 end
             end
             if sfx then
@@ -1223,7 +1228,8 @@ SDB.bridgeFrame:SetScript("OnEvent", function(self, event, arg1)
             GalleonMinimapButton:Show()
         end
 
-        if SDB.ApplyBindings then SDB.ApplyBindings() end
+        -- a loading screen must not make unapplied edits live (the first entry of a session has no record, so it does apply)
+        if SDB.ApplyBindings then SDB.ApplyBindings({ keepPending = true }) end
         if SDB.db.matrixAlwaysShow and SDB.RefreshMatrixGrid then
             local matFrame = _G["GalleonBridgeMatrixFrame"]
             if matFrame and not SDB.MatrixBlocked(true) then
@@ -1261,13 +1267,14 @@ SDB.bridgeFrame:SetScript("OnEvent", function(self, event, arg1)
     elseif event == "PLAYER_REGEN_ENABLED" then
         -- combat is over: the "In Combat" context ends here, so the rules are always evaluated again
         SDB.inCombat = false
-        SDB.pendingContextUpdate = false
+        if not SDB.db then return end -- a /reload during a fight: no profile is loaded until the first world entry
         if SDB.pendingMainPage then
             SDB.pendingMainPage = false
             SDB.GoToMainPage() -- the window closed or the profile changed during the fight
         end
         if SDB.EvaluateContextState then SDB.EvaluateContextState() end
-        if SDB.ApplyBindings then SDB.ApplyBindings() end
+        -- a real apply only if one was refused during the fight; typed edits stay pending otherwise
+        if SDB.ApplyBindings then SDB.ApplyBindings((not SDB.applyQueued) and { keepPending = true } or nil) end
         -- Restore SpellPad if hidden for combat
         local matFrame = _G["GalleonBridgeMatrixFrame"]
         if matFrame and SDB.db.matrixAlwaysShow and SDB.db.matrixHideCombat then
@@ -1280,6 +1287,7 @@ SDB.bridgeFrame:SetScript("OnEvent", function(self, event, arg1)
         -- the page can still change right here. SDB.inCombat makes the rule count as active while the lockdown is
         -- still off; combatTrace is what /sps page shows. If the lockdown is already on, nothing can change: say so.
         SDB.inCombat = true
+        if not SDB.db then return end -- a /reload during a fight: no profile is loaded until the first world entry
         local trace = { lockAtEvent = InCombatLockdown() and true or false,
             fromPage = SDB.db and SDB.db.activePage, rulePage = SDB.CombatPageRule and SDB.CombatPageRule() }
         SDB.combatTrace = trace
@@ -1425,7 +1433,7 @@ local function HandleSlash(msg)
     end
     local cmd = string.lower(strtrim(msg or ""))
     -- plain /sps (or toggle) builds the window through SDB.ToggleMainWindow, which refuses that in combat
-    if SDB.BuildUI and cmd ~= "" and cmd ~= "toggle" then SDB.BuildUI() end
+    if SDB.BuildUI and cmd ~= "" and cmd ~= "toggle" and not InCombatLockdown() then SDB.BuildUI() end
     if cmd == "templates" and SDB.Templates then
         SDB.Templates.ReportUnresolved()
         return

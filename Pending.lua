@@ -43,6 +43,7 @@ function P.MarkApplied()
         end
     end
     P.applied = out
+    P.appliedDb = SDB.db -- the record means nothing for another profile
     P.hasApplied = true
     P.Update()
 end

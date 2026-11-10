@@ -395,7 +395,7 @@ local function OnFirstCompletion()
     local prefix = SDB.PagePrefix(1)
     if prefix == "" then return end
     local left = SDB.AdoptGlobalPrefix(prefix)
-    if not InCombat() then SDB.ApplyBindings() end -- after combat the game applies it itself
+    if not InCombat() then SDB.ApplyBindings() else SDB.applyQueued = true end -- the keys can't change until the fight ends
     Chat("All pages now share the prefix " .. prefix .. ", and new pages start with it. Change this in Options > General > Key Prefix.")
     if left > 0 then
         Chat(SDB.Plural(left, "page") .. " with keys under another prefix " .. (left == 1 and "was" or "were")

@@ -644,7 +644,7 @@ function SDB.ApplyImportData(data, asNewPage)
             if not SDB.db.pageNames then SDB.db.pageNames = {} end
             SDB.db.pageNames[nextIdx] = (data.name or "Imported Page") .. " (Import)"
             SDB.db.activePage = nextIdx
-            SDB.manualPage = nextIdx -- also the page context switching falls back to
+            SDB.NotePickedPage(nextIdx)
             print("|cFF00FF00[SpellPad Studio]|r Page '" .. (string.gsub(SDB.db.pageNames[nextIdx], "|", "||")) .. "' added as page " .. nextIdx .. ".")
         else
             local curP = SDB.db.activePage or 1
@@ -667,7 +667,7 @@ function SDB.ApplyImportData(data, asNewPage)
         -- game macros land on their first page; a string import ends on its last
         local landOn = data.fromGame and firstNew or #SDB.db.pages
         SDB.db.activePage = landOn
-        SDB.manualPage = landOn
+        SDB.NotePickedPage(landOn)
         print("|cFF00FF00[SpellPad Studio]|r Added " .. #data.pages .. (#data.pages == 1 and " page" or " pages") .. " from the import.")
     end
 
@@ -2177,7 +2177,7 @@ function SDB.BuildUI()
     function configWindow.ActivatePage(p, slot, notFromList)
         local pageChanged = (SDB.db.activePage ~= p)
         if not notFromList then SDB.PageSearch.picked = true end -- picked from the list: the page search stays (see RefreshPageTabs)
-        SDB.manualPage = p
+        SDB.NotePickedPage(p)
         SDB.db.activePage = p
         SDB.activeSlotIndex = slot
         -- the new page must win the keys it shares with other pages (only re-binds when it shares some)
@@ -2355,7 +2355,7 @@ function SDB.BuildUI()
         if not SDB.db.pageNames then SDB.db.pageNames = {} end
         SDB.db.pageNames[nextPageIndex] = sourceName .. " (Copy)"
         SDB.db.activePage = nextPageIndex
-        SDB.manualPage = nextPageIndex -- also the page context switching falls back to
+        SDB.NotePickedPage(nextPageIndex)
         SDB.activeSlotIndex = nil
 
         if configWindow.RefreshPageTabs then configWindow.RefreshPageTabs() end
@@ -2429,7 +2429,7 @@ function SDB.BuildUI()
             if not SDB.db.pageNames then SDB.db.pageNames = {} end
             SDB.db.pageNames[nextPageIndex] = nil
             SDB.db.activePage = nextPageIndex
-            SDB.manualPage = nextPageIndex -- also the page context switching falls back to
+            SDB.NotePickedPage(nextPageIndex)
             SDB.activeSlotIndex = nil
 
             -- join the folder and move to its end; a page that joins no folder still goes last in the Default folder,
@@ -2444,7 +2444,7 @@ function SDB.BuildUI()
                 for i, pg in ipairs(SDB.db.pages) do
                     if pg == deck then
                         SDB.db.activePage = i
-                        SDB.manualPage = i
+                        SDB.NotePickedPage(i)
                         nextPageIndex = i
                         break
                     end

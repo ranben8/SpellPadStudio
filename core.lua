@@ -219,7 +219,9 @@ local RESERVED_CYCLE_NAMES = { default = true, none = true, ["not in a cycle"] =
 function SDB.CheckCycleName(name)
     name = strtrim(tostring(name or ""))
     if name == "" then return nil, "Type a folder name first." end
-    if string.len(name) > SDB.CYCLE_NAME_MAX then return nil, "A folder name can have up to " .. SDB.CYCLE_NAME_MAX .. " letters." end
+    -- letters, not bytes: a letter outside plain English takes two or more bytes (this counts the first byte of each)
+    local _, letters = string.gsub(name, "[^\128-\191]", "")
+    if letters > SDB.CYCLE_NAME_MAX then return nil, "A folder name can have up to " .. SDB.CYCLE_NAME_MAX .. " letters." end
     if string.find(name, "|", 1, true) then return nil, "A folder name can't contain '|'." end
     if RESERVED_CYCLE_NAMES[string.lower(name)] then return nil, "'" .. name .. "' is a reserved name." end
     return name
@@ -573,6 +575,7 @@ function SDB.GroupPages(quiet)
     if moved > 0 then
         SDB.activeSlotIndex = nil
         if SDB.Undo then SDB.Undo.ClearAll() end
+        if SDB.Pending then SDB.Pending.Update() end -- the marks for unapplied edits are kept by page number too
         local w = SDB.configWindow
         if w and w.RefreshPageTabs then w.RefreshPageTabs() end
         if w and w.RefreshRows then w.RefreshRows() end
@@ -643,9 +646,16 @@ end
 
 -- Data only: make the main page the fallback and the active page. In combat the page can't change, so only the
 -- fallback is set and the rest waits for PLAYER_REGEN_ENABLED. Returns true when the active page was set.
+-- Without a main page (called after a profile switch) the fallback becomes the page this profile opens on, unless that
+-- page has a context of its own: the old fallback is a page number of the previous profile.
 function SDB.ResetToMainPage()
+    SDB.lastContextPage, SDB.contextHold = nil, nil -- both describe the previous profile's pages
     local main = SDB.MainPage()
-    if not main then return false end
+    if not main then
+        local ap = SDB.db and SDB.db.activePage
+        SDB.manualPage = (ap and SDB.db.pages and SDB.db.pages[ap] and not SDB.PageRule(ap)) and ap or 1
+        return false
+    end
     SDB.manualPage = main
     if InCombatLockdown() then
         SDB.pendingMainPage = true
@@ -668,6 +678,7 @@ function SDB.GoToMainPage()
     local main = SDB.MainPage()
     if not main then return end
     SDB.manualPage = main
+    SDB.contextHold = nil -- closing the window ends a page picked by hand during a context
     if InCombatLockdown() then
         SDB.pendingMainPage = true
         return
@@ -676,6 +687,17 @@ function SDB.GoToMainPage()
         SDB.EvaluateContextState() -- a context page that applies right now wins over the fallback
     elseif SDB.db.activePage ~= main then
         SDB.ChangePage(main)
+    end
+end
+
+-- A page picked by hand (a tab, a !PAGE key, Forward / Backward, a new page). While a context is in charge the pick
+-- holds until that context ends, and the fallback stays the page from before the context, so ending it goes back there
+-- (or to the main page).
+function SDB.NotePickedPage(p)
+    if SDB.lastContextPage and SDB.ctx and SDB.ctx.autoSwitchContext then
+        SDB.contextHold = true
+    else
+        SDB.manualPage = p
     end
 end
 
@@ -692,11 +714,8 @@ function SDB.EvaluateContextState()
 
     if not SDB.ctx or not SDB.ctx.autoSwitchContext then return end
 
-    -- Guardrail: Prevent page desync if states change mid-combat
-    if InCombatLockdown() then
-        SDB.pendingContextUpdate = true
-        return
-    end
+    -- The page can't change in combat; PLAYER_REGEN_ENABLED evaluates the rules again
+    if InCombatLockdown() then return end
 
     local bestPage = nil
     local bestCycle = nil -- the winning rule's cycle name, nil for a page's own rule
@@ -735,10 +754,11 @@ function SDB.EvaluateContextState()
     end
 
     -- The context page just ended (dismounted, left the water, the fight is over): the page to fall back to is
-    -- the main page, not whatever page was picked by hand in the meantime. While the context holds, a page picked
-    -- by hand (a !PAGE key, a tab click) stays as it is until then.
+    -- the main page, not whatever page was picked by hand in the meantime. A page picked by hand holds only while
+    -- the same context stays in charge.
     local previousContextPage = SDB.lastContextPage
     SDB.lastContextPage = bestPage or false
+    if previousContextPage ~= bestPage then SDB.contextHold = nil end
     if previousContextPage and not bestPage then
         local main = SDB.MainPage()
         if main then SDB.manualPage = main end
@@ -749,8 +769,10 @@ function SDB.EvaluateContextState()
 
     -- a page of the winning cycle that is already showing stays (a Forward / Backward press inside the cycle,
     -- or any re-check of the rules, must not snap back to the cycle's first page); so does a page that has the
-    -- same context as the winning page of its own
-    if bestCycle and SDB.PageCycle(curP) == bestCycle then
+    -- same context as the winning page of its own, and a page picked by hand while this context holds
+    if SDB.contextHold and bestPage then
+        targetPage = curP
+    elseif bestCycle and SDB.PageCycle(curP) == bestCycle then
         targetPage = curP
     elseif bestPage and not bestCycle and not SDB.PageCycle(curP) and SDB.PageRule(curP) == bestTrigger then
         targetPage = curP
@@ -856,7 +878,7 @@ function SDB.ChangePage(pageNum)
         trace.windowShown = (SDB.configWindow and SDB.configWindow:IsShown()) and true or false
         trace.synced = false
 
-        SDB.manualPage = targetPage
+        SDB.NotePickedPage(targetPage)
         SDB.db.activePage = targetPage
         SDB.activeSlotIndex = nil
 
@@ -1037,18 +1059,31 @@ local function NormalizePrefix(prefix)
     return string.upper(prefix)
 end
 
--- gives every card of one page the prefix, keeping each card's own key suffix (a card with no key gets its
--- position's default suffix)
+-- gives every card of one page the prefix, keeping each card's own key suffix. A card with no key gets its position's
+-- default suffix, unless another card on the page already holds that one: it stays without a key then, because two
+-- cards on one key means only the higher one ever fires.
 local function ApplyPrefixTo(slots, prefix)
+    local taken = {}
+    for _, data in ipairs(slots) do
+        if data.key and data.key ~= "" then
+            local _, held = SDB.SplitKey(data.key)
+            taken[string.upper(held)] = true
+        end
+    end
     for i, data in ipairs(slots) do
-        local baseKey = SDB.SUFFIX_MAP[i] or tostring(i)
+        local suffix
         if data.key and data.key ~= "" then
             local _, extracted = SDB.SplitKey(data.key)
-            if extracted and extracted ~= "" then
-                baseKey = extracted
+            if extracted and extracted ~= "" then suffix = extracted end
+        end
+        if not suffix then
+            local default = SDB.SUFFIX_MAP[i] or tostring(i)
+            if not taken[string.upper(default)] then
+                suffix = default
+                taken[string.upper(default)] = true
             end
         end
-        data.key = string.upper(prefix .. baseKey)
+        if suffix then data.key = string.upper(prefix .. suffix) end
     end
     local swapped = SDB.FixGameKillKeys(slots)
     if swapped > 0 then
@@ -1084,6 +1119,19 @@ end
 
 function SDB.PrefixIsGlobal()
     return SDB.db ~= nil and SDB.db.prefixMode == "global"
+end
+
+-- What a prefix question does when accepted. The profile can be switched while the question is open, and the question
+-- named this profile's pages, so the answer must not land on another one.
+local function ForThisProfile(fn)
+    local db = SDB.db
+    return function()
+        if SDB.db ~= db then
+            print("|cFFFF9900[SpellPad Studio]|r The profile changed while the question was open, so nothing was changed.")
+            return
+        end
+        fn()
+    end
 end
 
 -- the prefix of the first bound card of a page, with its trailing dash ("" when no card has a key or the key has no prefix)
@@ -1205,10 +1253,10 @@ function SDB.UnbindPrefix(pageIndex)
     end
     if #list > 1 and n > 1 then
         StaticPopup_Show("GALLEONBRIDGE_PREFIX_CONFIRM", "Remove the prefix from " .. n .. " pages?\n\nEvery card on those pages loses its key. "
-            .. "A snapshot is saved first, so Tools > Restore... can bring them back.", nil, function()
+            .. "A snapshot is saved first, so Tools > Restore... can bring them back.", nil, ForThisProfile(function()
             ClearKeys(list)
             print("|cFF00FF00[SpellPad Studio]|r Prefix removed from " .. n .. " pages.")
-        end)
+        end))
         return true
     end
     ClearKeys(list)
@@ -1257,7 +1305,7 @@ function SDB.SetPrefixMode(global)
     if differ > 0 then
         StaticPopup_Show("GALLEONBRIDGE_PREFIX_CONFIRM", "Use the prefix " .. prefix .. " on all " .. #SDB.db.pages .. " pages?\n\n"
             .. SDB.Plural(differ, "page") .. (differ == 1 and " uses" or " use") .. " another prefix or no keys, and every card key there "
-            .. "changes to " .. prefix .. " plus its own key. A snapshot is saved first, so Tools > Restore... can bring them back.", nil, Turn)
+            .. "changes to " .. prefix .. " plus its own key. A snapshot is saved first, so Tools > Restore... can bring them back.", nil, ForThisProfile(Turn))
         return true
     end
     Turn()
@@ -1624,13 +1672,18 @@ end
 -- -------------------------------------------------------------
 -- Secure action buttons and override bindings (incl. !BIND tokens)
 -- -------------------------------------------------------------
--- opts.keepPending (page switches: SDB.ChangePage, ApplyIfPageSharesKeys, context rules): re-bind what is LIVE now,
--- i.e. the keys and macros of the last real apply (SDB.Pending.applied), with only the active page changed. Edits
--- typed since then stay pending (their Pages list square, card glow and footer text stay) instead of going live
--- behind the player's back just because a page was switched (pages that share keys, such as every page with a
--- !PAGE navigation card, would otherwise re-apply on every switch).
+-- opts.keepPending (page switches, the end of a fight, a loading screen): re-bind what is LIVE now, i.e. the keys and
+-- macros of the last real apply (SDB.Pending.applied), with only the active page changed. Edits typed since then stay
+-- pending (their Pages list square, card glow and footer text stay) instead of going live behind the player's back.
+-- Without a record for this profile (the first world entry of a session) it is a real apply.
 function SDB.ApplyBindings(opts)
+    local P = SDB.Pending
+    local keepPending = (opts and opts.keepPending and P and P.hasApplied and P.appliedDb == SDB.db
+        and type(P.applied) == "table") and true or false
+
     if InCombatLockdown() then
+        -- the override bindings are locked: a real apply asked for now is made when the fight ends
+        if not keepPending then SDB.applyQueued = true end
         print("|cFFFF4444[SpellPad Studio]|r Can't apply changes in combat.")
         return
     end
@@ -1638,9 +1691,7 @@ function SDB.ApplyBindings(opts)
     SDB.ValidateDB()
 
     local source = SDB.db.pages
-    local keepPending = false
-    if opts and opts.keepPending and SDB.Pending and SDB.Pending.hasApplied and type(SDB.Pending.applied) == "table" then
-        keepPending = true
+    if keepPending then
         source = {}
         for p, list in pairs(SDB.Pending.applied) do
             local slots = {}
@@ -1657,7 +1708,7 @@ function SDB.ApplyBindings(opts)
     -- Build an ordered list of pages to bind, ensuring activePage is processed LAST
     -- This guarantees its hardware keys overwrite any overlapping background pages (Virtual Paging)
     local pageOrder = {}
-    for pIndex = 1, #source do
+    for pIndex = 1, #SDB.db.pages do
         if pIndex ~= SDB.db.activePage then table.insert(pageOrder, pIndex) end
     end
     table.insert(pageOrder, SDB.db.activePage or 1)
@@ -1682,7 +1733,7 @@ function SDB.ApplyBindings(opts)
                         keyBases[#keyBases + 1] = baseKey
                     end
                     local macroText = strtrim(data.macro or "")
-                    local bindAction = string.match(macroText, "^!BIND%s+(.+)")
+                    local bindAction = string.match(macroText, "^!BIND%s+([^\r\n]+)")
                     local pageAction = SDB.PageCommand(macroText)
 
                     if bindAction then
@@ -1706,23 +1757,20 @@ function SDB.ApplyBindings(opts)
                             btn:HookScript("PostClick", function(self)
                                 -- flash the matching SpellPad button / card (also works in combat)
                                 if SDB.KeyTest then SDB.KeyTest.Flash(self.pageIndex, self.slotIndex) end
-                                local pageData = SDB.db.pages[self.pageIndex]
-                                if not pageData then return end
-                                local sData = pageData[self.slotIndex]
-                                if sData and sData.macro then
-                                    local pAct = SDB.PageCommand(sData.macro)
-                                    if pAct then
-                                        if InCombatLockdown() then
-                                            SDB.NoPageInCombat() -- tell the player instead of doing nothing
-                                        else
-                                            SDB.ChangePage(pAct)
-                                        end
+                                -- what this button was applied with, not the card's text: an edit that isn't applied
+                                -- yet must not change what the key does
+                                if self.sdbPageAction then
+                                    if InCombatLockdown() then
+                                        SDB.NoPageInCombat() -- tell the player instead of doing nothing
+                                    else
+                                        SDB.ChangePage(self.sdbPageAction)
                                     end
                                 end
                             end)
                             btn.galleonHooked = true
                         end
 
+                        btn.sdbPageAction = pageAction
                         if pageAction then
                             btn:SetAttribute("type", nil)
                             btn:SetAttribute("macrotext", nil)
@@ -1757,7 +1805,10 @@ function SDB.ApplyBindings(opts)
 
     -- remember what is live now so edits that are not applied yet can be marked (a keepPending re-bind changed
     -- nothing about what is live, so the record stays as it was)
-    if SDB.Pending and not keepPending then SDB.Pending.MarkApplied() end
+    if not keepPending then
+        SDB.applyQueued = nil
+        if SDB.Pending then SDB.Pending.MarkApplied() end
+    end
 end
 
 -- ApplyBindings binds the active page LAST, so the active page wins a shared key. A page change that
@@ -2003,10 +2054,16 @@ end
 
 SDB.InsertAction = InsertActionIntoActiveSlot -- used by SpellBrowser.lua
 
+-- A link shift-clicked while typing in chat is meant for the chat line, not for the selected card.
+local function ChatBoxActive()
+    local active = (ChatFrameUtil and ChatFrameUtil.GetActiveWindow) or ChatEdit_GetActiveWindow
+    return active ~= nil and active() ~= nil
+end
+
 -- 1. Universal Item Shift-Click (Bags, Equipment, Journal)
 if HandleModifiedItemClick then
     hooksecurefunc("HandleModifiedItemClick", function(link)
-        if not link or not IsModifiedClick("CHATLINK") then return end
+        if not link or not IsModifiedClick("CHATLINK") or ChatBoxActive() then return end
         if not SDB.configWindow or not SDB.configWindow:IsShown() or not SDB.activeSlotIndex then return end
 
         local itemName = nil
@@ -2023,7 +2080,7 @@ end
 -- 2. Universal Spellbook & Ability Shift-Click (Legacy & Standard API)
 if HandleModifiedSpellClick then
     hooksecurefunc("HandleModifiedSpellClick", function(spellIdentifier)
-        if not spellIdentifier or not IsModifiedClick("CHATLINK") then return end
+        if not spellIdentifier or not IsModifiedClick("CHATLINK") or ChatBoxActive() then return end
         if not SDB.configWindow or not SDB.configWindow:IsShown() or not SDB.activeSlotIndex then return end
 
         local spellName = nil
@@ -2053,7 +2110,7 @@ end
 -- sees a direct call, so the real function is hooked when it exists.
 local function OnInsertLink(link)
     if type(link) ~= "string" or not SDB.configWindow or not SDB.configWindow:IsShown() or not SDB.activeSlotIndex then return end
-    if not IsModifiedClick("CHATLINK") then return end
+    if not IsModifiedClick("CHATLINK") or ChatBoxActive() then return end
 
     local bracketName = string.match(link, "%[(.-)%]")
     if not bracketName then return end
@@ -2095,10 +2152,10 @@ end
 -- -------------------------------------------------------------
 -- Key listener (page prefix and card key)
 -- -------------------------------------------------------------
--- Prefix listening: the Page Options prefix box (click it) starts it and shows "Listening..." (grey); every key
+-- Prefix listening: the Page Options prefix box (click it) starts it and shows "Listening..." (grey); every modifier
 -- pressed is added to the text (white, press order, always with a trailing dash: "SHIFT-ALT-"). Enter applies the
--- prefix, Esc cancels. The prefix is stored with the modifiers in the game's own order (ALT-CTRL-SHIFT-), the
--- other keys after them in press order.
+-- prefix, Esc cancels. The prefix is stored with the modifiers in the game's own order (ALT-CTRL-SHIFT-). Any other
+-- key is left out: a key name can't hold it, so every card key would become one that nothing can press.
 local MODIFIER_ORDER = { "ALT", "CTRL", "SHIFT" }
 
 -- what the box shows while keys are being pressed ("" before the first key)
@@ -2441,7 +2498,11 @@ SDB.keyListener:SetScript("OnKeyDown", function(self, key)
         elseif key == "LSHIFT" or key == "RSHIFT" then clean = "SHIFT"
         end
 
-        AddKey(clean)
+        if clean == "ALT" or clean == "CTRL" or clean == "SHIFT" then
+            AddKey(clean)
+        else
+            print("|cFFFFFF00[SpellPad Studio]|r Only Alt, Ctrl and Shift can be part of a prefix, so " .. clean .. " was left out.")
+        end
         PrefixUI(SDB.PrefixBufferText())
         return
     end
