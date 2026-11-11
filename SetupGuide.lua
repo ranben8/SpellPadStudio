@@ -1348,6 +1348,10 @@ function G.Refresh()
             f.body:SetText("Forward and Backward need two or more pages. In SpellPad Studio the plus next to Pages adds one and the minus deletes the current one. Click the plus below to add a page now.")
         end
         local addStage = st.pg > 2 and not st.repick
+        -- the + sits halfway between the end of the text and the top of the pad
+        local textBottom = -78 - (f.body:GetStringHeight() or 0)
+        pgf.add:ClearAllPoints()
+        pgf.add:SetPoint("CENTER", pgf, "TOP", 0, math.min(textBottom - 24, (textBottom + PAD_TOP) / 2))
         pgf.add:SetShown(addStage)
         local hasF, hasB = false, false
         for _, role in pairs(st.pgSlots) do
