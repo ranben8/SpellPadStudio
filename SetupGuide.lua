@@ -11,6 +11,8 @@ local addonName, SDB = ...
 --   4. a spell on card 1 (or the card the user picks): the main window and the Spell Browser open, and the guide makes
 --      the change live by itself as soon as the card holds something;
 --   5. pressing that card's button, then a finish screen.
+-- The finish screen can open one more screen: pick two buttons (by clicking the demo pad or pressing the keypad button)
+-- for !PAGE Forward and !PAGE Backward, then add a page with a demo + button. Only blank cards are ever used.
 -- Each step is one action, and the tests move on by themselves because the addon sees every key arrive (the secure card
 -- buttons call SDB.KeyTest.Flash, even for a card with no macro yet).
 -- It opens by itself once, on the first login of a new install (GalleonBridgeDB.setupSeen, set in Init.lua); /sps setup,
@@ -38,6 +40,7 @@ local G = SDB.Setup
 G.FRAME_NAME = "GalleonSetupGuideFrame"
 G.STEPS = 5
 local FINISH = G.STEPS + 1
+local PG = FINISH + 1           -- the optional page-buttons screen, reached from the finish screen
 
 local W, H = 420, 612
 local CW = 380                  -- content width (20 units margin each side)
@@ -55,6 +58,7 @@ end
 local st = {
     step = 1, count = 15, vertical = false, other = false, app = "elgato",
     lit = {}, note = "", fixPrefix = nil, capturing = false,
+    pg = 1, pgSlots = {},
 }
 
 -- ---------------------------------------------------------------
@@ -244,9 +248,17 @@ local function NewPadButton(f)
         SDB.Tip.Line(self.key ~= "" and ("Key: " .. G.Human(self.key)) or "No key")
         if st.step == 3 and self.key ~= "" then
             SDB.Tip.Hint(st.lit[self.index] and "This button works." or "Not received yet.")
+        elseif st.step == PG then
+            local role = st.pgSlots[self.index]
+            if role then
+                SDB.Tip.Hint(role == "forward" and "Forward button." or "Backward button.")
+            elseif st.pg <= 2 then
+                SDB.Tip.Hint("Click to use this button for " .. (st.pg == 1 and "Forward." or "Backward."))
+            end
         end
         SDB.Tip.Done()
     end)
+    b:SetScript("OnClick", function(self) G.OnPadClick(self.index) end)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
     return b
 end
@@ -417,6 +429,76 @@ local function GoTo(step)
     elseif step == 5 then
         st.lit = {}
         st.fired = false
+    elseif step == PG then
+        st.pg, st.pgSlots = 1, {}
+        MakePageOneActive()
+    end
+    G.Refresh()
+end
+
+-- ---------------------------------------------------------------
+-- Page buttons: two cards that move to the next and the previous page
+-- ---------------------------------------------------------------
+local NAV_WORD = { forward = "!PAGE Forward", backward = "!PAGE Backward" }
+
+-- Puts !PAGE Forward / Backward on card `slot` of page 1. Only a blank card is used (or one that already holds
+-- exactly that command): a card with anything else on it is never overwritten.
+function G.PickNav(slot)
+    if st.step ~= PG or st.pg > 2 then return end
+    local role = st.pg == 1 and "forward" or "backward"
+    if InCombat() then
+        st.note = RED .. "Can't change cards in combat.|r"
+        return G.Refresh()
+    end
+    local p1 = Page1()
+    local data = p1 and slot and slot <= SDB.PageVisible(p1) and p1[slot]
+    if not data then return end
+    if st.pgSlots[slot] then
+        st.note = ORANGE .. "Card " .. slot .. " is already your " .. st.pgSlots[slot] .. " button. Pick another one.|r"
+        return G.Refresh()
+    end
+    if (data.key or "") == "" then
+        st.note = ORANGE .. "Card " .. slot .. " has no key, so nothing could press it. Pick a spot with a key.|r"
+        return G.Refresh()
+    end
+    local same = SDB.PageCommand and SDB.PageCommand(data.macro or "") == role
+    if not same and not SDB.IsCardBlank(data.macro, data.icon) then
+        st.note = ORANGE .. "Card " .. slot .. " already holds something. Pick an empty spot, so nothing gets replaced.|r"
+        return G.Refresh()
+    end
+    if not same then
+        if SDB.Snapshots then SDB.Snapshots.Take("Before Page Buttons", "page", { page = 1, slot = slot }) end
+        if SDB.Undo then SDB.Undo.ClearAll() end
+        data.macro = NAV_WORD[role]
+        SDB.ApplyBindings()
+        RefreshMainWindow()
+    end
+    st.pgSlots[slot] = role
+    st.pg = st.pg + 1
+    st.note = ""
+    G.Refresh()
+end
+
+function G.OnPadClick(slot)
+    if st.step == PG and G.frame and G.frame:IsShown() then G.PickNav(slot) end
+end
+
+-- the + on the page-buttons screen runs the same code as the + in the main window, which also copies the
+-- Forward and Backward cards onto the new page
+function G.AddPageNow()
+    if st.step ~= PG then return end
+    if InCombat() then
+        st.note = RED .. "Can't add a page in combat.|r"
+        return G.Refresh()
+    end
+    if SDB.OpenMainWindow then SDB.OpenMainWindow() end
+    local cw = SDB.configWindow
+    if not cw or not cw.AddPage then return end
+    MakePageOneActive()
+    cw.AddPage()
+    st.note = "You now have " .. SDB.Plural(#SDB.db.pages, "page") .. ". Look at the Pages list in SpellPad Studio."
+    if next(st.pgSlots) then
+        st.note = st.note .. " The new page got your Forward and Backward buttons too."
     end
     G.Refresh()
 end
@@ -575,9 +657,17 @@ end
 
 -- a key arrived (SDB.KeyTest.Flash, from the card buttons' PostClick)
 function G.OnKey(page, slot)
-    if (st.step ~= 3 and st.step ~= 5) or not G.frame or not G.frame:IsShown() then return end
+    if (st.step ~= 3 and st.step ~= 5 and st.step ~= PG) or not G.frame or not G.frame:IsShown() then return end
     local data = SDB.db and SDB.db.pages and SDB.db.pages[page] and SDB.db.pages[page][slot]
     local key = data and data.key or ""
+    if st.step == PG then
+        if st.pg > 2 then return end
+        if page ~= 1 then
+            st.note = ORANGE .. "That key belongs to page " .. page .. ". Press a button of page 1.|r"
+            return G.Refresh()
+        end
+        return G.PickNav(slot)
+    end
     if st.step == 5 then
         if st.fired then return end
         if page == 1 and slot == st.target then
@@ -896,16 +986,54 @@ local function Build()
     fin.offerSub:SetWidth(CW)
     fin.offerSub:SetJustifyH("LEFT")
     fin.offerSub:SetText("Copy them onto new pages. Nothing is changed or replaced, and you see a preview first.")
+    fin.pageText = fin:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    fin.pageText:SetPoint("BOTTOMLEFT", fin, "BOTTOMLEFT", 20, 250)
+    fin.pageText:SetText("Want to switch pages with a button?")
+    fin.pageSub = fin:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    fin.pageSub:SetPoint("TOPLEFT", fin.pageText, "BOTTOMLEFT", 0, -4)
+    fin.pageSub:SetWidth(CW)
+    fin.pageSub:SetJustifyH("LEFT")
+    fin.pageSub:SetText("Give two of your buttons the jobs Forward and Backward, so the same buttons can do different things on each page.")
+    fin.pages = SDB.UI.Button(fin, "secondary", "Set Up Page Buttons...", 185, 24)
+    fin.pages:SetPoint("BOTTOMLEFT", fin, "BOTTOMLEFT", 20, 186)
+    fin.pages:SetScript("OnClick", function() if not InCombat() then GoTo(PG) end end)
     fin.macros = SDB.UI.Button(fin, "secondary", "Import Game Macros...", 185, 24)
     fin.macros:SetScript("OnClick", function() if SDB.GameMacro then SDB.GameMacro.StartImport() end end)
     fin.bars = SDB.UI.Button(fin, "secondary", "Import Action Bars...", 185, 24)
     fin.bars:SetScript("OnClick", function() if SDB.BarImport then SDB.BarImport.StartImport() end end)
 
+    -- page buttons screen: pick Forward, pick Backward, add a page
+    local pg = StepFrame(f)
+    f["s" .. PG] = pg
+    pg.note = Text(pg, "GameFontHighlightSmall", PAD_TOP - PAD_H - 10)
+    pg.note:SetSpacing(2)
+    pg.add = SDB.UI.GlyphButton(pg, "plus", 24)
+    pg.add:SetPoint("TOPLEFT", pg, "TOPLEFT", 20, -176)
+    pg.add:SetScript("OnClick", function() G.AddPageNow() end)
+    pg.add:HookScript("OnEnter", function(self)
+        SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Add Page", "feature")
+        SDB.Tip.Line("Adds a page to your profile. The same button sits next to Pages in SpellPad Studio.")
+        SDB.Tip.Done()
+    end)
+    pg.add:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    pg.addText = pg:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    pg.addText:SetPoint("LEFT", pg.add, "RIGHT", 8, 0)
+    pg.addText:SetText("Adds a page")
+    pg.del = SDB.UI.GlyphButton(pg, "minus", 24)
+    pg.del:SetPoint("LEFT", pg.add, "RIGHT", 120, 0)
+    pg.del:SetScript("OnClick", function()
+        st.note = "The minus button deletes the page you are on, after asking you first. It does nothing here."
+        G.Refresh()
+    end)
+    pg.delText = pg:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    pg.delText:SetPoint("LEFT", pg.del, "RIGHT", 8, 0)
+    pg.delText:SetText("Deletes a page")
+
     -- bottom row: one red button per view
     f.leftBtn = SDB.UI.Button(f, "secondary", "Not Now", 100, 26)
     f.leftBtn:SetPoint("BOTTOMLEFT", 20, 14)
     f.leftBtn:SetScript("OnClick", function()
-        if st.step == 1 then f:Hide() else GoTo(st.step - 1) end
+        if st.step == 1 then f:Hide() elseif st.step == PG then GoTo(FINISH) else GoTo(st.step - 1) end
     end)
     f.midBtn = SDB.UI.Button(f, "secondary", "Show SpellPad", 120, 26)
     f.midBtn:SetPoint("BOTTOM", 0, 14)
@@ -930,6 +1058,8 @@ local function Build()
             G.ApplyShape()
         elseif st.step == 4 then
             G.FinishCardStep()
+        elseif st.step == PG then
+            GoTo(FINISH)
         elseif st.step < FINISH then
             GoTo(st.step + 1)
         else
@@ -1016,7 +1146,7 @@ function G.Refresh()
     local f = G.frame
     if not f or not SDB.db then return end
     local step = st.step
-    for i = 1, FINISH do f["s" .. i]:SetShown(i == step) end
+    for i = 1, PG do f["s" .. i]:SetShown(i == step) end
     f.stepText:SetText(step <= G.STEPS and ("Step " .. step .. " of " .. G.STEPS) or "")
     f.midBtn:Hide()
     f.nextBtn:SetText("Next")
@@ -1141,6 +1271,31 @@ function G.Refresh()
         end
         f.s5.note:SetText(note)
         DrawPad(f, keys, PreviewCols(), st.lit, slot)
+
+    elseif step == PG then
+        local pgf = f["s" .. PG]
+        local fwd
+        for slot, role in pairs(st.pgSlots) do
+            if role == "forward" then fwd = slot end
+        end
+        if st.pg == 1 then
+            f.head:SetText("Pick your Forward button")
+            f.body:SetText("Forward moves to the next page, Backward to the previous one. Click a spot below, or press the button on your keypad. Pick an empty one: a spot that holds something is never replaced.")
+        elseif st.pg == 2 then
+            f.head:SetText("Now pick your Backward button")
+            f.body:SetText("Forward is " .. G.Human(p1[fwd] and p1[fwd].key or "") .. ". Click another spot, or press another keypad button, for Backward.")
+        else
+            f.head:SetText("Add a second page")
+            f.body:SetText("Forward and Backward need two or more pages. In SpellPad Studio the plus next to Pages adds one and the minus deletes the current one. Click the plus below to add a page now.")
+        end
+        pgf.add:SetShown(st.pg > 2)
+        pgf.addText:SetShown(st.pg > 2)
+        pgf.del:SetShown(st.pg > 2)
+        pgf.delText:SetShown(st.pg > 2)
+        pgf.note:SetText(st.note or "")
+        f.nextBtn:SetText(st.pg > 2 and "Done" or "Skip")
+        f.leftBtn:SetText("Back")
+        DrawPad(f, keys, PreviewCols(), st.pgSlots)
 
     else
         local slot = st.target or 1
