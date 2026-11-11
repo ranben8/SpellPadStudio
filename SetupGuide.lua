@@ -243,6 +243,9 @@ local function NewPadButton(f)
     glow:Hide()
     if SDB.Motion then SDB.Motion.Pulse(glow, 0.35) end -- the same pulse as a card waiting for Save & Apply
     b.glow = glow
+    b.arrow = b:CreateTexture(nil, "OVERLAY")
+    b.arrow:SetTexture("Interface\Buttons\UI-SpellbookIcon-PrevPage-Up")
+    b.arrow:Hide()
     b:SetScript("OnEnter", function(self)
         SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Card " .. self.index, "data")
         SDB.Tip.Line(self.key ~= "" and ("Key: " .. G.Human(self.key)) or "No key")
@@ -282,6 +285,20 @@ local function StylePadButton(b, s, key, lit, focus)
     local suf = key == "" and "-" or SDB.NumpadShort(suffix)
     b.pre:ClearAllPoints()
     b.suf:ClearAllPoints()
+    -- a Forward / Backward button shows the same arrow the card gets, in place of its key
+    if b.role and s >= 14 then
+        local l, r = 0.08, 0.92
+        if b.role == "forward" then l, r = r, l end -- the forward arrow is the backward file mirrored
+        b.arrow:SetTexCoord(l, r, 0.08, 0.92)
+        b.arrow:ClearAllPoints()
+        b.arrow:SetPoint("CENTER", b, "CENTER", 0, 0)
+        b.arrow:SetSize(s * 0.85, s * 0.85)
+        b.arrow:Show()
+        b.pre:Hide()
+        b.suf:Hide()
+        return
+    end
+    b.arrow:Hide()
     if s < 14 then
         b.pre:Hide()
         b.suf:Hide()
@@ -332,6 +349,7 @@ local function DrawPad(f, keys, cols, lit, focus)
         b:ClearAllPoints()
         b:SetPoint("TOPLEFT", f.pad, "TOPLEFT", x0 + c * (s + gap), y0 - r * (s + gap))
         b.index, b.key = i, keys[i] or ""
+        b.role = st.step == PG and st.pgSlots[i] or nil
         b:Show()
         StylePadButton(b, s, b.key, lit and lit[i], focus == i)
     end
