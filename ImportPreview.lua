@@ -36,6 +36,7 @@ local MAX_SLOTS = 36        -- the largest page (SDB.MAX_CARDS)
 local MAX_MACRO = 1000      -- hard cap; 255 is flagged separately (Syntax.limit)
 local MAX_KEY, MAX_NAME, MAX_PAGENAME, MAX_ICON = 64, 30, 30, 260
 local MAX_PROFNAME = 30
+IP.MAX_PAGES = MAX_PAGES -- the profile export refuses a profile it couldn't read back
 local MAX_ROWS = 400
 local ROW_H, ROW_GAP = 42, 2
 
@@ -101,15 +102,39 @@ end
 -- ---------------------------------------------------------------
 local KNOWN = { name = true, key = true, macro = true, icon = true, matrixText = true }
 
--- strips control characters and cuts to maxLen; counts what it changed in st
-local function Clean(v, maxLen, keepNewlines, st)
+-- Cuts text to maxLen letters (`letters`, for names, which the game's boxes count in letters) or bytes, never in the
+-- middle of a letter: a cut half letter would show as a broken character.
+local function CutText(s, maxLen, letters)
+    if letters then
+        local count = 0
+        for i = 1, #s do
+            local b = string.byte(s, i)
+            if b < 128 or b >= 192 then -- the first byte of a letter
+                count = count + 1
+                if count > maxLen then return string.sub(s, 1, i - 1) end
+            end
+        end
+        return s
+    end
+    if #s <= maxLen then return s end
+    local i = maxLen + 1 -- the first byte left out; step back to the start of its letter
+    while i > 1 do
+        local b = string.byte(s, i)
+        if b < 128 or b >= 192 then break end
+        i = i - 1
+    end
+    return string.sub(s, 1, i - 1)
+end
+
+-- strips control characters and cuts to maxLen; counts what it changed in st. In macro text a carriage return becomes
+-- a plain line break: the game may treat it as one, so the safety checks (a /run line) must see the line it starts.
+local function Clean(v, maxLen, keepNewlines, st, letters)
+    if keepNewlines then v = string.gsub(string.gsub(v, "\r\n", "\n"), "\r", "\n") end
     local cleaned = (string.gsub(v, keepNewlines and "[%z\1-\8\11\12\14-\31]" or "[%z\1-\31]", ""))
     if cleaned ~= v then st.ctrl = st.ctrl + 1 end
-    if #cleaned > maxLen then
-        cleaned = string.sub(cleaned, 1, maxLen)
-        st.cut = st.cut + 1
-    end
-    return cleaned
+    local cut = CutText(cleaned, maxLen, letters)
+    if cut ~= cleaned then st.cut = st.cut + 1 end
+    return cut
 end
 
 local function CleanSlot(raw, i, st)
@@ -120,7 +145,7 @@ local function CleanSlot(raw, i, st)
 
     local name = ""
     if type(raw.name) == "string" then
-        name = strtrim(Clean(raw.name, MAX_NAME, false, st))
+        name = strtrim(Clean(raw.name, MAX_NAME, false, st, true))
     elseif raw.name ~= nil then
         st.badtype = st.badtype + 1
     end
@@ -128,6 +153,10 @@ local function CleanSlot(raw, i, st)
 
     if type(raw.key) == "string" then
         out.key = strtrim(Clean(raw.key, MAX_KEY, false, st))
+        if SDB.IsMouseClickKey and SDB.IsMouseClickKey(out.key) then
+            out.key = "" -- the left or right mouse button is never a card key
+            st.mouse = st.mouse + 1
+        end
     else
         out.key = ""
         if raw.key ~= nil then st.badtype = st.badtype + 1 end
@@ -150,7 +179,7 @@ local function CleanSlot(raw, i, st)
     end
 
     if type(raw.matrixText) == "string" then
-        local mt = strtrim(Clean(raw.matrixText, MAX_NAME, false, st))
+        local mt = strtrim(Clean(raw.matrixText, MAX_NAME, false, st, true))
         if mt ~= "" then out.matrixText = mt end
     elseif raw.matrixText ~= nil then
         st.badtype = st.badtype + 1
@@ -190,7 +219,7 @@ end
 
 local function CleanName(v, st)
     if type(v) ~= "string" then return nil end
-    local nm = strtrim(Clean(v, MAX_PAGENAME, false, st))
+    local nm = strtrim(Clean(v, MAX_PAGENAME, false, st, true))
     if nm ~= "" then return nm end
 end
 
@@ -216,12 +245,13 @@ local function BuildNotes(st)
     if st.dropped > 0 then notes[#notes + 1] = Plural(st.dropped, "unknown field") .. " removed" end
     if st.badtype > 0 then notes[#notes + 1] = Plural(st.badtype, "field") .. " with the wrong type ignored" end
     if st.deck then notes[#notes + 1] = "unusable cards-per-page setting ignored" end
+    if st.mouse > 0 then notes[#notes + 1] = Plural(st.mouse, "mouse button key") .. " removed (a click can't be a card key)" end
     return notes
 end
 
 function IP.Validate(data)
     if type(data) ~= "table" then return nil, "The profile data is not valid." end
-    local st = { ctrl = 0, cut = 0, dropped = 0, badtype = 0 }
+    local st = { ctrl = 0, cut = 0, dropped = 0, badtype = 0, mouse = 0 }
     local clean = { type = data.type }
 
     if data.type == "PAGE" then
@@ -524,7 +554,7 @@ local function Describe(f)
             button = "Create Profile"
         else
             local have = #db.pages
-            action = COLOR.green .. "Adds|r " .. Plural(res.pages, "page") .. " after your last page (you have "
+            action = COLOR.green .. "Adds|r " .. Plural(res.pages, "page") .. " to this profile (you have "
                 .. have .. ", you will have " .. (have + res.pages) .. "). Nothing is replaced. "
             if data.fromGame == "bars" then
                 action = action .. "Each card holds the action from the same place on a bar, written as a macro; "
@@ -863,7 +893,7 @@ end
 function IP.CheckName(name, ignoreName)
     name = strtrim(name or "")
     if name == "" then return nil, "Enter a name for the profile." end
-    if #name > MAX_PROFNAME then return nil, "Use " .. MAX_PROFNAME .. " characters or fewer." end
+    if CutText(name, MAX_PROFNAME, true) ~= name then return nil, "Use " .. MAX_PROFNAME .. " characters or fewer." end
     if string.find(name, "|", 1, true) then return nil, "The name can't contain the | character." end
     local lower = string.lower(name)
     if lower == "default" or lower == "global" then
@@ -883,11 +913,11 @@ end
 function IP.UniqueName(base)
     base = strtrim(base or "")
     if base == "" then base = "Imported Profile" end
-    base = string.sub(base, 1, MAX_PROFNAME)
+    base = CutText(base, MAX_PROFNAME, true)
     local name, n = base, 2
     while not IP.CheckName(name) and n < 1000 do
         local suffix = " (" .. n .. ")"
-        name = string.sub(base, 1, MAX_PROFNAME - #suffix) .. suffix
+        name = CutText(base, MAX_PROFNAME - #suffix, true) .. suffix
         n = n + 1
     end
     return name
@@ -1183,7 +1213,7 @@ function IP.Open(data, mode, nameHint)
         local hint = strtrim(nameHint or "")
         if hint ~= "" then
             f.usedHint = true
-            f.nameBox:SetText(string.sub(hint, 1, MAX_PROFNAME))
+            f.nameBox:SetText(CutText(hint, MAX_PROFNAME, true))
         else
             f.nameBox:SetText(IP.UniqueName(data.profileName or "Imported Profile"))
         end

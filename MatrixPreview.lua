@@ -430,7 +430,10 @@ function SDB.ShowProcGlow(btn)
         -- Blizzard's native glow frame uses an unnamed frame pool.
         -- Elevate all children to guarantee the glow renders over the icon.
         for _, child in ipairs({btn:GetChildren()}) do
-            child:SetFrameLevel(btn:GetFrameLevel() + 5)
+            -- not the cooldown and the count: on one level the sweep could cover the number
+            if child ~= btn.cooldown and child ~= btn.countFrame then
+                child:SetFrameLevel(btn:GetFrameLevel() + 5)
+            end
         end
     else
         btn.isProcGlowing = true
@@ -571,19 +574,48 @@ function SDB.PadKeyLabel(key)
     return SDB.NumpadShort(string.upper(suffix ~= "" and suffix or key))
 end
 
+-- What a click on a button runs: the macro last applied to its card, the same one its key runs, so an edit stays
+-- pending on both until Save & Apply. The card's own text is only used when nothing has been applied for it yet.
+-- Out of combat only (secure attributes).
+local function SetPadMacro(btn, page, slot, cardText)
+    local text = SDB.Pending and SDB.Pending.AppliedMacro(page, slot)
+    if text == nil then text = cardText or "" end
+    btn.sdbPageAction = SDB.PageCommand(text)
+    if SDB.IsPageCard(text) or string.match(strtrim(text), "^!BIND") then
+        text = "" -- a macro would send the command to chat as plain text
+    end
+    -- "*" = with any modifier held. A plain type1 / macrotext1 only matches an UNMODIFIED left click, so
+    -- Shift-, Ctrl- and Alt-clicks (and [mod:shift] macros) would do nothing.
+    btn:SetAttribute("*type1", "macro")
+    btn:SetAttribute("*macrotext1", SDB.SecureMacroText(text))
+    btn:SetAttribute("type2", nil)
+    btn:SetAttribute("macrotext2", nil)
+end
+
+-- After a real apply: the buttons take the macros that just went live
+function SDB.PadSyncMacros()
+    if InCombatLockdown() or not SDB.db then return end
+    local cur = SDB.db.activePage or 1
+    local page = (SDB.db.pages and SDB.db.pages[cur]) or {}
+    for slot, btn in ipairs(matrixButtons) do
+        SetPadMacro(btn, cur, slot, page[slot] and page[slot].macro)
+    end
+end
+
 function SDB.RefreshMatrixGrid()
     if SDB.UpdateMatrixAppearance then SDB.UpdateMatrixAppearance() end
     local curP = SDB.db.activePage or 1
 
-    -- Change glow: flash when the page or the profile is not the one drawn last time. The first draw and the
+    -- Change glow: flash when the page or the profile is not the one drawn last time. They are compared as tables
+    -- because a page that moved in the list and a renamed profile are still the same ones. The first draw and the
     -- one right after the pad was shown only record it, so a change made while the pad was hidden doesn't glow later.
-    local drawnProfile = SDB.currentProfileName
+    local shownPage = SDB.db.pages and SDB.db.pages[curP]
     if matrixWindow.sdbGlowQuiet then
         matrixWindow.sdbGlowQuiet = nil
-    elseif matrixWindow.sdbGlowSeen and (matrixWindow.sdbGlowProfile ~= drawnProfile or matrixWindow.sdbGlowPage ~= curP) then
+    elseif matrixWindow.sdbGlowSeen and (matrixWindow.sdbGlowDb ~= SDB.db or matrixWindow.sdbGlowPage ~= shownPage) then
         SDB.FlashPadGlow()
     end
-    matrixWindow.sdbGlowSeen, matrixWindow.sdbGlowProfile, matrixWindow.sdbGlowPage = true, drawnProfile, curP
+    matrixWindow.sdbGlowSeen, matrixWindow.sdbGlowDb, matrixWindow.sdbGlowPage = true, SDB.db, shownPage
 
     local pageSlots = (SDB.db.pages and SDB.db.pages[curP]) or {}
     local shownCards = SDB.PageVisible(pageSlots) -- cards past the pad size have no button
@@ -633,6 +665,7 @@ function SDB.RefreshMatrixGrid()
             btn:SetSize(btnSize, btnSize)
             btn:SetAlpha(SDB.db.matrixButtonOpacity or 1.0) -- button opacity (Options window)
             btn:RegisterForClicks("AnyDown")
+            btn:SetAttribute("useOnKeyDown", true) -- without it the game's cast-on-key-down option off means a click does nothing
             btn.liveIcon = true -- icon follows the macro's [conditionals] (SDB.UpdateSlotIconAndTooltip)
             btn:SetBackdrop({
                 bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
@@ -664,6 +697,7 @@ function SDB.RefreshMatrixGrid()
             local countFrame = CreateFrame("Frame", nil, btn)
             countFrame:SetAllPoints()
             countFrame:SetFrameLevel(btn:GetFrameLevel() + 4)
+            btn.countFrame = countFrame
             -- The charge / stack number (the 6 of a stack of 6 conjured muffins): the game's number font with a
             -- 1 pixel black outline, set in from the corner so it doesn't sit on the button's border.
             local countText = countFrame:CreateFontString(nil, "OVERLAY", _G.NumberFontNormal and "NumberFontNormal" or "GameFontHighlightSmallOutline")
@@ -714,7 +748,7 @@ function SDB.RefreshMatrixGrid()
             -- Carrying something (dragged from a bar, bag, spellbook): the click must not run the macro.
             -- *type1 is put back by the refresh that PostClick always ends with.
             btn:SetScript("PreClick", function(self, mouseButton)
-                if mouseButton ~= "RightButton" and mouseButton ~= "MiddleButton" and GetCursorInfo() and not InCombatLockdown() then self:SetAttribute("*type1", nil) end
+                if (not mouseButton or mouseButton == "LeftButton") and GetCursorInfo() and not InCombatLockdown() then self:SetAttribute("*type1", nil) end
             end)
             btn:SetScript("OnReceiveDrag", function(self)
                 SDB.MatrixDropOn(self.slotIndex)
@@ -752,18 +786,13 @@ function SDB.RefreshMatrixGrid()
                 end
 
                 -- A card that holds a page jump still changes page on left-click: that is its "run"
-                local cPage = SDB.db.activePage or 1
-                local sData = SDB.db.pages[cPage] and SDB.db.pages[cPage][slot]
-                if sData and sData.macro then
-                    local pAct = SDB.PageCommand(sData.macro)
-                    if pAct then
-                        if not InCombatLockdown() then
-                            SDB.ChangePage(pAct) -- handles the grid and row refreshing
-                        else
-                            SDB.NoPageInCombat() -- no page change in combat, say so
-                        end
-                        return
+                if self.sdbPageAction then
+                    if not InCombatLockdown() then
+                        SDB.ChangePage(self.sdbPageAction) -- handles the grid and row refreshing
+                    else
+                        SDB.NoPageInCombat() -- no page change in combat, say so
                     end
+                    return
                 end
 
                 -- Main window open (and out of combat): the click also selects the card, like a right
@@ -836,6 +865,7 @@ function SDB.RefreshMatrixGrid()
 
             -- Hold the middle mouse button = copy the card's action to the cursor (hooks only; PadPickup.lua)
             if SDB.PadPickup then SDB.PadPickup.Attach(btn) end
+            if SDB.KeyTest then SDB.KeyTest.Prepare(btn, 3) end
 
             matrixButtons[slotIdx] = btn
         end
@@ -864,19 +894,7 @@ function SDB.RefreshMatrixGrid()
                     btn:Show()
                 end
 
-                -- Feed the macro text securely into the button engine (blocked during combat to prevent UI taint)
-                local secureMacro = macroText
-                local trimmedMacro = strtrim(secureMacro)
-                if string.match(trimmedMacro, "^!PAGE") or string.match(trimmedMacro, "^!BIND") then
-                    secureMacro = "" -- Prevent attempting to chat the custom page / bind command
-                end
-
-                -- "*" = with any modifier held. A plain type1 / macrotext1 only matches an UNMODIFIED left click, so
-                -- Shift-, Ctrl- and Alt-clicks (and [mod:shift] macros) would do nothing.
-                btn:SetAttribute("*type1", "macro")
-                btn:SetAttribute("*macrotext1", SDB.SecureMacroText(secureMacro))
-                btn:SetAttribute("type2", nil)
-                btn:SetAttribute("macrotext2", nil)
+                SetPadMacro(btn, curP, slotIdx, macroText)
             end
 
             local conflictAction = (keyToken ~= "") and SDB.GetKeybindConflictInfo(keyToken) or nil

@@ -219,8 +219,10 @@ function B.Build(only)
     local skipped = {}
     local data = { type = "ALL", pages = {}, pageNames = {}, pageCols = {}, deckSize = size }
     for barIndex, bar in ipairs(B.BARS) do
-        local entries, filled = ReadBar(bar, skipped)
-        if filled > 0 and (not only or only[barIndex]) then
+        -- only the chosen bars are read, so the notes count nothing from a bar that isn't imported
+        local entries, filled = {}, 0
+        if not only or only[barIndex] then entries, filled = ReadBar(bar, skipped) end
+        if filled > 0 then
             -- a keypad with fewer than 12 keys gets the bar over several pages
             local count = math.ceil(BAR_SLOTS / size)
             for n = 1, count do

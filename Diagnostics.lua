@@ -1725,7 +1725,7 @@ function D.Combat(emit, arg)
                 local btn = SDB.secureButtons and SDB.secureButtons["GalleonSecBtn_P" .. page .. "_S" .. slot]
                 local live
                 local cardText = tostring(d.macro or "")
-                if string.find(cardText, "^%s*!PAGE") or string.find(cardText, "^%s*!BIND") then
+                if SDB.IsPageCard(cardText) or string.find(cardText, "^%s*!BIND") then
                     live = "no macro button by design (!PAGE and !BIND cards)"
                 elseif btn then
                     local ok, t = pcall(btn.GetAttribute, btn, "macrotext")

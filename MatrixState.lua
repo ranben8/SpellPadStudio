@@ -60,20 +60,6 @@ end
 -- -------------------------------------------------------------
 -- Item helpers
 -- -------------------------------------------------------------
-local function ResolveItemID(name)
-    local n = tonumber(name)
-    if n then return n end
-    if SDB.ItemCache then return SDB.ItemCache.IDByName(name) end
-    if C_Item and C_Item.GetItemInfoInstant then
-        local id = C_Item.GetItemInfoInstant(name)
-        if id then return id end
-    elseif GetItemInfoInstant then
-        local id = GetItemInfoInstant(name)
-        if id then return id end
-    end
-    return nil
-end
-
 local function IsStackable(ref)
     if C_Item and C_Item.IsConsumableItem then
         if C_Item.IsConsumableItem(ref) then return true end
@@ -133,7 +119,7 @@ local function Rebind(btn)
     elseif btn.invSlot then
         btn.msItemID = GetInventoryItemID and GetInventoryItemID("player", btn.invSlot) or nil
     elseif btn.targetName and btn.targetName ~= "" then
-        btn.msItemID = ResolveItemID(btn.targetName)
+        btn.msItemID = SDB.ItemCache.IDByName(btn.targetName)
         btn.msStackable = IsStackable(btn.msItemID or btn.targetName)
     end
 end
@@ -204,7 +190,7 @@ local function ApplyCooldown(btn)
         if active == nil then active = (duration and duration > 0) and true or false end
         if active and enableNum == 1 and start and duration and duration > 0 then
             SetChargeMode(btn, false)
-            CooldownFrame_Set(cd, start, duration, enableNum, true, modRate)
+            CooldownFrame_Set(cd, start, duration, enableNum, false, modRate)
         else
             local drew = false
             if kind == "spell" and btn.msMax and btn.msMax > 1 then

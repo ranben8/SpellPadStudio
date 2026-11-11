@@ -1645,25 +1645,25 @@ end
 -- /sps ui  (report)
 -- ---------------------------------------------------------------
 local PARTS = {
-    { "panel (A2 inset)", INSET_ATLASES },
-    { "panel inner frame (mirrored halves)", { INNER_ATLAS } },
-    { "primary button (B2 kit)", RED_ATLASES },
-    { "secondary button (B4)", { TERTIARY.normal, TERTIARY.hover, TERTIARY.pressed, TERTIARY.disabled } },
-    { "scroll bar (E2)", SCROLL_ATLASES },
-    { "scroll arrows (E2)", { ARROW_TOP, ARROW_BOTTOM } },
-    { "row (C2)", { "Options_List_Active", "Options_List_Hover" } },
-    { "search box (D2)", SEARCH_ATLASES },
-    { "checkbox (F2)", { "checkbox-minimal", "checkmark-minimal", "checkmark-minimal-disabled" } },
-    { "slider (F4)", SLIDER_ATLASES },
-    { "dropdown look (F7)", { "common-dropdown-textholder", "common-dropdown-a-button" } },
-    { "tabs (C4)", TAB_ATLASES },
-    { "chip icons (step 6)", { "common-icon-checkmark", "common-icon-redx" } },
-    { "divider (G3)", { "Options_HorizontalDivider" } },
+    { "inset panel", INSET_ATLASES },
+    { "panel inner frame", { INNER_ATLAS } },
+    { "primary button (red kit)", RED_ATLASES },
+    { "secondary button", { TERTIARY.normal, TERTIARY.hover, TERTIARY.pressed, TERTIARY.disabled } },
+    { "scroll bar", SCROLL_ATLASES },
+    { "scroll arrows", { ARROW_TOP, ARROW_BOTTOM } },
+    { "list row", { "Options_List_Active", "Options_List_Hover" } },
+    { "search box", SEARCH_ATLASES },
+    { "checkbox", { "checkbox-minimal", "checkmark-minimal", "checkmark-minimal-disabled" } },
+    { "slider", SLIDER_ATLASES },
+    { "dropdown look", { "common-dropdown-textholder", "common-dropdown-a-button" } },
+    { "tabs", TAB_ATLASES },
+    { "chip icons", { "common-icon-checkmark", "common-icon-redx" } },
+    { "divider", { "Options_HorizontalDivider" } },
 }
 
 function U.Report(emit)
     emit = emit or print
-    emit("Shared UI parts of SpellPad Studio (refine step 2).")
+    emit("Shared UI parts of SpellPad Studio.")
     emit("A part whose atlases are all present is drawn with them; otherwise it uses the classic look.")
     emit("")
     for _, p in ipairs(PARTS) do
@@ -1700,7 +1700,7 @@ function U.Report(emit)
     local names = {}
     for part in pairs(U.counts) do names[#names + 1] = part end
     table.sort(names)
-    if #names == 0 then emit("  nothing yet (the pilot windows build their parts when first opened)") end
+    if #names == 0 then emit("  nothing yet (each window builds its parts when it is first opened)") end
     for _, part in ipairs(names) do
         local v = {}
         for variant, n in pairs(U.counts[part]) do v[#v + 1] = variant .. " = " .. n end

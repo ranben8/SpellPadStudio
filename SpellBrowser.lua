@@ -1098,6 +1098,14 @@ function B.UpdateList()
 end
 
 function B.Open()
+    if not B.frame and not SDB.configWindow then
+        -- the window docks to the main window and closes with it, so the main window is built first (not possible in combat)
+        if InCombatLockdown() then
+            Chat("Can't open the Arsenal for the first time in combat.", true)
+            return
+        end
+        if SDB.BuildUI then SDB.BuildUI() end
+    end
     local f = BuildWindow()
     if SDB.configWindow and not SDB.configWindow:IsShown() then SDB.configWindow:Show() end
     if SDB.db then

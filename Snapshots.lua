@@ -74,6 +74,32 @@ local function Store()
     return GalleonBridgeDB.snapshots
 end
 
+-- Every snapshot gets a number of its own, so a profile snapshot can remember where the page snapshots pointed when it
+-- was taken (saved data can't hold a reference to another entry).
+local function NewId()
+    GalleonBridgeDB.snapshotSeq = (tonumber(GalleonBridgeDB.snapshotSeq) or 0) + 1
+    return GalleonBridgeDB.snapshotSeq
+end
+
+-- the page snapshots of a profile
+local function EachPageSnap(profileName, fn)
+    local snaps = GalleonBridgeDB and GalleonBridgeDB.snapshots
+    if type(snaps) ~= "table" then return end
+    for _, e in ipairs(snaps) do
+        if type(e) == "table" and e.scope == "page" and e.profile == profileName and type(e.page) == "number" then fn(e) end
+    end
+end
+
+-- runs fn(specKey, rules) for the context rules of the profile in use, of every character and specialization
+local function EachRuleSetKeyed(fn)
+    local all = GalleonBridgeDB and GalleonBridgeDB.contextRules
+    if type(all) ~= "table" then return end
+    for specKey, box in pairs(all) do
+        local set = type(box) == "table" and type(box.profiles) == "table" and box.profiles[SDB.currentProfileName]
+        if type(set) == "table" then fn(specKey, set) end
+    end
+end
+
 -- -------------------------------------------------------------
 -- Taking snapshots
 -- -------------------------------------------------------------
@@ -112,9 +138,17 @@ function S.Take(label, scope, opts)
         return top
     end
 
+    entry.id = NewId()
     if entry.scope == "profile" then
         entry.profileData = DeepCopy(GalleonBridgeDB.profiles[entry.profile])
         entry.pages, entry.macros = CountProfile(entry.profileData)
+        -- the context rules and the page snapshots are numbered by page, so they go back with the pages
+        if SDB.CopyProfileContexts then entry.contextSets = SDB.CopyProfileContexts(entry.profile) end
+        entry.pageSnaps = {}
+        EachPageSnap(entry.profile, function(e)
+            if not e.id then e.id = NewId() end
+            entry.pageSnaps[e.id] = { page = e.page, deleted = e.deleted }
+        end)
     else
         entry.slots = DeepCopy(SDB.db.pages[entry.page])
         entry.pages = 1
@@ -122,6 +156,23 @@ function S.Take(label, scope, opts)
         if entry.deleted and SDB.ctx then
             entry.ctxTrigger = SDB.ctx.pageContexts and SDB.ctx.pageContexts[entry.page] or nil
             entry.ctxPrio = SDB.ctx.pagePriorities and SDB.ctx.pagePriorities[entry.page] or nil
+        end
+        -- the last page of a folder takes the folder's context, color and new-page switch with it, so a folder
+        -- made later under that name starts clean and restoring this page brings them back
+        local folder = entry.deleted and SDB.PageCycle and SDB.PageCycle(entry.page)
+        if folder and #SDB.CycleMembers(folder) == 1 then
+            local rules = {}
+            EachRuleSetKeyed(function(specKey, r)
+                local t = type(r.cycleContexts) == "table" and r.cycleContexts[folder]
+                local pr = type(r.cyclePriorities) == "table" and r.cyclePriorities[folder]
+                if t or pr then rules[specKey] = { trigger = t or nil, prio = pr or nil } end
+            end)
+            entry.folder = {
+                name = folder,
+                rules = rules,
+                color = SDB.CycleColorIsSet(folder) and { SDB.CycleColor(folder) } or nil,
+                navOff = (not SDB.FolderNavOn(folder)) or nil,
+            }
         end
     end
 
@@ -174,16 +225,80 @@ function S.ClampPages()
     if not SDB.manualPage or SDB.manualPage > n or SDB.manualPage < 1 then SDB.manualPage = 1 end
 end
 
+-- "!PAGE n" with the number `map` moved page n to, or nil when the text is no such card or its number stays
+local FollowedPageCard
+
+-- Rewrites the `!PAGE n` cards of every page except `skipPage` by `map` (Options > General > "Update !PAGE cards on
+-- reorder"). Returns how many changed.
+local function FollowPageCards(map, skipPage)
+    if GalleonBridgeDB and GalleonBridgeDB.pageCardsFollowOff then return 0 end
+    local changed = 0
+    for k, page in ipairs(SDB.db.pages) do
+        if k ~= skipPage and type(page) == "table" then
+            for _, slot in ipairs(page) do
+                local updated = type(slot) == "table" and FollowedPageCard(slot.macro, map)
+                if updated then
+                    slot.macro = updated
+                    changed = changed + 1
+                end
+            end
+        end
+    end
+    return changed
+end
+
+-- Removes page idx. Everything numbered by page follows: names, context rules, the fallback and last context page,
+-- the page snapshots of this profile (a snapshot of the removed page itself counts as a deleted page from now on) and
+-- the `!PAGE n` cards. A folder whose last page this was loses its context, color and switch (the delete snapshot
+-- keeps them). Returns how many `!PAGE` cards still name the removed page's number.
 function S.RemovePage(idx)
     local db = SDB.db
     local n = #db.pages
+    local folder = db.pages[idx] and db.pages[idx].cycle
     for i = idx, n do
         db.pages[i] = db.pages[i + 1]
         if db.pageNames then db.pageNames[i] = db.pageNames[i + 1] end
     end
     S.ShiftContextRules(idx, -1)
     if SDB.manualPage and SDB.manualPage > idx then SDB.manualPage = SDB.manualPage - 1 end
+    if type(SDB.lastContextPage) == "number" then
+        if SDB.lastContextPage == idx then
+            SDB.lastContextPage, SDB.contextHold = nil, nil
+        elseif SDB.lastContextPage > idx then
+            SDB.lastContextPage = SDB.lastContextPage - 1
+        end
+    end
+    EachPageSnap(SDB.currentProfileName, function(e)
+        if e.page > idx then
+            e.page = e.page - 1
+        elseif e.page == idx and not e.deleted then
+            e.deleted = true
+        end
+    end)
+
+    local map = {}
+    for k = idx + 1, n do map[k] = k - 1 end
+    FollowPageCards(map)
+    local orphans = 0
+    for _, page in ipairs(db.pages) do
+        for _, slot in ipairs(page) do
+            if type(slot) == "table" and type(slot.macro) == "string" then
+                local _, target = SDB.PageCardParts(slot.macro)
+                if tonumber(target) == idx then orphans = orphans + 1 end
+            end
+        end
+    end
+
+    if folder and SDB.FindCycle and not SDB.FindCycle(folder) then
+        S.EachRuleSet(function(r)
+            if type(r.cycleContexts) == "table" then r.cycleContexts[folder] = nil end
+            if type(r.cyclePriorities) == "table" then r.cyclePriorities[folder] = nil end
+        end)
+        SDB.SetCycleColor(folder, nil)
+        SDB.SetFolderNavOn(folder, true)
+    end
     S.ClampPages()
+    return orphans
 end
 
 -- Move page `src` to position `dest` (drag-to-reorder in the Pages list). Everything that is numbered follows the
@@ -200,12 +315,12 @@ local function RemapKeys(t, map)
     for k, v in pairs(moved) do t[k] = v end
 end
 
--- "!PAGE n" with the number `map` moved page n to, or nil when the text is no such card or its number stays
-local function FollowedPageCard(text, map)
+function FollowedPageCard(text, map)
     if type(text) ~= "string" then return nil end
-    local lead, num, rest = string.match(text, "^(%s*!PAGE%s+)(%d+)(.*)$")
-    local to = num and map[tonumber(num)]
-    if to and to ~= tonumber(num) then return lead .. to .. rest end
+    local lead, target, rest = SDB.PageCardParts(text)
+    local num = tonumber(target)
+    local to = num and map[num]
+    if to and to ~= num then return lead .. to .. rest end
     return nil
 end
 
@@ -248,15 +363,9 @@ function S.MovePage(src, dest, forceFollow)
     if type(SDB.lastContextPage) == "number" and map[SDB.lastContextPage] then SDB.lastContextPage = map[SDB.lastContextPage] end
 
     -- page snapshots of this profile keep pointing at the page they were taken of
-    local snaps = GalleonBridgeDB and GalleonBridgeDB.snapshots
-    if type(snaps) == "table" then
-        for _, e in ipairs(snaps) do
-            if type(e) == "table" and e.scope == "page" and e.profile == SDB.currentProfileName
-                and type(e.page) == "number" and map[e.page] then
-                e.page = map[e.page]
-            end
-        end
-    end
+    EachPageSnap(SDB.currentProfileName, function(e)
+        if map[e.page] then e.page = map[e.page] end
+    end)
 
     -- `!PAGE n` cards: a card whose whole macro is "!PAGE n" follows the page it pointed at
     -- (Options > General > "Update !PAGE cards on reorder"; off = true in GalleonBridgeDB.pageCardsFollowOff)
@@ -286,9 +395,24 @@ function S.MovePage(src, dest, forceFollow)
     return true, rewritten
 end
 
+-- true when only the pages in the set `fresh` change places: every other page keeps its order
+local function OnlyFreshMove(order, fresh)
+    if type(fresh) ~= "table" then return false end
+    local last = 0
+    for _, p in ipairs(order) do
+        if not fresh[p] then
+            if p < last then return false end
+            last = p
+        end
+    end
+    return true
+end
+
 -- Puts the pages in `order` (a list of the current page numbers in the wanted sequence) with MovePage steps, after one
 -- profile snapshot. `!PAGE n` cards always follow here: a regrouping must not break them. Returns the number of moves.
-function S.ApplyOrder(order)
+-- `fresh` (a set of page numbers) names pages that were just added or restored: when only those move, nothing the
+-- player arranged changes, so no snapshot is taken (one per new page would push real edits out of the ring of 10).
+function S.ApplyOrder(order, fresh)
     local db = SDB.db
     local n = db and db.pages and #db.pages or 0
     if n < 2 or #order ~= n then return 0 end
@@ -308,11 +432,13 @@ function S.ApplyOrder(order)
         end
     end
     if #moves == 0 then return 0 end
-    S.Take("Before Group Pages", "profile")
+    if not OnlyFreshMove(order, fresh) then S.Take("Before Group Pages", "profile") end
     for _, m in ipairs(moves) do S.MovePage(m[1], m[2], true) end
     return #moves
 end
 
+-- Puts a page back at idx (restoring a deleted page); everything numbered by page moves up behind it, as RemovePage
+-- moved it down. The re-inserted page's own `!PAGE n` cards already use these numbers.
 function S.InsertPage(idx, slots, name)
     local db = SDB.db
     if not db.pageNames then db.pageNames = {} end
@@ -325,6 +451,15 @@ function S.InsertPage(idx, slots, name)
     db.pageNames[idx] = name
     S.ShiftContextRules(idx, 1)
     if SDB.manualPage and SDB.manualPage >= idx then SDB.manualPage = SDB.manualPage + 1 end
+    if type(SDB.lastContextPage) == "number" and SDB.lastContextPage >= idx then
+        SDB.lastContextPage = SDB.lastContextPage + 1
+    end
+    EachPageSnap(SDB.currentProfileName, function(e)
+        if e.page > idx or (e.page == idx and not e.deleted) then e.page = e.page + 1 end
+    end)
+    local map = {}
+    for k = idx, n do map[k] = k + 1 end
+    FollowPageCards(map, idx)
 end
 
 -- -------------------------------------------------------------
@@ -409,6 +544,18 @@ function S.Restore(entry)
         local name = entry.profile
         local existed = GalleonBridgeDB.profiles[name] ~= nil
         GalleonBridgeDB.profiles[name] = DeepCopy(entry.profileData)
+        -- the rules and page snapshots numbered by page go back to the numbers these pages had (older snapshots
+        -- carry neither and leave them as they are)
+        if entry.contextSets and SDB.RestoreProfileContexts then SDB.RestoreProfileContexts(name, entry.contextSets) end
+        if type(entry.pageSnaps) == "table" then
+            EachPageSnap(name, function(e)
+                local was = e.id and entry.pageSnaps[e.id]
+                if type(was) == "table" and type(was.page) == "number" then
+                    e.page, e.deleted = was.page, was.deleted
+                end
+            end)
+        end
+        if name == SDB.currentProfileName then SDB.lastContextPage, SDB.contextHold = nil, nil end
         if existed then
             if SDB.currentProfileName == name then
                 SDB.db = GalleonBridgeDB.profiles[name]
@@ -438,6 +585,21 @@ function S.Restore(entry)
                     SDB.ctx.pagePriorities[idx] = entry.ctxPrio
                 end
             end
+            -- a folder that went with this page comes back with its context, color and switch, unless a folder of that
+            -- name was made since (then that one keeps its own)
+            local f = entry.folder
+            if type(f) == "table" and f.name and copy.cycle == f.name and #SDB.CycleMembers(f.name) == 1 then
+                local rules = type(f.rules) == "table" and f.rules or {}
+                EachRuleSetKeyed(function(specKey, r)
+                    local was = rules[specKey]
+                    if type(r.cycleContexts) ~= "table" then r.cycleContexts = {} end
+                    if type(r.cyclePriorities) ~= "table" then r.cyclePriorities = {} end
+                    r.cycleContexts[f.name] = type(was) == "table" and was.trigger or nil
+                    r.cyclePriorities[f.name] = type(was) == "table" and was.prio or nil
+                end)
+                if SDB.ValidColor(f.color) then SDB.SetCycleColor(f.name, f.color[1], f.color[2], f.color[3]) end
+                if f.navOff then SDB.SetFolderNavOn(f.name, false) end
+            end
         else
             idx = math.min(entry.page, n + 1)
             if not db.pageNames then db.pageNames = {} end
@@ -445,7 +607,16 @@ function S.Restore(entry)
             db.pages[idx] = copy
             db.pageNames[idx] = entry.pageName
         end
+        -- the restored page goes with its folder (its folder may differ from the page it replaced), then counts as picked
+        -- by hand, so the next context check doesn't take it away
+        if SDB.GroupPages then
+            SDB.GroupPages(true, { [idx] = true })
+            for i, pg in ipairs(db.pages) do
+                if pg == copy then idx = i break end
+            end
+        end
         db.activePage = idx
+        if SDB.NotePickedPage then SDB.NotePickedPage(idx) end
         S.ClampPages()
         print("|cFF00FF00[SpellPad Studio]|r Page " .. idx .. " '" .. S.Esc(entry.pageName) .. "' restored from snapshot.")
     end
@@ -625,10 +796,11 @@ SDB.Undo = SDB.Undo or {}
 
 -- fromFocus = true when called from the macro box gaining focus. That must not overwrite
 -- the state saved by a real overwrite (insert, clear, optimize...), or Undo restores nothing.
-function SDB.Undo.Remember(row, text, fromFocus)
+-- page = the card's page when it is not the shown one (SpellPad Builder stays on its card when the page changes).
+function SDB.Undo.Remember(row, text, fromFocus, page)
     if not row or not SDB.db then return end
     if fromFocus and row.undoState and row.undoState.sticky and SDB.Undo.Recall(row) then return end
-    local page = SDB.db.activePage or 1
+    page = page or SDB.db.activePage or 1
     local data = SDB.db.pages and SDB.db.pages[page] and SDB.db.pages[page][row.slotIndex]
     row.undoState = {
         sticky = not fromFocus,

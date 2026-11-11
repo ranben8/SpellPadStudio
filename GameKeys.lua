@@ -381,7 +381,7 @@ end
 
 local function ActionOf(macro)
     if type(macro) ~= "string" then return nil end
-    local action = string.match(strtrim(macro), "^!BIND%s+(.+)$")
+    local action = string.match(strtrim(macro), "^!BIND%s+([^\r\n]+)") -- the action ends at the line, as when it is bound
     return action and strtrim(action) or nil
 end
 

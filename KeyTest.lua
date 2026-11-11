@@ -19,31 +19,38 @@ SDB.KeyTest = SDB.KeyTest or {}
 local K = SDB.KeyTest
 K.echo = false
 
+-- Called when a SpellPad button or a card is made, so its first key press in combat can flash too
+function K.Prepare(frame, inset)
+    if frame.keyFlash then return frame.keyFlash end
+    local t = frame:CreateTexture(nil, "OVERLAY", nil, 7)
+    t:SetColorTexture(1.0, 0.85, 0.2, 1)
+    t:SetBlendMode("ADD")
+    t:SetPoint("TOPLEFT", inset, -inset)
+    t:SetPoint("BOTTOMRIGHT", -inset, inset)
+    local ag = t:CreateAnimationGroup()
+    local a = ag:CreateAnimation("Alpha")
+    if a.SetFromAlpha then
+        a:SetFromAlpha(0.75)
+        a:SetToAlpha(0)
+    else
+        t:SetAlpha(0.75)
+        a:SetChange(-0.75)
+    end
+    a:SetDuration(0.35) -- the same length as the SpellPad's change glow (MATRIX_LOOK.glowTime)
+    ag:SetScript("OnFinished", function() t:Hide() end)
+    t.anim = ag
+    t:Hide()
+    frame.keyFlash = t
+    return t
+end
+
 local function FlashOn(frame, inset)
     if not frame then return end
     local t = frame.keyFlash
     if not t then
         -- adding a texture to a protected SpellPad button in combat is avoided; skip instead
         if InCombatLockdown() then return end
-        t = frame:CreateTexture(nil, "OVERLAY", nil, 7)
-        t:SetColorTexture(1.0, 0.85, 0.2, 1)
-        t:SetBlendMode("ADD")
-        t:SetPoint("TOPLEFT", inset, -inset)
-        t:SetPoint("BOTTOMRIGHT", -inset, inset)
-        local ag = t:CreateAnimationGroup()
-        local a = ag:CreateAnimation("Alpha")
-        if a.SetFromAlpha then
-            a:SetFromAlpha(0.75)
-            a:SetToAlpha(0)
-        else
-            t:SetAlpha(0.75)
-            a:SetChange(-0.75)
-        end
-        a:SetDuration(0.35) -- the same length as the SpellPad's change glow (MATRIX_LOOK.glowTime)
-        ag:SetScript("OnFinished", function() t:Hide() end)
-        t.anim = ag
-        t:Hide()
-        frame.keyFlash = t
+        t = K.Prepare(frame, inset)
     end
     -- the flash color is a setting (Options > Look); only recolor when it changed
     local r, g, b = 1.0, 0.85, 0.2

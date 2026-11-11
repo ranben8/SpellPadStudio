@@ -840,6 +840,44 @@ function SDB.DropProfileContexts(profileName)
     end
 end
 
+-- Copies of a profile's context rules, by character and specialization, for a profile snapshot. The rules are keyed by
+-- page number, so a snapshot that puts the pages back must put the rules back with them.
+function SDB.CopyProfileContexts(profileName)
+    local out = {}
+    local all = GalleonBridgeDB and GalleonBridgeDB.contextRules
+    if type(all) ~= "table" then return out end
+    for specKey, box in pairs(all) do
+        local set = type(box) == "table" and type(box.profiles) == "table" and box.profiles[profileName]
+        if type(set) == "table" then out[specKey] = SDB.DeepCopy(set) end
+    end
+    return out
+end
+
+-- Puts copies made by SDB.CopyProfileContexts back: every character's rules for this profile become what the
+-- snapshot held (a character that had none then has none now). SDB.ctx follows when it is the profile in use.
+function SDB.RestoreProfileContexts(profileName, sets)
+    if type(sets) ~= "table" or not GalleonBridgeDB then return end
+    if type(GalleonBridgeDB.contextRules) ~= "table" then GalleonBridgeDB.contextRules = {} end
+    local all = GalleonBridgeDB.contextRules
+    for _, box in pairs(all) do
+        if type(box) == "table" and type(box.profiles) == "table" then box.profiles[profileName] = nil end
+    end
+    for specKey, set in pairs(sets) do
+        if type(set) == "table" then
+            local box = all[specKey]
+            if type(box) ~= "table" then
+                box = { migrated = true }
+                all[specKey] = box
+            end
+            if type(box.profiles) ~= "table" then box.profiles = {} end
+            box.profiles[profileName] = NewContextSet(SDB.DeepCopy(set))
+        end
+    end
+    if profileName == SDB.currentProfileName then
+        SelectContextRules(SDB.GetPlayerKey() .. "-Spec" .. tostring(SDB.GetActiveSpecID()), profileName)
+    end
+end
+
 function SDB.RenameProfileContexts(old, new)
     local all = GalleonBridgeDB and GalleonBridgeDB.contextRules
     if type(all) ~= "table" then return end

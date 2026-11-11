@@ -613,9 +613,11 @@ function M.Apply()
     end
     local existing = CardText(card)
     local active = (db.activePage or 1) == card.page
-    local row = active and SDB.rows and SDB.rows[card.slot] or nil
+    local cardRow = SDB.rows and SDB.rows[card.slot] or nil
+    local row = active and cardRow or nil
+    -- the card's Undo, also for a card whose page is not shown any more (it works once that page is shown again)
+    if cardRow and SDB.Undo then SDB.Undo.Remember(cardRow, existing, nil, card.page) end
     if row and row.macroBox then
-        if SDB.Undo then SDB.Undo.Remember(row, existing) end
         row.macroBox:SetText(text)
     end
     slot.macro = text
@@ -2173,6 +2175,12 @@ function B.Open()
     local sig, p, i = SelectedCard()
     if not sig then
         Chat("Click a card first so its border highlights gold, then open SpellPad Builder.", "bad")
+        return false
+    end
+    -- Building the window turns its keyboard on and makes it pass keys on to the game, a call the game refuses in
+    -- combat: built then, the window would keep every key press (WASD and Esc too) for the rest of the fight.
+    if not W.f and InCombatLockdown() then
+        Chat("Can't open SpellPad Builder for the first time in combat.", "bad")
         return false
     end
     local f = Build()

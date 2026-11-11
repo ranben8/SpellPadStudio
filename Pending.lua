@@ -48,6 +48,13 @@ function P.MarkApplied()
     P.Update()
 end
 
+-- The macro text last applied to a card; nil when nothing has been applied for it in this profile yet
+function P.AppliedMacro(page, slot)
+    if not P.hasApplied or P.appliedDb ~= SDB.db then return nil end
+    local app = P.applied[page] and P.applied[page][slot]
+    return app and (app.m or "") or nil
+end
+
 function P.IsDirty(page, slot)
     if not P.hasApplied then return false end
     local data = SDB.db and SDB.db.pages and SDB.db.pages[page] and SDB.db.pages[page][slot]

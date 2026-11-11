@@ -284,15 +284,16 @@ local function BuildPrefixGroup(g)
     end
     global:SetScript("OnClick", function() Choose(true) end)
     perPage:SetScript("OnClick", function() Choose(false) end)
+    -- hooks, not SetScript: the chip brightens its line from its own OnEnter / OnLeave
     for _, chip in ipairs({ global, perPage }) do
-        chip:SetScript("OnEnter", function(self)
+        chip:HookScript("OnEnter", function(self)
             SDB.Tip.Begin(self, "ANCHOR_RIGHT", self == global and "Global Prefix" or "Per Page Prefix", "control")
             SDB.Tip.Line(self == global
                 and "One prefix for every page. Turning it on gives every page the prefix of the page you are on."
                 or "Every page has its own prefix. New pages start with no keys.")
             SDB.Tip.Done()
         end)
-        chip:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        chip:HookScript("OnLeave", function() GameTooltip:Hide() end)
     end
 
     click:SetScript("OnClick", function(_, button)

@@ -117,12 +117,14 @@ function PC.OpenPicker(kind)
     if not PC.PickerAvailable() then return false end
     local r0, g0, b0 = SDB.PadColor(kind)
     local wasUnset = SDB.IsPadColorUnset(kind)
+    local changed = false
     local info = {
         r = r0, g = g0, b = b0, hasOpacity = false,
         swatchFunc = function()
             local r, g, b = ColorPickerFrame:GetColorRGB()
             -- the picker may report its starting color when it opens: don't turn an unset color into a set one
-            if wasUnset and Near(r, r0) and Near(g, g0) and Near(b, b0) then return end
+            if wasUnset and not changed and Near(r, r0) and Near(g, g0) and Near(b, b0) then return end
+            changed = true
             SDB.SetPadColor(kind, r, g, b)
             PC.RefreshAll()
         end,

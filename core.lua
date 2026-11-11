@@ -496,8 +496,8 @@ end
 
 -- Puts page p into the named cycle `name`, into the Default cycle (name nil) or, with skip, out of all cycles.
 -- Returns true when something changed, nil when nothing needed to, false and a reason when refused. `quiet` leaves out
--- the chat line of the regrouping (a page made with "+" says where it went itself).
-function SDB.SetPageCycle(p, name, skip, quiet)
+-- the chat line of the regrouping (a page made with "+" says where it went itself); `fresh` is passed to SDB.GroupPages.
+function SDB.SetPageCycle(p, name, skip, quiet, fresh)
     local pg = PageTable(p)
     if not pg then return false, "That page no longer exists." end
     skip = skip and true or false
@@ -537,7 +537,7 @@ function SDB.SetPageCycle(p, name, skip, quiet)
         print("|cFFFF9900[SpellPad Studio]|r Page " .. p .. "'s own context was removed. The folder '"
             .. (string.gsub(name, "|", "||")) .. "' decides when it is used.")
     end
-    SDB.GroupPages(quiet)
+    SDB.GroupPages(quiet, fresh)
     if SDB.EvaluateContextState then SDB.EvaluateContextState() end
     return true
 end
@@ -546,8 +546,8 @@ end
 -- never jump over a different group. Groups keep the order of their first page; pages of the Context pages group are
 -- sorted by context (same context side by side); everything else keeps its order. Reordering renumbers pages the way a
 -- drag in the Pages list does (names, context rules, `!PAGE n` cards, page snapshots); a profile snapshot is taken
--- first. Returns how many moves it made. Not in combat. `quiet` leaves out the chat line.
-function SDB.GroupPages(quiet)
+-- first, unless only the pages in the set `fresh` (just added or restored) move. Returns how many moves it made. Not in
+function SDB.GroupPages(quiet, fresh)
     local n = SDB.db and SDB.db.pages and #SDB.db.pages or 0
     if n < 2 or InCombatLockdown() then return 0 end
     local keys, subs, first, triggerFirst = {}, {}, {}, {}
@@ -571,7 +571,7 @@ function SDB.GroupPages(quiet)
         if subs[a] ~= subs[b] then return subs[a] < subs[b] end
         return a < b
     end)
-    local moved = SDB.Snapshots and SDB.Snapshots.ApplyOrder and SDB.Snapshots.ApplyOrder(order) or 0
+    local moved = SDB.Snapshots and SDB.Snapshots.ApplyOrder and SDB.Snapshots.ApplyOrder(order, fresh) or 0
     if moved > 0 then
         SDB.activeSlotIndex = nil
         if SDB.Undo then SDB.Undo.ClearAll() end
@@ -826,12 +826,45 @@ end
 
 -- What a "!PAGE ..." card asks for: a page number ("!PAGE 3" -> "3"), or "forward" / "backward" for
 -- "!PAGE Forward" / "!PAGE Backward" (the word in any case). Nil for any other text.
+-- A page card is a macro whose first action line starts with !PAGE, in any case. #show lines and blank lines above it
+-- don't count. Everything that has to know (the icon, the keys, the SpellPad, a page reorder) asks here, so a card is
+-- never drawn as a page button and then sent to chat as text. Returns where that line starts.
+local function PageCardLine(text)
+    local s = text or ""
+    local pos = 1
+    while pos <= #s do
+        local stop = string.find(s, "\n", pos, true) or (#s + 1)
+        local line = strtrim(string.sub(s, pos, stop - 1))
+        if line ~= "" and string.sub(line, 1, 1) ~= "#" then
+            if string.find(line, "^![Pp][Aa][Gg][Ee]") then return pos end
+            return nil
+        end
+        pos = stop + 1
+    end
+    return nil
+end
+
+function SDB.IsPageCard(text)
+    return PageCardLine(text) ~= nil
+end
+
+-- A page card cut around its target: the text before the target, the target (digits or a word), the text after it.
+-- Nothing for a card with no target.
+function SDB.PageCardParts(text)
+    local pos = PageCardLine(text)
+    if not pos then return nil end
+    local line = string.sub(text, pos)
+    local lead, target, rest = string.match(line, "^(%s*![Pp][Aa][Gg][Ee]%s+)(%d+)(.*)$")
+    if not lead then lead, target, rest = string.match(line, "^(%s*![Pp][Aa][Gg][Ee]%s+)(%a+)(.*)$") end
+    if not lead then return nil end
+    return string.sub(text, 1, pos - 1) .. lead, target, rest
+end
+
 function SDB.PageCommand(text)
-    local trimmed = strtrim(text or "")
-    local number = string.match(trimmed, "^!PAGE%s+(%d+)")
-    if number then return number end
-    local word = string.match(trimmed, "^!PAGE%s+(%a+)")
-    word = word and string.lower(word)
+    local _, target = SDB.PageCardParts(text)
+    if not target then return nil end
+    if tonumber(target) then return target end
+    local word = string.lower(target)
     if word == "forward" or word == "backward" then return word end
     return nil
 end
@@ -982,6 +1015,13 @@ SDB.REPLACEMENT_SUFFIXES = { "NUMPADDECIMAL", "NUMPADMULTIPLY" }
 function SDB.IsGameKillKey(key)
     local prefix, suffix = SDB.SplitKey(string.upper(strtrim(key or "")))
     return suffix == "F4" and string.find(prefix, "ALT%-") ~= nil
+end
+
+-- The left and right mouse buttons (with or without modifiers) are never card keys: binding one would take over
+-- clicking in the game and the interface. Only an import string can carry one; it is never bound.
+function SDB.IsMouseClickKey(key)
+    local _, suffix = SDB.SplitKey(string.upper(strtrim(key or "")))
+    return suffix == "BUTTON1" or suffix == "BUTTON2"
 end
 
 -- swaps every ALT-...-F4 of a page's cards for the replacement key; returns how many were changed
@@ -1457,19 +1497,18 @@ end
 function SDB.ResolveMacroAction(macroText, live)
     if not macroText or macroText == "" then return nil, nil end
 
+    local pageTarget = SDB.PageCommand(macroText)
+    if pageTarget then return "page", pageTarget end
+
     for line in string.gmatch(macroText, "[^\r\n]+") do
         local trimmed = strtrim(line)
-        local stTarget = string.match(trimmed, "^#showtooltip%s+(.+)")
-        local pageTarget = SDB.PageCommand(trimmed)
+        local directive, shown = string.match(trimmed, "^#(%a+)%s*(.*)$")
+        directive = directive and string.lower(directive)
 
-        if pageTarget then
-            return "page", pageTarget
-        elseif stTarget then
-            local picked = SDB.PickMacroName(stTarget, live)
+        if directive == "show" or directive == "showtooltip" then
+            local picked = (shown ~= "") and SDB.PickMacroName(shown, live) or nil
             if picked then return "auto", picked end
-            -- no alternative applies right now: look at the lines below
-        elseif trimmed == "#showtooltip" then
-            -- scan further
+            -- nothing named, or no alternative applies right now: look at the lines below
         else
             local action, target = string.match(trimmed, "^/(%a+)%s+(.+)")
             if action then
@@ -1564,12 +1603,17 @@ function SDB.UpdateSlotIconAndTooltip(iconFrame, macroText, customIcon)
             invSlot = slotNum
             stdTexture = GetInventoryItemTexture and GetInventoryItemTexture("player", slotNum) or nil
         else
-            local spellInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(target)
-            if not spellInfo and SDB.MountDrop then
+            -- /use means the item when there is one: an item can share its name with a spell the character knows
+            local useItemIcon
+            if actType == "use" and SDB.ItemCache then useItemIcon = SDB.ItemCache.IconByName(target) end
+            local spellInfo = not useItemIcon and C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(target) or nil
+            if not spellInfo and not useItemIcon and SDB.MountDrop then
                 local mount = SDB.MountDrop.InfoByName(target)
                 if mount then spellInfo = { iconID = mount.icon, spellID = mount.spellID } end
             end
-            if spellInfo then
+            if useItemIcon then
+                stdTexture = useItemIcon
+            elseif spellInfo then
                 stdTexture = spellInfo.iconID
                 spellID = spellInfo.spellID
             elseif GetSpellTexture then
@@ -1704,6 +1748,7 @@ function SDB.ApplyBindings(opts)
     -- the base key (without ALT-/SHIFT-/CTRL-) of every bound card, for MatrixState's "a card key is held" check
     local keyBases, keyBaseSeen = {}, {}
     local realKeys, variants, skipped = {}, {}, {} -- keys bound to cards; modifier variants to add after them; ALT-F4 cards left out
+    local mouseSkipped = {} -- cards on the left or right mouse button, left out
 
     -- Build an ordered list of pages to bind, ensuring activePage is processed LAST
     -- This guarantees its hardware keys overwrite any overlapping background pages (Virtual Paging)
@@ -1723,6 +1768,9 @@ function SDB.ApplyBindings(opts)
                 local cleanKey = (data.key and data.key ~= "") and string.upper(strtrim(data.key)) or nil
                 if cleanKey and SDB.IsGameKillKey(cleanKey) then
                     skipped[#skipped + 1] = cleanKey .. " (page " .. pIndex .. ", card " .. sIndex .. ")"
+                    cleanKey = nil
+                elseif cleanKey and SDB.IsMouseClickKey(cleanKey) then
+                    mouseSkipped[#mouseSkipped + 1] = cleanKey .. " (page " .. pIndex .. ", card " .. sIndex .. ")"
                     cleanKey = nil
                 end
                 if cleanKey then
@@ -1747,6 +1795,9 @@ function SDB.ApplyBindings(opts)
                             btn:SetSize(1, 1)
                             btn:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", -100, -100)
                             btn:RegisterForClicks("AnyDown")
+                            -- Without this the game's cast-on-key-down option decides, and with it off a button that
+                            -- only hears presses never acts: the key seems to work (PostClick runs) but casts nothing.
+                            btn:SetAttribute("useOnKeyDown", true)
                             SDB.secureButtons[btnName] = btn
                         end
 
@@ -1771,7 +1822,7 @@ function SDB.ApplyBindings(opts)
                         end
 
                         btn.sdbPageAction = pageAction
-                        if pageAction then
+                        if pageAction or SDB.IsPageCard(macroText) then
                             btn:SetAttribute("type", nil)
                             btn:SetAttribute("macrotext", nil)
                         else
@@ -1800,6 +1851,10 @@ function SDB.ApplyBindings(opts)
         print("|cFFFF9900[SpellPad Studio]|r ALT-F4 closes the game, so it isn't bound: " .. table.concat(skipped, ", ")
             .. ". Give the card another key.")
     end
+    if #mouseSkipped > 0 then
+        print("|cFFFF9900[SpellPad Studio]|r The left and right mouse buttons can't be card keys, so they aren't bound: "
+            .. table.concat(mouseSkipped, ", ") .. ". Give the card another key.")
+    end
 
     SDB.cardKeyBases = keyBases
 
@@ -1808,6 +1863,7 @@ function SDB.ApplyBindings(opts)
     if not keepPending then
         SDB.applyQueued = nil
         if SDB.Pending then SDB.Pending.MarkApplied() end
+        if SDB.PadSyncMacros then SDB.PadSyncMacros() end
     end
 end
 

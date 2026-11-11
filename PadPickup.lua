@@ -72,8 +72,7 @@ local SINGLE_COMMANDS = { cast = true, use = true, spell = true }
 function PP.Parse(macro)
     local text = strtrim(macro or "")
     if text == "" then return nil, "nothing" end
-    local head = string.upper(string.sub(text, 1, 5))
-    if head == "!PAGE" or head == "!BIND" then return nil, "special" end
+    if SDB.IsPageCard(text) or string.upper(string.sub(text, 1, 5)) == "!BIND" then return nil, "special" end
 
     local line, count = nil, 0
     for raw in string.gmatch(text, "[^\r\n]+") do

@@ -35,8 +35,9 @@ StaticPopupDialogs["GALLEONBRIDGE_CONFIRM_RESET"] = {
         GalleonBridgeDB.profiles["Default"] = SDB.GetDefaultProfile()
         SDB.DropProfileContexts("Default")
 
-        -- Switch the current character to Default
-        SDB.SetCharacterProfile("Default")
+        -- Switch to Default the way the profile list does: a specialization link moves with it, and the Global
+        -- account profile (which keeps its place) says so itself
+        local nowActive = SDB.ChooseProfile("Default")
 
         SDB.activeSlotIndex = nil
         if SDB.AfterProfileSwitch then
@@ -53,7 +54,7 @@ StaticPopupDialogs["GALLEONBRIDGE_CONFIRM_RESET"] = {
         end
 
         PlaySound(SOUNDKIT and SOUNDKIT.IG_QUEST_LOG_ABANDON_QUEST or 846)
-        print("|cFF00FF00[SpellPad Studio]|r The Default profile was reset and is now active.")
+        print("|cFF00FF00[SpellPad Studio]|r The Default profile was reset" .. (nowActive and " and is now active." or "."))
     end,
     OnCancel = function()
         PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_CLOSE or 851)
@@ -69,6 +70,10 @@ StaticPopupDialogs["GALLEONBRIDGE_CONFIRM_DEL_PAGE"] = {
     button1 = "Delete",
     button2 = "Cancel",
     OnAccept = function(self, data)
+        if InCombatLockdown() then -- the confirm may have been open when the fight started
+            print("|cFFFF4444[SpellPad Studio]|r Can't delete a page in combat.")
+            return
+        end
         -- The confirm passes the page it named as `data`: a context rule or a !PAGE key may have
         -- changed the active page since it opened.
         local cur = tonumber(data) or SDB.db.activePage or 1
@@ -83,8 +88,8 @@ StaticPopupDialogs["GALLEONBRIDGE_CONFIRM_DEL_PAGE"] = {
         local activeBefore = SDB.db.activePage or 1
         local delName = SDB.PageName(cur)
         SDB.Snapshots.Take("Before Delete Page '" .. delName .. "'", "page", { page = cur, deleted = true })
-        -- Removes the page and its name, renumbers the context rules and clamps the fallback page
-        SDB.Snapshots.RemovePage(cur)
+        -- Removes the page and renumbers everything that counts pages (names, rules, snapshots, !PAGE cards)
+        local orphans = SDB.Snapshots.RemovePage(cur) or 0
         if activeBefore > cur then
             SDB.db.activePage = activeBefore - 1 -- a page below the active one went: the active page is one number lower now
         elseif activeBefore == cur and cur > #SDB.db.pages then
@@ -99,6 +104,10 @@ StaticPopupDialogs["GALLEONBRIDGE_CONFIRM_DEL_PAGE"] = {
         if SDB.ApplyBindings then SDB.ApplyBindings() end
         PlaySound(SOUNDKIT and SOUNDKIT.IG_QUEST_LOG_ABANDON_QUEST or 846)
         print("|cFF00FF00[SpellPad Studio]|r Page '" .. (string.gsub(delName, "|", "||")) .. "' deleted.")
+        if orphans > 0 then
+            print("|cFFFF9900[SpellPad Studio]|r " .. orphans .. (orphans == 1 and " card says" or " cards say") .. " !PAGE " .. cur
+                .. ", which is now the page that followed the deleted one.")
+        end
     end,
     OnCancel = function()
         PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_CLOSE or 851)
@@ -525,7 +534,14 @@ function SDB.ExportActivePageString()
     return EncodeExport("PAGE", SerializeValue(payload))
 end
 
+-- nil and a reason when the profile can't be exported
 function SDB.ExportAllPagesString()
+    -- a string with more pages than an import takes would be refused when it is pasted back
+    local maxPages = SDB.ImportPreview and SDB.ImportPreview.MAX_PAGES
+    if maxPages and #SDB.db.pages > maxPages then
+        return nil, "Can't export: this profile has " .. #SDB.db.pages .. " pages, and an import string holds at most "
+            .. maxPages .. ". Delete pages or export them one at a time."
+    end
     local pagesCloned = {}
     local pageCols = {} -- SpellPad shape per page (only pages that have one)
     local pageCycles, pageNoCycle = {}, {} -- page cycle per page (only pages that have one)
@@ -635,17 +651,42 @@ function SDB.ApplyImportData(data, asNewPage)
     if SDB.Undo then SDB.Undo.ClearAll() end
 
     local existedFolders = {}
-    for _, n in ipairs(SDB.CycleNames()) do existedFolders[n] = true end
+    local folderCase = {} -- lower-case folder name -> the spelling in use
+    for _, n in ipairs(SDB.CycleNames()) do
+        existedFolders[n] = true
+        folderCase[string.lower(n)] = n
+    end
+    -- a folder name that differs only in case joins the folder that is already there (or the string's first spelling),
+    -- so "mounted" doesn't make a twin of "Mounted"
+    local incoming = (data.type == "PAGE" and { data.slots }) or (data.type == "ALL" and data.pages) or {}
+    for _, pg in ipairs(incoming) do
+        if type(pg) == "table" and type(pg.cycle) == "string" then
+            local key = string.lower(pg.cycle)
+            if not folderCase[key] then folderCase[key] = pg.cycle end
+            pg.cycle = folderCase[key]
+        end
+    end
+    local function Respelled(t)
+        if type(t) ~= "table" then return t end
+        local out = {}
+        for k, v in pairs(t) do
+            local name = type(k) == "string" and k ~= SDB.DEFAULT_FOLDER_KEY and folderCase[string.lower(k)] or k
+            if out[name] == nil then out[name] = v end
+        end
+        return out
+    end
 
+    local landed -- the page to show; grouping renumbers pages, so it is found again by its table further down
+    local fresh = {} -- page numbers the import added or replaced (only they may move when the list is regrouped)
+    local overwritten = false
     if data.type == "PAGE" then
         if asNewPage then
             local nextIdx = #SDB.db.pages + 1
             table.insert(SDB.db.pages, data.slots)
             if not SDB.db.pageNames then SDB.db.pageNames = {} end
             SDB.db.pageNames[nextIdx] = (data.name or "Imported Page") .. " (Import)"
-            SDB.db.activePage = nextIdx
-            SDB.NotePickedPage(nextIdx)
-            print("|cFF00FF00[SpellPad Studio]|r Page '" .. (string.gsub(SDB.db.pageNames[nextIdx], "|", "||")) .. "' added as page " .. nextIdx .. ".")
+            landed = data.slots
+            fresh[nextIdx] = true
         else
             local curP = SDB.db.activePage or 1
             local wasMain = SDB.db.pages[curP] and SDB.db.pages[curP].main
@@ -654,36 +695,58 @@ function SDB.ApplyImportData(data, asNewPage)
             if data.name then
                 SDB.db.pageNames[curP] = (not SDB.IsAutoPageName(data.name)) and data.name or nil
             end
+            -- in a folder the folder's context decides; the old page's own context would come back if it ever left
+            if data.slots.cycle then
+                SDB.EachContextSet(SDB.currentProfileName, function(r)
+                    if type(r.pageContexts) == "table" then r.pageContexts[curP] = nil end
+                    if type(r.pagePriorities) == "table" then r.pagePriorities[curP] = nil end
+                end)
+            end
+            landed, overwritten = data.slots, true
+            fresh[curP] = true
             print("|cFF00FF00[SpellPad Studio]|r Page " .. curP .. " overwritten by the import.")
         end
     elseif data.type == "ALL" and asNewPage then
-        local firstNew = #SDB.db.pages + 1
         for i, pSlots in ipairs(data.pages) do
             local nextIdx = #SDB.db.pages + 1
             table.insert(SDB.db.pages, pSlots)
             local pName = (data.pageNames and data.pageNames[i]) or ("Imported Page " .. i)
             SDB.db.pageNames[nextIdx] = data.fromGame and pName or (pName .. " (Import)")
+            fresh[nextIdx] = true
         end
         -- game macros land on their first page; a string import ends on its last
-        local landOn = data.fromGame and firstNew or #SDB.db.pages
-        SDB.db.activePage = landOn
-        SDB.NotePickedPage(landOn)
+        landed = data.fromGame and data.pages[1] or data.pages[#data.pages]
         print("|cFF00FF00[SpellPad Studio]|r Added " .. #data.pages .. (#data.pages == 1 and " page" or " pages") .. " from the import.")
     end
 
     -- folders that came with the import: take the string's colors where the folder has none, color the new ones
-    local importedColors = data.cycleColors
+    local importedColors = Respelled(data.cycleColors)
     if data.type == "PAGE" and data.slots and data.slots.cycle and SDB.ValidColor(data.cycleColor) then
         importedColors = { [data.slots.cycle] = data.cycleColor }
     end
     SDB.AdoptCycleColors(importedColors, existedFolders)
     -- the folders' new-page switch: only a folder that is new here takes the string's "off"
-    local importedNav = data.cycleNavOff
+    local importedNav = Respelled(data.cycleNavOff)
     if data.type == "PAGE" then
         importedNav = (data.slots and data.slots.cycle and data.cycleNavOff == true) and { [data.slots.cycle] = true } or nil
     end
     SDB.AdoptCycleNav(importedNav, existedFolders)
     SDB.FillPages() -- with a pad size every page holds the full 36 cards; the imported ones are filled up
+
+    if landed then
+        SDB.GroupPages(true, fresh) -- new pages go with their group, so the list doesn't grow a second Default section
+        for i, pg in ipairs(SDB.db.pages) do
+            if pg == landed then
+                SDB.db.activePage = i
+                if overwritten then break end -- the page was already the one shown; only its number may have changed
+                SDB.NotePickedPage(i)
+                if data.type == "PAGE" then
+                    print("|cFF00FF00[SpellPad Studio]|r Page '" .. (string.gsub(SDB.PageName(i), "|", "||")) .. "' added as page " .. i .. ".")
+                end
+                break
+            end
+        end
+    end
 
     SDB.activeSlotIndex = nil
     if SDB.configWindow then
@@ -1343,7 +1406,14 @@ clearIconBtn:SetPoint("LEFT", searchBox, "RIGHT", 10, 0)
 clearIconBtn:SetScript("OnClick", function()
     local p, s = iconPicker.targetPage, iconPicker.targetSlot
     if p and s and SDB.db.pages[p] and SDB.db.pages[p][s] then
-        SDB.db.pages[p][s].icon = nil
+        local data = SDB.db.pages[p][s]
+        if data.icon then
+            -- this overwrites card data, so snapshot and card Undo first, as choosing an icon does
+            if SDB.Snapshots then SDB.Snapshots.Take("Before Reset Icon", "page", { page = p, slot = s }) end
+            local row = (p == (SDB.db.activePage or 1)) and SDB.rows and SDB.rows[s] or nil
+            if row and SDB.Undo then SDB.Undo.Remember(row, data.macro or "") end
+        end
+        data.icon = nil
         if SDB.configWindow and SDB.configWindow.RefreshRows then SDB.configWindow.RefreshRows() end
         SDB.RefreshPadIfShown()
         PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
@@ -1535,6 +1605,11 @@ do
             for _, e in ipairs(iconPicker.spellbookCache) do
                 if e.name:find(q, 1, true) then Push(e.icon) end
             end
+            if SDB.SpellBrowser and SDB.SpellBrowser.CollectItems then
+                for _, e in ipairs(SDB.SpellBrowser.CollectItems()) do
+                    if e.kind == "item" and e.lname and e.icon and e.lname:find(q, 1, true) then Push(e.icon) end
+                end
+            end
             for _, v in ipairs(SDB.iconCache or {}) do
                 if type(v) == "string" and v:lower():find(q, 1, true) then Push(v) end
             end
@@ -1598,11 +1673,15 @@ searchBox:SetScript("OnTextChanged", function(self)
     -- 2. Check Item API
     if not tex then
         local isNum = tonumber(text)
-        if isNum and C_Item and C_Item.GetItemIconByID then
-            tex = C_Item.GetItemIconByID(isNum)
-        elseif GetItemIcon then
-            tex = GetItemIcon(isNum or text) or GetItemIcon(titleText)
+        local byInfo = (C_Item and C_Item.GetItemIconByID) or GetItemIcon
+        if byInfo then
+            -- takes an ID or a name, but only for an item the client has cached
+            for _, v in ipairs(isNum and { isNum } or { text, titleText }) do
+                local ok, icon = pcall(byInfo, v)
+                if ok and icon then tex = icon break end
+            end
         end
+        if not tex and not isNum and SDB.ItemCache then tex = SDB.ItemCache.IconByName(text) or SDB.ItemCache.IconByName(titleText) end
     end
 
     -- 3. Check Direct Interface Path
@@ -2012,7 +2091,7 @@ function SDB.BuildUI()
         end
         PS.lastActive = activeP
 
-        for _, btn in ipairs(pageButtons) do btn:Hide() end
+        for _, btn in pairs(pageButtons) do btn:Hide() end -- pairs: the table has holes when a filter drew only some pages
         SDB.PruneCycleColors() -- a folder whose last page was deleted or moved away takes its color with it
 
         -- the pages that pass the page search (all of them when the box is empty), in page order
@@ -2154,7 +2233,7 @@ function SDB.BuildUI()
 
             -- double-click renames the page: the first click already made it the active page, and the rename box acts on the active page
             btn:SetScript("OnDoubleClick", function(self, mouseButton)
-                if mouseButton == "RightButton" then return end
+                if mouseButton == "RightButton" or configWindow.PageLockedInCombat(p) then return end
                 configWindow.ActivatePage(p)
                 local rb = configWindow.pageActionBtns and configWindow.pageActionBtns.rename
                 local fn = rb and rb:GetScript("OnClick")
@@ -2169,12 +2248,21 @@ function SDB.BuildUI()
         if configWindow.UpdateProfileFooter then configWindow.UpdateProfileFooter() end -- the sidebar footer shows the profile name
     end
 
+    -- The keys and the SpellPad's secure buttons can't change in combat: a page picked now would be drawn on the
+    -- SpellPad while its buttons and the card keys still ran the old page.
+    function configWindow.PageLockedInCombat(p)
+        if not InCombatLockdown() or p == SDB.db.activePage then return false end
+        SDB.NoPageInCombat()
+        return true
+    end
+
     -- What picking a page by hand does (a left-click on its tab, and the page menu's entries):
     -- make it the active page and manual fallback page, redraw the tabs, cards, Page Options button and
     -- SpellPad. Returns true when the page really changed. No sound (the tab click plays its own).
     -- `slot` selects a card on the new page. `notFromList` (the Audit jump) lets the page search clear itself if the
     -- page changed, as for any page change that was not a pick from the Pages list.
     function configWindow.ActivatePage(p, slot, notFromList)
+        if configWindow.PageLockedInCombat(p) then return false end
         local pageChanged = (SDB.db.activePage ~= p)
         if not notFromList then SDB.PageSearch.picked = true end -- picked from the list: the page search stays (see RefreshPageTabs)
         SDB.NotePickedPage(p)
@@ -2332,6 +2420,10 @@ function SDB.BuildUI()
 
     -- Copy Page: the button is in the Page Options window (below Rename Page); this is its handler
     function configWindow.CopyPage()
+        if InCombatLockdown() then
+            print("|cFFFF4444[SpellPad Studio]|r Can't copy a page in combat.")
+            return
+        end
         PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
         local curP = SDB.db.activePage or 1
         local sourceSlots = SDB.db.pages[curP] or {}
@@ -2354,6 +2446,10 @@ function SDB.BuildUI()
         table.insert(SDB.db.pages, copiedSlots)
         if not SDB.db.pageNames then SDB.db.pageNames = {} end
         SDB.db.pageNames[nextPageIndex] = sourceName .. " (Copy)"
+        SDB.GroupPages(true, { [nextPageIndex] = true }) -- the copy goes with its group; grouping renumbers pages, so it is found again by its table
+        for i, pg in ipairs(SDB.db.pages) do
+            if pg == copiedSlots then nextPageIndex = i break end
+        end
         SDB.db.activePage = nextPageIndex
         SDB.NotePickedPage(nextPageIndex)
         SDB.activeSlotIndex = nil
@@ -2412,6 +2508,10 @@ function SDB.BuildUI()
         end
 
         function configWindow.AddPage()
+            if InCombatLockdown() then
+                print("|cFFFF4444[SpellPad Studio]|r Can't add a page in combat.")
+                return
+            end
             PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
             local nextPageIndex = #SDB.db.pages + 1
             local slotCount = SDB.NewPageCards() -- the full 36 with a pad size, of which the pad size is shown
@@ -2436,10 +2536,11 @@ function SDB.BuildUI()
             -- so the list never grows a second Default section. Grouping renumbers pages, so the new page is found
             -- again by its table.
             do
+                local fresh = { [nextPageIndex] = true }
                 if plan and plan.name then
-                    SDB.SetPageCycle(nextPageIndex, plan.name, false, true)
+                    SDB.SetPageCycle(nextPageIndex, plan.name, false, true, fresh)
                 elseif SDB.GroupPages then
-                    SDB.GroupPages(true)
+                    SDB.GroupPages(true, fresh)
                 end
                 for i, pg in ipairs(SDB.db.pages) do
                     if pg == deck then
@@ -2455,9 +2556,6 @@ function SDB.BuildUI()
             if configWindow.RefreshRows then configWindow.RefreshRows() end
             if SDB.ApplyBindings then SDB.ApplyBindings() end
 
-            if InCombatLockdown() then
-                print("|cFFFF9900[SpellPad Studio]|r Pages can't be regrouped in combat, so the new page stays at the end of the list until the next change of folders.")
-            end
             if not plan then
                 print("|cFF00FF00[SpellPad Studio]|r Page " .. nextPageIndex .. " created with " .. (SDB.PadSize() or slotCount) .. " cards.")
                 return
@@ -2482,6 +2580,10 @@ function SDB.BuildUI()
 
     -- Delete Page: run by the "-" button by the Pages header and by the page menu
     function configWindow.DeletePage()
+        if InCombatLockdown() then
+            print("|cFFFF4444[SpellPad Studio]|r Can't delete a page in combat.")
+            return
+        end
         if #SDB.db.pages <= 1 then
             print("|cFFFF4444[SpellPad Studio]|r Can't delete the last page.")
             return
@@ -2766,7 +2868,9 @@ function SDB.BuildUI()
         _G[self:GetName() .. "Text"]:SetText(string.format("Window scale (%.2fx)", value))
     end)
 
-    scaleSlider:SetScript("OnMouseUp", function(self)
+    -- Applied when the mouse lets go, not while dragging (the slider would run away from the cursor), and by the
+    -- arrows at its ends, which are buttons of their own and never reach the slider's OnMouseUp.
+    function scaleSlider.ApplyScale(self)
         local value = self:GetValue()
         SDB.db.uiScale = value
         if SDB.configWindow then SDB.configWindow:SetScale(value) end
@@ -2779,7 +2883,11 @@ function SDB.BuildUI()
         if SDB.Dock then SDB.Dock.ApplyScaleAll(value) end
         -- the SpellPad is not scaled here (it has its own Scale slider, and SetScale on its
         -- protected buttons' window is blocked in combat)
-    end)
+    end
+    scaleSlider:SetScript("OnMouseUp", scaleSlider.ApplyScale)
+    for _, arrow in ipairs({ scaleSlider.back, scaleSlider.fwd }) do
+        arrow:HookScript("OnClick", function() scaleSlider:ApplyScale() end)
+    end
 
     -- Macro font size: account-wide, not per profile (MacroFont.lua builds it)
     optionsWindow.fontSlider = SDB.MacroFont.BuildSlider(optionsWindow)
@@ -3540,7 +3648,11 @@ function SDB.BuildUI()
                     info.checked = (c.hex == current)
                     info.func = function()
                         if not SDB.FindCycle(menuCycle) then return end
-                        SDB.SetCycleColor(menuCycle, SDB.HexToRGB(c.hex))
+                        if c.hex == SDB.FOLDER_PALETTE[1].hex then
+                            SDB.SetCycleColor(menuCycle, nil) -- gold is the default: no color stored
+                        else
+                            SDB.SetCycleColor(menuCycle, SDB.HexToRGB(c.hex))
+                        end
                         PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
                         configWindow.AfterCycleChange()
                     end
@@ -4167,9 +4279,9 @@ function SDB.BuildUI()
     profilesWindow.ui.expAll = expAllBtn
     expAllBtn:SetScript("OnClick", function()
         PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
-        local str = SDB.ExportAllPagesString()
+        local str, why = SDB.ExportAllPagesString()
         if not str then
-            print("|cFFFF4444[SpellPad Studio]|r Can't export: the LibDeflate library is missing.")
+            print("|cFFFF4444[SpellPad Studio]|r " .. (why or "Can't export: the LibDeflate library is missing."))
             return
         end
         profEditBox:SetText(str)
@@ -4253,10 +4365,10 @@ function SDB.BuildUI()
 
         -- tooltips for the four import buttons
         local tips = {
-            { impNewBtn, "Import as New Page", "Adds a page string as a new page at the end. Nothing is replaced.", "Page strings only (Export Page)." },
+            { impNewBtn, "Import as New Page", "Adds a page string as a new page. Nothing is replaced.", "Page strings only (Export Page)." },
             { impActiveBtn, "Import to Current Page", "Overwrites the page you have open. A snapshot is saved first.", "Page strings only (Export Page)." },
             { impProfBtn, "Import as New Profile", "Creates a new profile from a profile string and asks you to name it. Nothing is replaced.", "Profile strings only (Export Profile). Text typed in the Create New Profile box below is used as the name." },
-            { impAddBtn, "Add Pages to Current Profile", "Adds every page of a profile string after your last page. Nothing is replaced.", "Profile strings only (Export Profile)." },
+            { impAddBtn, "Add Pages to Current Profile", "Adds every page of a profile string to this profile. Nothing is replaced.", "Profile strings only (Export Profile)." },
         }
         for _, t in ipairs(tips) do
             t[1]:HookScript("OnEnter", function(self)
@@ -4516,6 +4628,9 @@ function SDB.BuildUI()
     end
     -- every path that changes the active profile ends here (silent = the caller plays its own sound)
     SDB.AfterProfileSwitch = function(silent)
+        -- a card number means nothing in the new profile: the selection and an open Icon Picker would write to its cards
+        SDB.activeSlotIndex = nil
+        GalleonIconPickerFrame:Hide()
         if SDB.ResetToMainPage() and SDB.ctx and SDB.ctx.autoSwitchContext then
             SDB.EvaluateContextState() -- a context page that applies right now wins over the new profile's main page
         end
@@ -5112,8 +5227,9 @@ function SDB.BuildUI()
             local ghost = D.GetGhost()
             local tex = row.iconBtn and row.iconBtn.texture and row.iconBtn.texture:GetTexture()
             ghost.icon:SetTexture(tex or "Interface\\Icons\\INV_Misc_QuestionMark")
+            label = label and SDB.EscapePipes(label) -- macro text: a "|" would be read as a color code
             ghost.sdbText = string.format("|cFFFFD100%d|r  %s", row.slotIndex, label or "|cFF888888(empty)|r")
-            ghost.sdbPlain = (string.gsub(string.gsub(ghost.sdbText, "|c%x%x%x%x%x%x%x%x", ""), "|r", ""))
+            ghost.sdbPlain = row.slotIndex .. "  " .. (label or "(empty)")
             ghost.sdbOk = nil
             D.SetLook(true)
             ghost:Show()
@@ -5849,7 +5965,7 @@ function SDB.BuildUI()
         -- activate the page, then run `action(buttons, pageChanged)`; a page that vanished while the menu was open is skipped
         local function Do(p, action)
             local btns = configWindow.pageActionBtns
-            if not btns or not SDB.db.pages[p] then return end
+            if not btns or not SDB.db.pages[p] or configWindow.PageLockedInCombat(p) then return end
             local changed = configWindow.ActivatePage(p)
             action(btns, changed)
         end
@@ -6382,9 +6498,10 @@ function SDB.BuildUI()
                 iconBtn:SetScript("OnReceiveDrag", HandleCursorDrop)
                 iconBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
                 iconBtn:SetScript("OnClick", function(self, button)
-                    if button == "RightButton" then
+                    if GetCursorInfo() then -- as on the SpellPad: a left-click drops what is carried, a right-click does nothing
+                        if button == "LeftButton" then HandleCursorDrop() end
+                    elseif button == "RightButton" then
                         SDB.RowMenu.Open(row)
-                        HandleCursorDrop()
                     else
                         SDB.activeSlotIndex = row.slotIndex
                         RefreshRows()
@@ -6690,10 +6807,6 @@ function SDB.BuildUI()
                 row.undoBtn = undoBtn
                 row.clearBtn:Hide() -- SDB.UpdateClearButton shows it only when there is something to clear
 
-                macroBox.isGalleonMacroBox = true
-                macroBox.rowIconBtn = iconBtn
-                macroBox.slotIndex = i
-
                 macroBox:SetScript("OnEscapePressed", function(self)
                     self:ClearFocus()
                 end)
@@ -6707,16 +6820,15 @@ function SDB.BuildUI()
                     if SDB.SpellBrowser then SDB.SpellBrowser.AC.OnKeyDown(self, key) end
                 end)
 
-                -- remembered for the Spell Browser: clicking it takes the focus away from this box
-                macroBox:HookScript("OnCursorChanged", function(self) self.sdbCursor = self:GetCursorPosition() end)
-
                 macroBox:SetScript("OnEditFocusGained", function(self)
                     if SDB.activeSlotIndex ~= row.slotIndex then
                         SDB.activeSlotIndex = row.slotIndex
                         UpdateActiveSlotHighlight()
                     end
 
-                    SDB.Undo.Remember(row, self:GetText(), true)
+                    -- A right-click opens the card menu and gives the box the focus on its way: the menu's Undo Changes
+                    -- must still have the text from before.
+                    if not IsMouseButtonDown("RightButton") then SDB.Undo.Remember(row, self:GetText(), true) end
                     self:HighlightText(0, 0)
                 end)
 
@@ -6776,6 +6888,7 @@ function SDB.BuildUI()
 
                 -- header row (key cap, name, Builder, Undo, Clear), body and look (CardUI.lua)
                 SDB.CardUI.Build(row)
+                if SDB.KeyTest then SDB.KeyTest.Prepare(row, 2) end
                 do
                     -- the name field: double-click renames the card (as on the key cap), right-click opens the card menu
                     local nb = row.nameBtn
@@ -6811,7 +6924,6 @@ function SDB.BuildUI()
             end
 
             row.slotIndex = i
-            row.macroBox.slotIndex = i
 
             row:ClearAllPoints()
             row:SetPoint("TOPLEFT", 0, -yOffset)
