@@ -244,7 +244,7 @@ local function NewPadButton(f)
     if SDB.Motion then SDB.Motion.Pulse(glow, 0.35) end -- the same pulse as a card waiting for Save & Apply
     b.glow = glow
     b.arrow = b:CreateTexture(nil, "OVERLAY")
-    b.arrow:SetTexture("Interface\Buttons\UI-SpellbookIcon-PrevPage-Up")
+    b.arrow:SetTexture("Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Up")
     b.arrow:Hide()
     b:SetScript("OnEnter", function(self)
         SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Card " .. self.index, "data")
