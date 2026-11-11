@@ -1810,7 +1810,7 @@ function SDB.ApplyBindings(opts)
                                 if SDB.KeyTest then SDB.KeyTest.Flash(self.pageIndex, self.slotIndex) end
                                 -- what this button was applied with, not the card's text: an edit that isn't applied
                                 -- yet must not change what the key does
-                                if self.sdbPageAction then
+                                if self.sdbPageAction and not (SDB.Setup and SDB.Setup.HoldsPageKeys()) then
                                     if InCombatLockdown() then
                                         SDB.NoPageInCombat() -- tell the player instead of doing nothing
                                     else

@@ -539,6 +539,12 @@ function G.MoveNav(role)
     G.Refresh()
 end
 
+-- While the page-buttons screen is open a Forward / Backward key or SpellPad button only reports to the guide:
+-- pressing one to pick it must not also change the page behind the guide
+function G.HoldsPageKeys()
+    return st.step == PG and G.frame and G.frame:IsShown() and true or false
+end
+
 function G.OnPadClick(slot)
     if st.step == PG and G.frame and G.frame:IsShown() then G.PickNav(slot) end
 end

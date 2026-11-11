@@ -787,7 +787,9 @@ function SDB.RefreshMatrixGrid()
 
                 -- A card that holds a page jump still changes page on left-click: that is its "run"
                 if self.sdbPageAction then
-                    if not InCombatLockdown() then
+                    if SDB.Setup and SDB.Setup.HoldsPageKeys() then
+                        return
+                    elseif not InCombatLockdown() then
                         SDB.ChangePage(self.sdbPageAction) -- handles the grid and row refreshing
                     else
                         SDB.NoPageInCombat() -- no page change in combat, say so
