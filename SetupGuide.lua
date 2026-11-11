@@ -1074,8 +1074,8 @@ local function Build()
     pg.moveF = SDB.UI.Button(pg, "secondary", "Change Forward Button", 185, 24)
     pg.moveF:SetPoint("LEFT", pg.moveB, "RIGHT", 10, 0)
     pg.moveF:SetScript("OnClick", function() G.MoveNav("forward") end)
-    pg.add = SDB.UI.GlyphButton(pg, "plus", 24)
-    pg.add:SetPoint("TOPLEFT", pg, "TOPLEFT", 20, -176)
+    pg.add = SDB.UI.GlyphButton(pg, "plus", 40)
+    pg.add:SetPoint("TOP", pg, "TOP", 0, -172)
     pg.add:SetScript("OnClick", function() G.AddPageNow() end)
     pg.add:HookScript("OnEnter", function(self)
         SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Add Page", "feature")
@@ -1083,18 +1083,6 @@ local function Build()
         SDB.Tip.Done()
     end)
     pg.add:HookScript("OnLeave", function() GameTooltip:Hide() end)
-    pg.addText = pg:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    pg.addText:SetPoint("LEFT", pg.add, "RIGHT", 8, 0)
-    pg.addText:SetText("Adds a page")
-    pg.del = SDB.UI.GlyphButton(pg, "minus", 24)
-    pg.del:SetPoint("LEFT", pg.add, "RIGHT", 120, 0)
-    pg.del:SetScript("OnClick", function()
-        st.note = "The minus button deletes the page you are on, after asking you first. It does nothing here."
-        G.Refresh()
-    end)
-    pg.delText = pg:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    pg.delText:SetPoint("LEFT", pg.del, "RIGHT", 8, 0)
-    pg.delText:SetText("Deletes a page")
 
     -- bottom row: one red button per view
     f.leftBtn = SDB.UI.Button(f, "secondary", "Not Now", 100, 26)
@@ -1361,9 +1349,6 @@ function G.Refresh()
         end
         local addStage = st.pg > 2 and not st.repick
         pgf.add:SetShown(addStage)
-        pgf.addText:SetShown(addStage)
-        pgf.del:SetShown(addStage)
-        pgf.delText:SetShown(addStage)
         local hasF, hasB = false, false
         for _, role in pairs(st.pgSlots) do
             if role == "forward" then hasF = true else hasB = true end
