@@ -280,7 +280,25 @@ local function StylePadButton(b, s, key, lit, focus)
     b.glow:ClearAllPoints()
     b.glow:SetPoint("TOPLEFT", -math.floor(s * 0.27), math.floor(s * 0.27))
     b.glow:SetPoint("BOTTOMRIGHT", math.floor(s * 0.27), -math.floor(s * 0.27))
-    b.glow:SetShown(lit and true or false)
+    -- page-button feedback: mono = the button about to be replaced (white, grey fill), flashOld / flashNew = the
+    -- one-time flash when the replacement is picked
+    local white = b.mono or b.flashOld
+    if b.mono then
+        b:SetBackdropColor(0.16, 0.16, 0.17, 1)
+    elseif b.flashOld then
+        b:SetBackdropColor(0.40, 0.40, 0.42, 1)
+    elseif b.flashNew then
+        b:SetBackdropColor(0.50, 0.40, 0.06, 1)
+    end
+    if white then
+        b:SetBackdropBorderColor(0.95, 0.95, 0.95, 1)
+        b.glow:SetVertexColor(1, 1, 1, 0.95)
+    else
+        b.glow:SetVertexColor(1.0, 0.82, 0.0, 0.95)
+    end
+    b.glow:SetShown((lit or white) and true or false)
+    b.arrow:SetDesaturated(b.mono and true or false)
+    if b.mono then b.arrow:SetVertexColor(0.65, 0.65, 0.65) else b.arrow:SetVertexColor(1, 1, 1) end
 
     local pre = ShortMods(prefix)
     local suf = key == "" and "-" or SDB.NumpadShort(suffix)
@@ -350,7 +368,10 @@ local function DrawPad(f, keys, cols, lit, focus)
         b:ClearAllPoints()
         b:SetPoint("TOPLEFT", f.pad, "TOPLEFT", x0 + c * (s + gap), y0 - r * (s + gap))
         b.index, b.key = i, keys[i] or ""
-        b.role = st.step == PG and st.pgSlots[i] or nil
+        b.role = st.step == PG and (st.pgSlots[i] or (st.repickSlot == i and st.repick)) or nil
+        b.mono = st.step == PG and st.repickSlot == i and st.repick and true or nil
+        b.flashOld = st.flash and st.flash.old == i or nil
+        b.flashNew = st.flash and st.flash.new == i or nil
         b:Show()
         StylePadButton(b, s, b.key, lit and lit[i], focus == i)
     end
@@ -449,7 +470,7 @@ local function GoTo(step)
         st.lit = {}
         st.fired = false
     elseif step == PG then
-        st.pg, st.pgSlots, st.repick = 1, {}, nil
+        st.pg, st.pgSlots, st.repick, st.repickSlot, st.flash = 1, {}, nil, nil, nil
         MakePageOneActive()
     end
     G.Refresh()
@@ -494,7 +515,17 @@ function G.PickNav(slot)
     end
     st.pgSlots[slot] = role
     if st.repick then
-        st.repick = nil
+        local old = st.repickSlot
+        st.repick, st.repickSlot = nil, nil
+        -- both spots flash once: the old one lets go, the new one takes over
+        local mine = { old = old, new = slot }
+        st.flash = mine
+        C_Timer.After(0.5, function()
+            if st.flash == mine then
+                st.flash = nil
+                if st.step == PG and G.frame and G.frame:IsShown() then G.Refresh() end
+            end
+        end)
         st.note = #SDB.db.pages > 1 and "Pages you already added keep the old position of this button." or ""
     else
         st.pg = st.pg + 1
@@ -503,7 +534,7 @@ function G.PickNav(slot)
     G.Refresh()
 end
 
--- "Move": frees the card that holds this button's command (only if it still holds exactly that command) and
+-- "Change": frees the card that holds this button's command (only if it still holds exactly that command) and
 -- lets the user pick another one
 function G.MoveNav(role)
     if st.step ~= PG or st.repick or InCombat() then return end
@@ -519,6 +550,7 @@ function G.MoveNav(role)
                 RefreshMainWindow()
             end
             st.pgSlots[slot] = nil
+            st.repickSlot = slot
         end
     end
     st.repick = role
@@ -1054,10 +1086,10 @@ local function Build()
     f["s" .. PG] = pg
     pg.note = Text(pg, "GameFontHighlightSmall", PAD_TOP - PAD_H - 44)
     pg.note:SetSpacing(2)
-    pg.moveF = SDB.UI.Button(pg, "secondary", "Move Forward", 140, 24)
+    pg.moveF = SDB.UI.Button(pg, "secondary", "Change Forward", 140, 24)
     pg.moveF:SetPoint("TOPLEFT", pg, "TOPLEFT", 20, PAD_TOP - PAD_H - 10)
     pg.moveF:SetScript("OnClick", function() G.MoveNav("forward") end)
-    pg.moveB = SDB.UI.Button(pg, "secondary", "Move Backward", 140, 24)
+    pg.moveB = SDB.UI.Button(pg, "secondary", "Change Backward", 140, 24)
     pg.moveB:SetPoint("LEFT", pg.moveF, "RIGHT", 10, 0)
     pg.moveB:SetScript("OnClick", function() G.MoveNav("backward") end)
     pg.add = SDB.UI.GlyphButton(pg, "plus", 24)
@@ -1334,7 +1366,7 @@ function G.Refresh()
         if st.repick then
             local word = st.repick == "forward" and "Forward" or "Backward"
             f.head:SetText("Pick a new " .. word .. " button")
-            f.body:SetText("Click another spot below, or press another keypad button. The old " .. word .. " spot is empty again.")
+            f.body:SetText("Click another spot below, or press another keypad button. The white spot is the old " .. word .. " button; it is empty now.")
         elseif st.pg == 1 then
             f.head:SetText("Pick your Forward button")
             f.body:SetText("Forward moves to the next page, Backward to the previous one. Click a spot below, or press the button on your keypad. Pick an empty one: a spot that holds something is never replaced.")
