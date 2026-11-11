@@ -1,8 +1,11 @@
-# SpellPad Studio 1.6.0 (beta)
+# SpellPad Studio 1.6.0
 
-Page folders get easier to grow and easier to read. This beta was tested on WoW Forever only; Retail is untested.
+Page folders get easier to grow and easier to read, the setup guide now sets up page buttons, and a full code audit fixed a long list of small bugs. Tested on Retail and WoW Forever.
 
 ## New
+
+- **Page buttons in the setup guide.** The guide's finish screen has a new `Set Up Page Buttons...` offer. Click a spot on the guide's pad, or press the button on your keypad, to choose your Forward button, then your Backward button. They get the `!PAGE Forward` and `!PAGE Backward` cards and show their arrow icons on the pad. `Change Forward Button` and `Change Backward Button` let you pick a different spot. A plus then adds a second page, which gets both cards too. Only blank cards are used, and a snapshot is taken first. While this screen is open, pressing a page key only reports to the guide and does not change the page.
+- **The SpellPad shows the game's own tooltip** for plain spell and item cards that have a `#showtooltip` line.
 
 - **New pages join your folder.** The `+` next to Pages now puts the new page at the end of the folder you are in (or the Default folder) and copies that folder's `!PAGE Forward` and `!PAGE Backward` cards onto it, with their keys, so the new page can step through the folder right away. Turn it off for all pages in Options > General > Behavior (`New pages join their folder`), or for one folder in Page Options (`New pages join this folder`). The setting travels with exported pages and profiles. The `+` tooltip says where the page will go.
 - **The active folder is marked.** The folder of the page you are on gets a faint wash in its color behind its header and pages in the Pages list.
@@ -10,13 +13,21 @@ Page folders get easier to grow and easier to read. This beta was tested on WoW 
 - **Toggle Run / Walk and Toggle Auto Run** in Easy Macros > Advanced > Movement & Interaction. They run from a key; clicking them on the SpellPad does nothing, and the tooltip says so.
 - **Game Keys in the Arsenal.** A new Game Keys chip on the Easy Macros tab lists the game's own key actions (open the spellbook, the map, your bags, target commands, raid markers and more) under the headings of the Key Bindings screen. A card holds `!BIND ACTION`, so its key runs that action. Each one has an icon, and bindings that belong to an installed addon use that addon's icon when it has one. Cards with these actions name themselves. Movement, turning, jump, camera, action bar and debug bindings are left out on purpose. These cards run from their key only; clicking them on the SpellPad does nothing. `/sps binds` shows what the game offers on your client.
 
+## Fixes
+
+- **Pages and keys.** Changing a page's context or folder no longer makes the keys run the wrong page's macros until the next Save & Apply. Switching profiles no longer carries the old profile's fallback page over. Page changes by hand, `+`, Copy Page and Delete Page are refused in combat, like the other page changes. Deleting a page now renumbers `!PAGE` cards, and restoring a snapshot brings back the context rules and folder settings that went with it.
+- **Cast on key press.** Card keys and SpellPad buttons now fire on the press even when the game's cast-on-key-down option is off.
+- **SpellPad and keys agree.** A SpellPad click now runs the macro that was last applied, the same as the key, instead of an edit that is not applied yet.
+- **Undo.** Change Icon, Change Name and Reset Icon take a snapshot and can be undone, and Undo now brings back a card's icon and name as well as its text.
+- **Keyboard safety.** The main window re-arms keyboard pass-through when it opens, and SpellPad Builder and the Arsenal no longer build their windows for the first time in combat.
+- **Smaller fixes.** Prefix listening only accepts Alt, Ctrl and Shift; imports drop `BUTTON1` and `BUTTON2` keys and cut names on whole letters; export refuses profiles of more than 250 pages instead of writing a string that cannot be imported; Window scale arrows now apply; and a number of small display and wording problems.
+
 ## Changes
 
 - A page made with `+` no longer stores the name `Page N`, so it always shows its current number. Two pages can no longer both read `Page 5` after pages are moved. Stored names that are only `Page <number>` are cleared on load; a page you renamed to something else keeps its name.
 
 ## Known issues
 
-- Not tested on Retail yet.
 - Forever has no mounts or dual specialization yet, so the Mounted context and the two Class Specializations entries are untested there.
 
 # SpellPad Studio 1.5.1
