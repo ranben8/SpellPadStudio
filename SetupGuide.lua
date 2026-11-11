@@ -255,8 +255,9 @@ local function NewPadButton(f)
             local role = st.pgSlots[self.index]
             if role then
                 SDB.Tip.Hint(role == "forward" and "Forward button." or "Backward button.")
-            elseif st.pg <= 2 then
-                SDB.Tip.Hint("Click to use this button for " .. (st.pg == 1 and "Forward." or "Backward."))
+            elseif st.pg <= 2 or st.repick then
+                local want = st.repick or (st.pg == 1 and "forward" or "backward")
+                SDB.Tip.Hint("Click to use this button for " .. (want == "forward" and "Forward." or "Backward."))
             end
         end
         SDB.Tip.Done()
@@ -448,7 +449,7 @@ local function GoTo(step)
         st.lit = {}
         st.fired = false
     elseif step == PG then
-        st.pg, st.pgSlots = 1, {}
+        st.pg, st.pgSlots, st.repick = 1, {}, nil
         MakePageOneActive()
     end
     G.Refresh()
@@ -462,8 +463,8 @@ local NAV_WORD = { forward = "!PAGE Forward", backward = "!PAGE Backward" }
 -- Puts !PAGE Forward / Backward on card `slot` of page 1. Only a blank card is used (or one that already holds
 -- exactly that command): a card with anything else on it is never overwritten.
 function G.PickNav(slot)
-    if st.step ~= PG or st.pg > 2 then return end
-    local role = st.pg == 1 and "forward" or "backward"
+    if st.step ~= PG or (st.pg > 2 and not st.repick) then return end
+    local role = st.repick or (st.pg == 1 and "forward" or "backward")
     if InCombat() then
         st.note = RED .. "Can't change cards in combat.|r"
         return G.Refresh()
@@ -492,7 +493,35 @@ function G.PickNav(slot)
         RefreshMainWindow()
     end
     st.pgSlots[slot] = role
-    st.pg = st.pg + 1
+    if st.repick then
+        st.repick = nil
+        st.note = #SDB.db.pages > 1 and "Pages you already added keep the old position of this button." or ""
+    else
+        st.pg = st.pg + 1
+        st.note = ""
+    end
+    G.Refresh()
+end
+
+-- "Move": frees the card that holds this button's command (only if it still holds exactly that command) and
+-- lets the user pick another one
+function G.MoveNav(role)
+    if st.step ~= PG or st.repick or InCombat() then return end
+    for slot, r in pairs(st.pgSlots) do
+        local p1 = Page1()
+        local data = p1 and p1[slot]
+        if r == role and data then
+            if SDB.PageCommand and SDB.PageCommand(data.macro or "") == role then
+                if SDB.Snapshots then SDB.Snapshots.Take("Before Page Buttons", "page", { page = 1, slot = slot }) end
+                if SDB.Undo then SDB.Undo.ClearAll() end
+                data.macro = ""
+                SDB.ApplyBindings()
+                RefreshMainWindow()
+            end
+            st.pgSlots[slot] = nil
+        end
+    end
+    st.repick = role
     st.note = ""
     G.Refresh()
 end
@@ -679,7 +708,7 @@ function G.OnKey(page, slot)
     local data = SDB.db and SDB.db.pages and SDB.db.pages[page] and SDB.db.pages[page][slot]
     local key = data and data.key or ""
     if st.step == PG then
-        if st.pg > 2 then return end
+        if st.pg > 2 and not st.repick then return end
         if page ~= 1 then
             st.note = ORANGE .. "That key belongs to page " .. page .. ". Press a button of page 1.|r"
             return G.Refresh()
@@ -1023,8 +1052,14 @@ local function Build()
     -- page buttons screen: pick Forward, pick Backward, add a page
     local pg = StepFrame(f)
     f["s" .. PG] = pg
-    pg.note = Text(pg, "GameFontHighlightSmall", PAD_TOP - PAD_H - 10)
+    pg.note = Text(pg, "GameFontHighlightSmall", PAD_TOP - PAD_H - 44)
     pg.note:SetSpacing(2)
+    pg.moveF = SDB.UI.Button(pg, "secondary", "Move Forward", 140, 24)
+    pg.moveF:SetPoint("TOPLEFT", pg, "TOPLEFT", 20, PAD_TOP - PAD_H - 10)
+    pg.moveF:SetScript("OnClick", function() G.MoveNav("forward") end)
+    pg.moveB = SDB.UI.Button(pg, "secondary", "Move Backward", 140, 24)
+    pg.moveB:SetPoint("LEFT", pg.moveF, "RIGHT", 10, 0)
+    pg.moveB:SetScript("OnClick", function() G.MoveNav("backward") end)
     pg.add = SDB.UI.GlyphButton(pg, "plus", 24)
     pg.add:SetPoint("TOPLEFT", pg, "TOPLEFT", 20, -176)
     pg.add:SetScript("OnClick", function() G.AddPageNow() end)
@@ -1296,7 +1331,11 @@ function G.Refresh()
         for slot, role in pairs(st.pgSlots) do
             if role == "forward" then fwd = slot end
         end
-        if st.pg == 1 then
+        if st.repick then
+            local word = st.repick == "forward" and "Forward" or "Backward"
+            f.head:SetText("Pick a new " .. word .. " button")
+            f.body:SetText("Click another spot below, or press another keypad button. The old " .. word .. " spot is empty again.")
+        elseif st.pg == 1 then
             f.head:SetText("Pick your Forward button")
             f.body:SetText("Forward moves to the next page, Backward to the previous one. Click a spot below, or press the button on your keypad. Pick an empty one: a spot that holds something is never replaced.")
         elseif st.pg == 2 then
@@ -1306,10 +1345,17 @@ function G.Refresh()
             f.head:SetText("Add a second page")
             f.body:SetText("Forward and Backward need two or more pages. In SpellPad Studio the plus next to Pages adds one and the minus deletes the current one. Click the plus below to add a page now.")
         end
-        pgf.add:SetShown(st.pg > 2)
-        pgf.addText:SetShown(st.pg > 2)
-        pgf.del:SetShown(st.pg > 2)
-        pgf.delText:SetShown(st.pg > 2)
+        local addStage = st.pg > 2 and not st.repick
+        pgf.add:SetShown(addStage)
+        pgf.addText:SetShown(addStage)
+        pgf.del:SetShown(addStage)
+        pgf.delText:SetShown(addStage)
+        local hasF, hasB = false, false
+        for _, role in pairs(st.pgSlots) do
+            if role == "forward" then hasF = true else hasB = true end
+        end
+        pgf.moveF:SetShown(hasF and not st.repick)
+        pgf.moveB:SetShown(hasB and not st.repick)
         pgf.note:SetText(st.note or "")
         f.nextBtn:SetText(st.pg > 2 and "Done" or "Skip")
         f.leftBtn:SetText("Back")
