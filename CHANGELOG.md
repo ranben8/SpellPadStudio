@@ -1,3 +1,15 @@
+# SpellPad Studio 1.6.1 (beta)
+
+Two fixes for WoW Forever and Retail, found with an error log addon.
+
+## New
+
+- **The spellbook knows what is on your SpellPad.** A spell that a SpellPad card casts no longer gets the spellbook's pulsing gold "not on your action bars" border. Ranks count exactly: `/cast Arcane Intellect` covers your highest rank, `/cast Arcane Intellect(Rank 1)` covers Rank 1 only. The spellbook tooltip line about action bars stays. `/sps ranks` shows whether this works on your client.
+
+## Fixes
+
+- **No more "Interface action failed" in combat from item cards.** The game does not let addons check an item's range during combat, and the SpellPad asked every moment for every card that holds an item. Item cards now skip the range check in combat, so they get no out-of-range red or badge during a fight. Spell cards are not affected.
+
 # SpellPad Studio 1.6.0
 
 Page folders get easier to grow and easier to read, the setup guide now sets up page buttons, and a full code audit fixed a long list of small bugs. Tested on Retail and WoW Forever.

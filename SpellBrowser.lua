@@ -398,6 +398,7 @@ function B.RankReport(emit, arg)
         .. ", is-known check " .. ((C_SpellBook and C_SpellBook.IsSpellKnown and "C_SpellBook.IsSpellKnown")
             or (IsSpellKnown and "IsSpellKnown") or (IsPlayerSpell and "IsPlayerSpell") or "none")
         .. ", C_Spell.GetSpellInfo " .. yn(C_Spell and C_Spell.GetSpellInfo))
+    if SDB.SpellbookMark then SDB.SpellbookMark.Report(emit) end
 
     if arg == "" then
         local book, total = ScanBook()
