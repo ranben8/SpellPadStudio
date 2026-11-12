@@ -458,7 +458,10 @@ local function ApplyTint(btn)
                 r = IsSpellInRange(btn.targetName, "target")
             end
         else
-            local ref = ItemRef(btn)
+            -- The game protects the item range check in combat (since patch 10.2.0); calling it
+            -- there is blocked and logs "Interface action failed", so items get no range answer
+            -- during a fight.
+            local ref = not InCombatLockdown() and ItemRef(btn)
             if ref then
                 if C_Item and C_Item.IsItemInRange then
                     r = C_Item.IsItemInRange(ref, "target")
