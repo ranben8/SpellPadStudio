@@ -1400,6 +1400,67 @@ local function EquipSetIcon(clean)
     if ok then return icon end
 end
 
+-- Profession spells (Cooking, Enchanting, Disenchant, Fishing...) are not in the spellbook's skill lines, and
+-- C_Spell.GetSpellInfo("Cooking") by name then answers with some other spell of that name (a gem icon on
+-- Forever). The game's own profession list knows the real ones: name -> { icon, spellID }, rebuilt when the
+-- spells or skills change.
+local professionSpells = nil
+
+local function BuildProfessionSpells()
+    local map = {}
+    pcall(function()
+        if not (GetProfessions and GetProfessionInfo) then return end
+        local bank = (Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player) or 0
+        local indexes = { GetProfessions() }
+        for n = 1, select("#", GetProfessions()) do
+            local index = indexes[n]
+            if index then
+                local _, _, _, _, numAbilities, spellOffset = GetProfessionInfo(index)
+                for k = 1, (numAbilities or 0) do
+                    local slot = (spellOffset or 0) + k
+                    local name, icon, id
+                    if C_SpellBook and C_SpellBook.GetSpellBookItemInfo then
+                        local info = C_SpellBook.GetSpellBookItemInfo(slot, bank)
+                        if info then name, icon, id = info.name, info.iconID, info.spellID or info.actionID end
+                    elseif GetSpellBookItemName then
+                        name = GetSpellBookItemName(slot, "spell")
+                        icon = GetSpellBookItemTexture and GetSpellBookItemTexture(slot, "spell")
+                        if GetSpellBookItemInfo then id = select(2, GetSpellBookItemInfo(slot, "spell")) end
+                    end
+                    if type(name) == "string" and name ~= "" and icon then
+                        local key = string.lower(name)
+                        if not map[key] then map[key] = { icon = icon, spellID = id } end
+                    end
+                end
+            end
+        end
+    end)
+    return map
+end
+
+function SDB.ProfessionSpell(name)
+    if type(name) ~= "string" or name == "" then return nil end
+    if not professionSpells then professionSpells = BuildProfessionSpells() end
+    return professionSpells[string.lower(strtrim(name))]
+end
+
+-- The profession names the lookup knows right now, for /sps pad
+function SDB.ProfessionSpellNames()
+    if not professionSpells then professionSpells = BuildProfessionSpells() end
+    local names = {}
+    for key in pairs(professionSpells) do names[#names + 1] = key end
+    table.sort(names)
+    return names
+end
+
+do
+    local f = CreateFrame("Frame")
+    for _, ev in ipairs({ "SPELLS_CHANGED", "SKILL_LINES_CHANGED", "LEARNED_SPELL_IN_TAB" }) do
+        pcall(f.RegisterEvent, f, ev)
+    end
+    f:SetScript("OnEvent", function() professionSpells = nil end)
+end
+
 local ICONS = "Interface\\Icons\\"
 local CONTEXT_ICON_LISTS = {
     { "INTERFACE_ELEMENTS", nil, ICONS .. "Trade_Engineering" },
@@ -1606,7 +1667,9 @@ function SDB.UpdateSlotIconAndTooltip(iconFrame, macroText, customIcon)
             -- /use means the item when there is one: an item can share its name with a spell the character knows
             local useItemIcon
             if actType == "use" and SDB.ItemCache then useItemIcon = SDB.ItemCache.IconByName(target) end
-            local spellInfo = not useItemIcon and C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(target) or nil
+            local prof = not useItemIcon and SDB.ProfessionSpell(target)
+            local spellInfo = (prof and { iconID = prof.icon, spellID = prof.spellID })
+                or (not useItemIcon and C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(target)) or nil
             if not spellInfo and not useItemIcon and SDB.MountDrop then
                 local mount = SDB.MountDrop.InfoByName(target)
                 if mount then spellInfo = { iconID = mount.icon, spellID = mount.spellID } end

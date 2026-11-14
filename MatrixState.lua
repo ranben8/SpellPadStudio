@@ -823,6 +823,11 @@ function MS.Report(emit)
             .. ", SetAlphaFromBoolean=" .. YN(first and first.cue and first.cue.SetAlphaFromBoolean)
             .. ", badge textures built=" .. YN(first and first.cue))
     end
+    if SDB.ProfessionSpellNames then
+        local names = SDB.ProfessionSpellNames()
+        emit("Profession spells (icon lookup): " .. (#names > 0 and table.concat(names, ", ") or "none found")
+            .. ", GetProfessions=" .. YN(GetProfessions) .. ", GetProfessionInfo=" .. YN(GetProfessionInfo))
+    end
     local kb = SDB.cardKeyBases
     emit("Card keys watched (icons of cards with [mod:...] don't flip while one is held): "
         .. ((kb and #kb > 0) and table.concat(kb, ", ") or "none"))

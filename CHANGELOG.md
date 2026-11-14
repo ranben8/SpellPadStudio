@@ -1,3 +1,11 @@
+# SpellPad Studio 1.6.2 (beta)
+
+One fix for profession cards.
+
+## Fixes
+
+- **Profession cards show the right icon.** A card such as `/cast Cooking` or `/cast Enchanting` could show a purple gem on the SpellPad and the card, because the game answered the name with a different spell. Profession spells (Cooking, Enchanting, Disenchant, Fishing, Bait and Tackle and the rest) now take their icon and cooldown from the game's own profession list. `/sps pad` lists the profession spells it found.
+
 # SpellPad Studio 1.6.1
 
 Two fixes for WoW Forever and Retail, found with an error log addon.
