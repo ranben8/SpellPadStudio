@@ -1,4 +1,4 @@
-# SpellPad Studio 1.6.1 (beta)
+# SpellPad Studio 1.6.1
 
 Two fixes for WoW Forever and Retail, found with an error log addon.
 
