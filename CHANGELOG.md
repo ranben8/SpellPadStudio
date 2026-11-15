@@ -1,4 +1,4 @@
-# SpellPad Studio 1.6.2 (beta)
+# SpellPad Studio 1.6.2
 
 One fix for profession cards.
 
