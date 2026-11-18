@@ -1653,6 +1653,7 @@ function SDB.UpdateSlotIconAndTooltip(iconFrame, macroText, customIcon)
     local custom = customIcon and customIcon ~= ""
     local randomMountIcon = SDB.MountDrop and SDB.MountDrop.RandomIcon(cleanMacro)
     local gameKeyIcon = SDB.GameKeys and SDB.GameKeys.IconForMacro(cleanMacro)
+    local outfitIcon = SDB.Outfits and SDB.Outfits.IconForMacro(cleanMacro)
 
     -- Standard spell / item / equipment-slot lookup. Cards only do it when it decides the icon;
     -- SpellPad buttons always do it, because their cooldown, range, count and glow need the IDs.
@@ -1731,6 +1732,9 @@ function SDB.UpdateSlotIconAndTooltip(iconFrame, macroText, customIcon)
     -- 1f. A game key action (!BIND ACTION): the game's own icon for it, or its addon's icon
     elseif gameKeyIcon then
         texture = gameKeyIcon
+    -- 1g. A transmog outfit (/outfit N): the outfit's own icon, else the clothing icon
+    elseif outfitIcon then
+        texture = outfitIcon
     -- 2. Page navigation icon
     elseif actType == "page" then
         texture = PAGE_ARROWS[target] or "Interface\\Icons\\INV_Misc_Note_01"
@@ -1756,6 +1760,10 @@ function SDB.UpdateSlotIconAndTooltip(iconFrame, macroText, customIcon)
     else
         iconFrame.texture:SetTexCoord(0, 1, 0, 1)
     end
+    -- an outfit card shows the outfit change cooldown; that spell isn't the player's, so it is never read for range or use
+    local outfitSpell = SDB.Outfits and SDB.Outfits.CooldownSpell(cleanMacro)
+    if outfitSpell then spellID = outfitSpell end
+    iconFrame.sdbCooldownOnly = outfitSpell and true or nil
     iconFrame.spellID = spellID
     iconFrame.targetName = (actType == "page" and PAGE_TITLES[target]) or target
     -- !PAGE cards steer the SpellPad itself: their title is not an item, so MatrixState must never read it as one
@@ -1772,7 +1780,8 @@ end
 
 -- The text a secure button runs for a card's macro text. The card keeps its own text; only the button's copy changes.
 function SDB.SecureMacroText(text)
-    if SDB.MountDrop then return SDB.MountDrop.SecureText(text) end
+    if SDB.MountDrop then text = SDB.MountDrop.SecureText(text) end
+    if SDB.Outfits then text = SDB.Outfits.SecureText(text) end
     return text
 end
 

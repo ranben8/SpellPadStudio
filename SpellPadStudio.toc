@@ -37,6 +37,7 @@ GameKeys.lua
 AutoName.lua
 Library.lua
 MountDrop.lua
+Outfits.lua
 PadColors.lua
 ColorAids.lua
 Pending.lua

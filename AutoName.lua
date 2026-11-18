@@ -79,6 +79,10 @@ function SDB.AutoName(macro)
     local gameKey = SDB.GameKeys and SDB.GameKeys.NameForMacro(text)
     if gameKey then return gameKey end
 
+    -- a transmog outfit ("/outfit !2") is named by the outfit's own name
+    local outfit = SDB.Outfits and SDB.Outfits.NameForMacro(text)
+    if outfit then return outfit end
+
     local T = SDB.Templates
     local tmpl = T and T.NameForMacro and T.NameForMacro(text)
     if tmpl and tmpl ~= "" then return Plain(tmpl) end

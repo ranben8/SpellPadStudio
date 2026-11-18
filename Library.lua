@@ -52,6 +52,19 @@ local function AddTemplates(out, cat, list)
     end
 end
 
+-- the transmog outfits (the game's /outfit command), and the entry that goes back to the equipped gear
+local function Outfits(out, cat)
+    local O = SDB.Outfits
+    if not (O and O.Available()) then return end
+    local list = O.List()
+    if #list == 0 then return end
+    for _, o in ipairs(list) do
+        local name = (o.name and o.name ~= "" and o.name) or ("Outfit " .. o.index)
+        Add(out, cat, name, O.Macro(o.index), o.icon or O.ICON)
+    end
+    Add(out, cat, O.ClearName(), O.CLEAR_MACRO, O.ClearIcon())
+end
+
 local function EquipmentSets(out, cat)
     pcall(function()
         if C_EquipmentSet and C_EquipmentSet.GetEquipmentSetIDs then
@@ -107,6 +120,7 @@ function BUILD.advanced(out)
     AddList(out, "Class Specializations", SDB.SPEC_COMMANDS)
     AddList(out, "Page Navigation", SDB.PAGE_NAVIGATION)
     EquipmentSets(out, "Equipment Sets")
+    Outfits(out, "Outfits")
     AddList(out, "Targeting & Focus", SDB.TARGET_ADV_COMMANDS)
     AddList(out, "Movement & Interaction", SDB.MOVEMENT_COMMANDS)
     AddList(out, "Crowd Control & Interrupts", SDB.CC_INTERRUPTS)

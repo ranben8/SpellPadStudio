@@ -6432,6 +6432,11 @@ function SDB.BuildUI()
                         itemName = itemName or ("item:" .. arg1)
                         if isSmartReplace then generatedMacro = string.gsub(existingMacro, SDB.DRAG_PLACEHOLDER, (string.gsub(itemName, "%%", "%%%%"))) else generatedMacro = "#showtooltip\n/use " .. itemName end
 
+                    elseif cursorType == "spell" and SDB.Outfits and (SDB.Outfits.IsClearSpell(arg1) or SDB.Outfits.IsClearSpell(arg2)
+                        or SDB.Outfits.IsClearSpell(arg3)) then
+                        -- Plumber's "Show Currently Equipped Gear" entry: that spell can't be cast by name; /outfit does it
+                        generatedMacro = SDB.Outfits.CLEAR_MACRO
+
                     elseif cursorType == "spell" then
                         local spellName = nil
                         if C_Spell and C_Spell.GetSpellInfo and (arg3 or type(arg1) == "number" or type(arg2) == "number") then
@@ -6466,6 +6471,18 @@ function SDB.BuildUI()
                             generatedMacro = string.gsub(existingMacro, SDB.DRAG_PLACEHOLDER, (string.gsub(mount.castName, "%%", "%%%%")))
                         else
                             generatedMacro = "#showtooltip\n/cast " .. mount.castName
+                        end
+
+                    elseif cursorType == "outfit" then
+                        -- a transmog outfit carries its outfit ID; the game's /outfit command wants its place in the list
+                        local index = SDB.Outfits and SDB.Outfits.IndexOf(arg1)
+                        if not index then
+                            print("|cFFFF4444[SpellPad Studio]|r Couldn't find that outfit in your outfit list, so the card was left as it was.")
+                            if SDB.DragKeep then SDB.DragKeep.Release() else ClearCursor() end
+                        elseif isSmartReplace then
+                            generatedMacro = string.gsub(existingMacro, SDB.DRAG_PLACEHOLDER, (string.gsub(SDB.Outfits.Macro(index), "%%", "%%%%")))
+                        else
+                            generatedMacro = SDB.Outfits.Macro(index)
                         end
 
                     elseif cursorType == "macro" then

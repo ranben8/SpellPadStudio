@@ -449,7 +449,7 @@ local function ApplyTint(btn)
     -- range (only while there is a target; needed for the red tint and for the badge)
     local rangeOut, rangeSecret, rangeValue = false, false, nil
     local rangeOn = a.tintRange or a.cueRange
-    if rangeOn and not btn.sdbNav and UnitExists and UnitExists("target") then
+    if rangeOn and not btn.sdbNav and not btn.sdbCooldownOnly and UnitExists and UnitExists("target") then
         local r
         if btn.spellID then
             if C_Spell and C_Spell.IsSpellInRange then
@@ -480,7 +480,7 @@ local function ApplyTint(btn)
 
     -- usability (the grey / blue tint can be switched off, /sps matrixdim; the badges need the answer too)
     local use = "ok"
-    if not btn.sdbNav and (a.dim or a.cueMana or a.cueUnusable) then
+    if not btn.sdbNav and not btn.sdbCooldownOnly and (a.dim or a.cueMana or a.cueUnusable) then
         local usable, noMana
         if btn.spellID then
             if C_Spell and C_Spell.IsSpellUsable then
