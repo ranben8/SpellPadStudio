@@ -1,3 +1,12 @@
+# SpellPad Studio 1.6.3 (beta)
+
+Plumber's Outfit Collection macro is supported, and addon key bindings get their own place in the Arsenal.
+
+## New
+
+- **Plumber's Outfit Collection on the SpellPad.** A card holding Plumber's outfit macro (`/click PLMR_OUTFIT`) now shows Plumber's clothing icon on the card and the SpellPad instead of a question mark, and is named Outfit Collection. The macro is also in the Arsenal under Plumber, so you can put it on a card without making it in the Macros window first.
+- **Addons in the Arsenal.** The Easy Macros tab has a new `Addons` category with the key bindings of your other addons, each under its addon's name. `Game Keys` now lists only the game's own bindings.
+
 # SpellPad Studio 1.6.2
 
 One fix for profession cards.

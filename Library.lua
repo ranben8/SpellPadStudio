@@ -19,6 +19,7 @@ L.CATEGORIES = {
     { key = "travel", label = "Travel" },
     { key = "interface", label = "Interface" },
     { key = "gamekeys", label = "Game Keys" },
+    { key = "addons", label = "Addons" },
 }
 
 local function ClassName(cf)
@@ -123,21 +124,42 @@ function BUILD.interface(out)
     AddList(out, nil, SDB.INTERFACE_ELEMENTS)
 end
 
--- The game's own key actions (GameKeys.lua), under the headings of the Key Bindings screen. The hand-made entries
--- above already cover some of them and keep their own wording.
-function BUILD.gamekeys(out)
+-- Key binding actions (GameKeys.lua) under the headings of the Key Bindings screen: the game's own on the Game Keys
+-- chip, other addons' on the Addons chip. The hand-made entries above already cover some of them and keep their own
+-- wording.
+local function AddBindings(out, addons)
     local GK = SDB.GameKeys
     if not GK then return end
     local skip = GK.Curated()
+    -- an addon's own macros (they have no binding) go last under that addon's heading
+    local addonMacros, pending = {}, {}
+    if addons and GK.AddonMacros then addonMacros = GK.AddonMacros() end
+    for _, m in ipairs(addonMacros) do pending[m.heading] = true end
+    local function Flush(heading)
+        if not pending[heading] then return end
+        pending[heading] = nil
+        for _, m in ipairs(addonMacros) do
+            if m.heading == heading then Add(out, heading, m.name, m.macro, m.icon) end
+        end
+    end
+    local last
     for _, e in ipairs(GK.List()) do
-        if not skip[e.action] then
+        if not skip[e.action] and (e.addon and true or false) == addons then
+            if last and e.headerText ~= last then Flush(last) end
+            last = e.headerText
             Add(out, e.headerText, e.name, "!BIND " .. e.action, GK.Icon(e.action))
             local entry = out[#out]
             -- a search for "bind" must not hit every row, so the searchable text is the action name only
             if entry then entry.mlname = e.action:lower() end
         end
     end
+    if last then Flush(last) end
+    -- an addon with no binding of its own gets its heading at the end
+    for _, m in ipairs(addonMacros) do Flush(m.heading) end
 end
+
+function BUILD.gamekeys(out) AddBindings(out, false) end
+function BUILD.addons(out) AddBindings(out, true) end
 
 -- The entries of one category. withCategory = true puts the chip's name in front of each heading (used when a search
 -- spans every category).

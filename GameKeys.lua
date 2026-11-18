@@ -9,7 +9,8 @@ local addonName, SDB = ...
 --   * action bar bindings of any kind (button N of a bar, bar pages, a CLICK on another addon's button), because
 --     SpellPad cards don't drive other action bars,
 --   * debug bindings and this addon's own two.
--- Addon bindings are offered under the heading their addon gave them.
+-- Addon bindings are offered under the heading their addon gave them, together with the few macros an addon makes
+-- for its own buttons (GK.ADDON_MACROS), which have no binding.
 --
 -- A binding can't be run from a macro or a SpellPad click (the game refuses RunBinding to addons), so these cards
 -- only run from their key.
@@ -305,7 +306,8 @@ local function Scan()
                     end
                     local name = Plain(_G["BINDING_NAME_" .. command])
                     if not name then info.noName = info.noName + 1 end
-                    local e = { action = command, name = name or command, header = header, headerText = HeaderText(header) }
+                    local e = { action = command, name = name or command, header = header, headerText = HeaderText(header),
+                        addon = (header and not BLIZZARD_HEADER[header]) or nil }
                     index[command] = e
                     local reason = GK.Excluded(command, header)
                     if reason then
@@ -344,7 +346,7 @@ local function Scan()
     return cache
 end
 
--- the offered entries: { action, name, header, headerText }
+-- the offered entries: { action, name, header, headerText, addon } (addon = true for an addon's binding)
 function GK.List() return Scan().list end
 
 -- true or false when the game's list is available, nil when it is not (or the action is a SPELL / CLICK style
@@ -386,13 +388,62 @@ local function ActionOf(macro)
 end
 
 -- icon and name for a card whose text is "!BIND ACTION" (nil when it isn't one, or the action isn't known here)
+-- Macros other addons make for their own buttons. Such an addon has no key binding for it (its secure button is
+-- reached with /click from a macro), so the game's list can't show it; it is offered under the addon's heading
+-- with the icon the addon gives its own macro.
+GK.ADDON_MACROS = {
+    -- Plumber's Outfit Collection window at the transmogrifier; Plumber writes exactly this macro with this icon
+    { addon = "Plumber", button = "PLMR_OUTFIT", name = "Outfit Collection", icon = 2869702,
+        macro = "#plumber:outfit\n/click PLMR_OUTFIT" },
+}
+
+-- The addon macro a card runs: its one action line is "/click BUTTON" (optionally a mouse button after it) for a
+-- button listed above; # lines don't count.
+local function AddonMacroOf(macro)
+    if type(macro) ~= "string" then return nil end
+    local button
+    for rawLine in string.gmatch(macro, "[^\r\n]+") do
+        local line = strtrim(rawLine)
+        if line ~= "" and string.sub(line, 1, 1) ~= "#" then
+            if button then return nil end
+            local cmd, rest = string.match(line, "^/(%a+)%s+(.+)$")
+            if not cmd or string.lower(cmd) ~= "click" then return nil end
+            button = string.match(rest, "^(%S+)%s*%S*$")
+            if not button then return nil end
+        end
+    end
+    for _, m in ipairs(GK.ADDON_MACROS) do
+        if m.button == button then return m end
+    end
+    return nil
+end
+
+-- The addon macros whose addon is loaded now (its button exists), each under the heading its addon's bindings use
+function GK.AddonMacros()
+    local out = {}
+    for _, m in ipairs(GK.ADDON_MACROS) do
+        if _G[m.button] then
+            local heading = m.addon
+            for _, a in ipairs(AddonIcons()) do
+                if a.name == m.addon then heading = a.display break end
+            end
+            out[#out + 1] = { heading = heading, name = m.name, macro = m.macro, icon = m.icon, button = m.button }
+        end
+    end
+    return out
+end
+
 function GK.IconForMacro(macro)
+    local addonMacro = AddonMacroOf(macro)
+    if addonMacro then return addonMacro.icon end
     local action = ActionOf(macro)
     if not action or GK.Known(action) == false then return nil end
     return GK.Icon(action)
 end
 
 function GK.NameForMacro(macro)
+    local addonMacro = AddonMacroOf(macro)
+    if addonMacro then return addonMacro.name end
     local action = ActionOf(macro)
     return action and GK.Name(action) or nil
 end
@@ -508,6 +559,11 @@ function GK.Report(emit, arg)
     local installed, withIcon = AddonIcons(), 0
     for _, a in ipairs(installed) do if a.icon then withIcon = withIcon + 1 end end
     E("Installed addons: " .. #installed .. ", of which name an IconTexture: " .. withIcon)
+    local addonMacros = GK.AddonMacros()
+    E("Addon macros offered (their addon is loaded): " .. #addonMacros)
+    for _, m in ipairs(addonMacros) do
+        E("  " .. m.heading .. " | " .. m.name .. " | /click " .. m.button .. " | icon " .. tostring(m.icon))
+    end
     if arg == "full" then
         E("")
         E("Offered entries (action | shown as | icon):")
