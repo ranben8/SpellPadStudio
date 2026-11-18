@@ -34,6 +34,13 @@ local function IsClearCast(line)
     return name == CLEAR_ENGLISH or name == ClearSpellName()
 end
 
+-- for the macro checker: the clear spell's name is valid on a /cast line although the spellbook doesn't have it
+function O.IsClearName(name)
+    if type(name) ~= "string" then return false end
+    name = string.gsub(strtrim(string.lower(name)), "^!", "")
+    return name == CLEAR_ENGLISH or name == ClearSpellName()
+end
+
 function O.IsClearSpell(spellID) return spellID == CLEAR_SPELL end
 
 function O.Available()

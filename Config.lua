@@ -886,6 +886,8 @@ do
         end
         -- a collected mount is cast by name but may not be found by the spell lookup above
         if not v and SDB.MountDrop and SDB.MountDrop.InfoByName(name) then v = true end
+        -- Clear Current Transmogrifications (Plumber's Show Currently Equipped Gear) isn't in the spellbook either
+        if not v and SDB.Outfits and SDB.Outfits.IsClearName(name) then v = true end
         spellCache[name] = { v = v, t = now }
         return v
     end
