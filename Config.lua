@@ -577,6 +577,7 @@ function SDB.ExportAllPagesString()
         deckSize = SDB.db.deckSize or 12,
         padSize = SDB.PadSize(), -- one size and shape for every page (nil = each page its own)
         padCols = SDB.PadCols(),
+        padLayout = SDB.IsNumpad() and "numpad" or nil,
         pageNames = SDB.db.pageNames or {},
         pageCols = pageCols,
         pageCycles = pageCycles,
@@ -2523,6 +2524,7 @@ function SDB.BuildUI()
 
             local deck = SDB.CreateBlankDeck(nextPageIndex, SDB.NewPagePrefix(), slotCount)
             if top and not SDB.PrefixIsGlobal() then CopyKeys(deck, top, SDB.PagePrefix(plan.top)) end
+            if SDB.IsNumpad() then SDB.SetNumpadKeys(deck) end
             local kinds, skipped = {}, {}
             if top then kinds, skipped = CopyNavCards(deck, top) end
 
@@ -2814,7 +2816,8 @@ function SDB.BuildUI()
         if optionsWindow.deckSizeBtn then optionsWindow.deckSizeBtn:SetText(tostring(curCount)) end
         if optionsWindow.orientBtn then
             local cols = pad and SDB.PadCols() or SDB.PadColsFor(curCount, SDB.PadIsVertical())
-            optionsWindow.orientBtn:SetText((curCount / cols) .. "x" .. cols)
+            local rows = pad and SDB.PadRows() or (curCount / cols) -- the numpad's last row is not full
+            optionsWindow.orientBtn:SetText(rows .. "x" .. cols)
         end
         if optionsWindow.RefreshPadSize then optionsWindow.RefreshPadSize() end
         optionsWindow.UpdateActiveProfileText = UpdateActiveProfileText
@@ -3707,6 +3710,10 @@ function SDB.BuildUI()
         end
         plPrefixBox.sdbListening = false
         plPrefixBox:SetTextColor(1, 0.82, 0) -- "Listening..." is grey, the keys while listening are white, a real prefix is gold (as on the main window's key cap)
+        if SDB.IsNumpad() then
+            plPrefixBox:SetTextColor(0.53, 0.53, 0.53) -- the numpad sets every key: there is no prefix to show
+            existingPrefix = "Numpad"
+        end
         plPrefixBox:SetText(existingPrefix)
         pageLogicWindow.UpdatePrefixHint() -- an empty box shows the grey "Enter Prefix..."
     end
@@ -6104,6 +6111,13 @@ function SDB.BuildUI()
             end
         end)
         prefixClick:SetScript("OnEnter", function(self)
+            if SDB.IsNumpad() then
+                SDB.Tip.Begin(self, "ANCHOR_BOTTOM", "Numpad Keys")
+                SDB.Tip.Line("Every card uses its numpad key, so this profile has no prefix.")
+                SDB.Tip.Hint("Pick a pad size in Options > SpellPad to use prefix keys again.")
+                SDB.Tip.Done()
+                return
+            end
             local global = SDB.PrefixIsGlobal and SDB.PrefixIsGlobal()
             SDB.Tip.Begin(self, "ANCHOR_BOTTOM", global and "Global Prefix" or "Page Prefix")
             SDB.Tip.Line(global and "Click, then press the keys for the prefix of every page. Enter applies, Esc cancels."
@@ -6189,7 +6203,7 @@ function SDB.BuildUI()
                 if string.find(iss, "^|cFFFF9900") then orange = true else return "red" end
             end
             if orange then return "orange" end
-            if hasKey and SDB.GetKeybindConflictInfo(data.key) then return "orange" end
+            if hasKey and SDB.GetKeybindConflictInfo(data.key) and not SDB.NumpadTakesOver(data.key) then return "orange" end
             if not hasKey then
                 if data.macro and string.find(data.macro, "%S") then return "orange" end
                 return "grey"
@@ -6253,13 +6267,24 @@ function SDB.BuildUI()
                 SDB.Tip.Hint("Right-click to map another key.")
             elseif hasKey then
                 local conflictAction = SDB.GetKeybindConflictInfo(data.key)
-                if conflictAction then
+                if conflictAction and SDB.NumpadTakesOver(data.key) then
+                    -- the numpad layout was chosen knowing it takes the game's numpad keys over: a note, not a warning
+                    SDB.Tip.Gap()
+                    SDB.Tip.Line("Game action on this key: " .. SDB.Colors.Wrap("WHITE", conflictAction))
+                    SDB.Tip.Hint("The numpad is on, so this card runs instead.")
+                elseif conflictAction then
                     SDB.Tip.Gap()
                     SDB.Tip.Colored("ORANGE", "Key Conflict")
                     SDB.Tip.Line("Default action: " .. SDB.Colors.Wrap("WHITE", conflictAction))
                     SDB.Tip.Hint("SpellPad Studio takes this action over, so the default action won't function.")
                 else
                     SDB.Tip.Colored("GREEN", "No key conflict")
+                end
+                if SDB.ShiftDroppedKey(data.key) and SDB.MacroUsesShift(data.macro) then
+                    SDB.Tip.Gap()
+                    SDB.Tip.Colored("ORANGE", "Shift may not work on this key: with Num Lock on, Windows lets go of "
+                        .. "Shift on the numpad's number keys.")
+                    SDB.Tip.Hint("Use Ctrl or Alt in this macro, or keep Num Lock off.")
                 end
             end
             local issues = row.syntaxIssues
@@ -6282,6 +6307,10 @@ function SDB.BuildUI()
                 -- the prefix is being listened for: "Listening..." (grey), then the keys so far (white)
                 local keys = SDB.PrefixBufferText and SDB.PrefixBufferText() or ""
                 S.SetPrefixChip("set", keys ~= "" and ("|cFFFFFFFF" .. keys .. "|r") or "|cFF888888Listening...|r")
+                return
+            end
+            if SDB.IsNumpad() then
+                S.SetPrefixChip("set", "|cFF888888Numpad|r")
                 return
             end
             local slots = SDB.db.pages[SDB.db.activePage or 1] or {}

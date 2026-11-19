@@ -1062,6 +1062,31 @@ function SDB.MacroUsesModifiers(macro)
         or string.find(m, "%f[%a]modifier%f[%A]") ~= nil
 end
 
+-- With Num Lock on, Windows lets go of Shift before it sends a numpad number key or the decimal key (Shift turns
+-- them into Insert, End and the other navigation keys). The game still gets the key, but with Shift up, so a Shift
+-- condition can't be true from those keys. Ctrl and Alt are not touched.
+local SHIFT_DROPPED = { NUMPADDECIMAL = true }
+for d = 0, 9 do SHIFT_DROPPED["NUMPAD" .. d] = true end
+
+function SDB.ShiftDroppedKey(key)
+    local _, suffix = SDB.SplitKey(string.upper(strtrim(key or "")))
+    return SHIFT_DROPPED[suffix] == true
+end
+
+-- true when a macro condition asks about Shift: [mod] or [nomod] without a list (any modifier), or a list naming
+-- shift (shift, lshift, rshift), as mod, modifier, nomod or nomodifier
+function SDB.MacroUsesShift(macro)
+    for block in string.gmatch(string.lower(macro or ""), "%[(.-)%]") do
+        for cond in string.gmatch(block, "[^,]+") do
+            local name, args = string.match(strtrim(cond), "^(%a+)%s*:?%s*(.*)$")
+            if name == "mod" or name == "modifier" or name == "nomod" or name == "nomodifier" then
+                if args == "" or string.find(args, "shift", 1, true) then return true end
+            end
+        end
+    end
+    return false
+end
+
 local MOD_ORDER = { "ALT", "CTRL", "SHIFT" } -- the order the game writes modifiers in a key name
 
 function SDB.ModifierVariants(key)
@@ -1211,6 +1236,7 @@ SDB.PrefixChanged = PrefixChanged
 function SDB.SetPagePrefix(pageIndex, prefix)
     prefix = NormalizePrefix(prefix)
     if prefix == "" then return nil end
+    if SDB.NumpadRefuse and SDB.NumpadRefuse() then return nil end
     if not SDB.PrefixIsGlobal() then
         return SDB.BatchApplyPagePrefix(pageIndex, prefix), 1
     end
@@ -1276,6 +1302,7 @@ function SDB.UnbindPrefix(pageIndex)
         print("|cFFFF4444[SpellPad Studio]|r Can't change a prefix in combat.")
         return false
     end
+    if SDB.NumpadRefuse and SDB.NumpadRefuse() then return false end
     pageIndex = pageIndex or (SDB.db and SDB.db.activePage) or 1
     local list
     if SDB.PrefixIsGlobal() then
@@ -1314,6 +1341,10 @@ function SDB.SetPrefixMode(global)
     if not SDB.db or global == SDB.PrefixIsGlobal() then return false end
     if InCombat() then
         print("|cFFFF4444[SpellPad Studio]|r Can't change a prefix in combat.")
+        return false
+    end
+    if SDB.NumpadRefuse and SDB.NumpadRefuse() then
+        PrefixChanged() -- the Global switch that was clicked goes back
         return false
     end
     if not global then
@@ -1356,7 +1387,7 @@ end
 -- it; a page whose cards already hold keys is left as it is, whatever its prefix. Returns how many pages were left.
 function SDB.AdoptGlobalPrefix(prefix)
     prefix = NormalizePrefix(prefix)
-    if not SDB.db or prefix == "" then return 0 end
+    if not SDB.db or prefix == "" or SDB.IsNumpad() then return 0 end
     SDB.db.prefixMode = "global"
     SDB.db.globalPrefix = prefix
     local left = 0
@@ -2016,15 +2047,21 @@ function SDB.SetPadSize(n, cols, opts)
     if type(cols) ~= "number" or cols ~= math.floor(cols) or cols < 1 or n % cols ~= 0 then cols = SDB.PadColsFor(n, false) end
     local db = SDB.db
     local first = not SDB.PadSize(db)
-    if not first and SDB.PadSize(db) == n and SDB.PadCols(db) == cols then
+    local leaving = SDB.IsNumpad(db) -- a grid size leaves the numpad: every card gets a prefix key again
+    if not first and not leaving and SDB.PadSize(db) == n and SDB.PadCols(db) == cols then
         if opts.done then opts.done() end
         return true
     end
     local hiddenCards, hiddenPages = SDB.HiddenContent(n, db)
+    local backPrefix = leaving and SDB.NumpadReturnPrefix(db)
 
     local function Commit()
         if SDB.db ~= db or InCombat() then return end -- the profile was switched, or a fight began, while it asked
         if first and SDB.Snapshots then SDB.Snapshots.Take("Before Pad Size", "profile") end
+        if leaving then
+            if SDB.Snapshots then SDB.Snapshots.Take("Before Leaving Numpad", "profile") end
+            SDB.LeaveNumpadKeys(db, backPrefix)
+        end
         db.padSize, db.padCols = n, cols
         db.deckSize = n -- read by the imports that build pages from the game
         SDB.FillPages(db)
@@ -2034,10 +2071,17 @@ function SDB.SetPadSize(n, cols, opts)
         if SDB.RefreshPadIfShown then SDB.RefreshPadIfShown() end
         local ow = _G["GalleonBridgeOptionsFrame"]
         if ow and ow.UpdateActiveProfileText then ow.UpdateActiveProfileText() end
+        if leaving then
+            if SDB.configWindow and SDB.configWindow.RefreshPageTabs then SDB.configWindow.RefreshPageTabs() end
+            PrefixChanged()
+        end
         if not opts.quiet then
             local rows = n / cols
             print("|cFF00FF00[SpellPad Studio]|r Every page now shows " .. n .. " cards, " .. rows
                 .. (rows == 1 and " row by " or " rows by ") .. cols .. (cols == 1 and " column." or " columns."))
+            if leaving then
+                print("|cFF00FF00[SpellPad Studio]|r The numpad is off: every card has a '" .. backPrefix .. "' key again.")
+            end
         end
         if hiddenCards > 0 and not first then
             print("|cFFFF9900[SpellPad Studio]|r " .. SDB.Plural(hiddenCards, "card") .. " with a macro or icon "
@@ -2047,6 +2091,14 @@ function SDB.SetPadSize(n, cols, opts)
         if opts.done then opts.done() end
     end
 
+    if leaving then
+        local pages = #(db.pages or {})
+        StaticPopup_Show("GALLEONBRIDGE_PAD_SIZE_CONFIRM", "Stop using the numpad?\n\nEvery page will show " .. n
+            .. " cards, and every card key on " .. SDB.Plural(pages, "page") .. " changes to '" .. backPrefix
+            .. "' plus the key of its position, as on a new page."
+            .. "\n\nA snapshot is saved first.", nil, { ok = Commit, cancel = opts.cancel })
+        return "asked"
+    end
     if first and hiddenCards > 0 then
         StaticPopup_Show("GALLEONBRIDGE_PAD_SIZE_CONFIRM", "Use one pad size for every page?\n\nEvery page will show "
             .. n .. " cards. " .. SDB.Plural(hiddenCards, "card") .. " on " .. SDB.Plural(hiddenPages, "page")
@@ -2068,13 +2120,18 @@ function SDB.PadSizeSlash(arg)
     arg = string.lower(strtrim(arg or ""))
     local pad = SDB.PadSize()
     if arg == "" then
-        if pad then
-            local cols = SDB.PadCols()
-            print(Y .. "Every page shows " .. pad .. " cards, " .. (pad / cols) .. " rows by " .. cols .. " columns.")
+        if SDB.IsNumpad() then
+            print(Y .. "Every page uses the 17 numpad keys.")
+        elseif pad then
+            print(Y .. "Every page shows " .. pad .. " cards, " .. SDB.PadRows() .. " rows by " .. SDB.PadCols() .. " columns.")
         else
             print(Y .. "This profile has no pad size yet: each page keeps its own size and shape.")
         end
-        print(Y .. "Use /sps padsize 12, /sps padsize 12 vertical or /sps padsize 4x3 (rows x columns) to set one.")
+        print(Y .. "Use /sps padsize 12, /sps padsize 12 vertical, /sps padsize 4x3 (rows x columns) or /sps padsize numpad to set one.")
+        return
+    end
+    if arg == "numpad" then
+        if SDB.Numpad then SDB.Numpad.Ask() end
         return
     end
     local rows, cols = string.match(arg, "^(%d+)%s*x%s*(%d+)$")
@@ -2091,7 +2148,11 @@ function SDB.PadSizeSlash(arg)
         elseif dir == "h" or dir == "horizontal" then
             vertical = false
         elseif dir == "" then
-            vertical = pad and (pad / SDB.PadCols()) > SDB.PadCols() or false
+            if SDB.IsNumpad() then
+                vertical = SDB.PadIsVertical()
+            else
+                vertical = pad and (pad / SDB.PadCols()) > SDB.PadCols() or false
+            end
         end
         if n and vertical ~= nil then cols = SDB.PadColsFor(n, vertical) end
     end
@@ -2341,6 +2402,7 @@ function SDB.StartPrefixListen()
     end
     -- the click that cancelled a listen has its release after the cancel: it must not start a new one
     if GetTime() - (SDB.prefixClickCancelAt or -10) < 0.3 then return false end
+    if SDB.NumpadRefuse and SDB.NumpadRefuse() then return false end
     SDB.listeningSlot = nil
     SDB.listeningForPrefix = true
     SDB.prefixBuffer = {}
@@ -2372,6 +2434,7 @@ function SDB.StartSlotListen(page, slot)
     end
     -- the click that cancelled a listen has its release after the cancel: it must not start a new one
     if GetTime() - (SDB.prefixClickCancelAt or -10) < 0.3 then return false end
+    if SDB.NumpadRefuse and SDB.NumpadRefuse() then return false end
     if SDB.listeningForPrefix then EndPrefixListen() end
     SDB.listeningSlot = { page = page, slot = slot }
     SDB.slotListenDb = SDB.db

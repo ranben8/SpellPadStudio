@@ -34,6 +34,7 @@ CopyWindow.lua
 DragKeep.lua
 PadPickup.lua
 GameKeys.lua
+Numpad.lua
 AutoName.lua
 Library.lua
 MountDrop.lua

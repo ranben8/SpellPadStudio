@@ -145,6 +145,7 @@ function SDB.NumpadShort(key)
     elseif up == "NUMPADDIVIDE" then return "NP/"
     elseif up == "NUMPADMINUS" then return "NP-"
     elseif up == "NUMPADPLUS" then return "NP+"
+    elseif up == "NUMLOCK" then return "Num"
     elseif string.find(up, "^NUMPAD") then return "NP" .. string.sub(up, 7) end
     return key
 end
@@ -448,13 +449,68 @@ function SDB.PadColsFor(n, vertical)
     return cols
 end
 
+-- -------------------------------------------------------------
+-- Numpad layout: a plain keyboard numpad is the keypad
+-- -------------------------------------------------------------
+-- SDB.db.padLayout == "numpad" (with padSize 17): every page uses the 17 numpad keys below, in this order, with no prefix.
+-- Card n always has the n-th key; cards past 17 are hidden and keep no key. The game reads the numpad the same with
+-- Num Lock on or off, so NUMLOCK is a card of its own. The grid is 4 columns by 5 rows (the last row holds one card).
+SDB.NUMPAD_KEYS = {
+    "NUMLOCK", "NUMPADDIVIDE", "NUMPADMULTIPLY", "NUMPADMINUS",
+    "NUMPAD7", "NUMPAD8", "NUMPAD9", "NUMPADPLUS",
+    "NUMPAD4", "NUMPAD5", "NUMPAD6",
+    "NUMPAD1", "NUMPAD2", "NUMPAD3", "NUMPADENTER",
+    "NUMPAD0", "NUMPADDECIMAL",
+}
+SDB.NUMPAD_COLS = 4
+
+function SDB.IsNumpad(db)
+    db = db or SDB.db
+    return type(db) == "table" and db.padLayout == "numpad" and db.padSize == #SDB.NUMPAD_KEYS
+end
+
+-- true when the active profile is on the numpad and `key` is one of its keys: the game's own action on that key is
+-- taken over by choice, so it is not shown as a key conflict
+function SDB.NumpadTakesOver(key)
+    if type(key) ~= "string" or not SDB.IsNumpad() then return false end
+    key = string.upper(strtrim(key))
+    for _, k in ipairs(SDB.NUMPAD_KEYS) do
+        if k == key then return true end
+    end
+    return false
+end
+
+-- gives every card of a page its numpad key (none past the 17th); returns how many keys changed
+function SDB.SetNumpadKeys(page)
+    if type(page) ~= "table" then return 0 end
+    local changed = 0
+    for i, d in ipairs(page) do
+        if type(d) == "table" then
+            local key = SDB.NUMPAD_KEYS[i] or ""
+            if d.key ~= key then
+                d.key = key
+                changed = changed + 1
+            end
+        end
+    end
+    return changed
+end
+
 -- the profile's pad columns (a stored value that doesn't divide the size falls back to the horizontal shape)
 function SDB.PadCols(db)
     local n = SDB.PadSize(db)
     if not n then return nil end
+    if SDB.IsNumpad(db) then return SDB.NUMPAD_COLS end
     local c = (db or SDB.db).padCols
     if type(c) == "number" and c == math.floor(c) and c >= 1 and c <= n and n % c == 0 then return c end
     return SDB.PadColsFor(n, false)
+end
+
+-- the profile's pad rows (the numpad's last row is not full), or nil without a pad size
+function SDB.PadRows(db)
+    local n = SDB.PadSize(db)
+    if not n then return nil end
+    return math.ceil(n / SDB.PadCols(db))
 end
 
 -- whether the pad lies vertical (taller than wide). A square pad, or a profile without a pad size yet, has no direction of
@@ -462,7 +518,8 @@ end
 function SDB.PadIsVertical(db)
     db = db or SDB.db
     local n = SDB.PadSize(db)
-    if n then
+    -- the numpad has a fixed shape, so the direction a grid size would take is the last one chosen
+    if n and not SDB.IsNumpad(db) then
         local cols = SDB.PadCols(db)
         if n / cols > cols then return true end
         if n / cols < cols then return false end
@@ -531,12 +588,16 @@ function SDB.FillPage(page, db)
     return added
 end
 
--- fills every page of a profile (nothing happens without a pad size)
+-- fills every page of a profile (nothing happens without a pad size). On the numpad it also gives every card its
+-- numpad key, so a page that arrives with other keys (an import, a restored page) follows the layout.
 function SDB.FillPages(db)
     db = db or SDB.db
     if not SDB.PadSize(db) or type(db.pages) ~= "table" then return 0 end
     local added = 0
     for _, page in ipairs(db.pages) do added = added + SDB.FillPage(page, db) end
+    if SDB.IsNumpad(db) then
+        for _, page in ipairs(db.pages) do SDB.SetNumpadKeys(page) end
+    end
     return added
 end
 
@@ -587,7 +648,8 @@ end
 -- reads and writes of these keys to the shared store. A profile table never holds them itself (an own copy
 -- would shadow the store), so AttachOptions removes any it finds. The first time it runs (no store yet) the
 -- ACTIVE profile's values become the shared ones, so the look you have now is kept.
--- Not in the list, because they belong to the pages: deckSize, padSize, padCols, matrixOrientation, pages, pageNames, activePage.
+-- Not in the list, because they belong to the pages: deckSize, padSize, padCols, padLayout, matrixOrientation, pages, pageNames,
+-- activePage.
 -- true for { r, g, b } with three numbers from 0 to 1 (a saved color is checked before it is used)
 function SDB.ValidColor(c)
     if type(c) ~= "table" then return false end
@@ -742,6 +804,8 @@ function SDB.ValidateDB()
                 if SDB.IsAutoPageName(name) then prof.pageNames[p] = nil end
             end
         end
+        -- the numpad layout only holds with its own pad size
+        if type(prof) == "table" and prof.padLayout ~= nil and not SDB.IsNumpad(prof) then prof.padLayout = nil end
         -- folders whose new-page switch is off: name -> true, nothing else
         if type(prof) == "table" and prof.cycleNavOff ~= nil then
             if type(prof.cycleNavOff) ~= "table" then

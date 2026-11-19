@@ -27,8 +27,7 @@ local InCombatLockdown = InCombatLockdown
 function SDB.GetMatrixDimensions(totalSlots, page, db)
     local pad = SDB.PadSize(db)
     if pad and totalSlots == pad then
-        local cols = SDB.PadCols(db)
-        return pad / cols, cols
+        return SDB.PadRows(db), SDB.PadCols(db)
     end
     local stored = SDB.PageCols(page)
     if stored and #page == totalSlots then
@@ -899,7 +898,9 @@ function SDB.RefreshMatrixGrid()
                 SetPadMacro(btn, curP, slotIdx, macroText)
             end
 
-            local conflictAction = (keyToken ~= "") and SDB.GetKeybindConflictInfo(keyToken) or nil
+            -- the numpad layout takes the game's numpad keys over by choice: no conflict mark for those
+            local conflictAction = (keyToken ~= "") and not SDB.NumpadTakesOver(keyToken)
+                and SDB.GetKeybindConflictInfo(keyToken) or nil
             btn.conflictAction = conflictAction
 
             -- "Show names" off (Options window): the custom name isn't drawn, the key conflict "!" still is

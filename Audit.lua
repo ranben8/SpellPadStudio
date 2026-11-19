@@ -113,7 +113,8 @@ function A.Scan()
                     if key ~= "" then
                         -- 2. key is also a default WoW binding
                         local conflict = SDB.GetKeybindConflictInfo and SDB.GetKeybindConflictInfo(key)
-                        if conflict then
+                        -- the numpad layout takes the game's numpad keys over by choice
+                        if conflict and not SDB.NumpadTakesOver(key) then
                             soft[#soft + 1] = { soft = true, text = "Key " .. Esc(key)
                                 .. " is also WoW's default for '" .. Esc(conflict)
                                 .. "'. SpellPad Studio takes this action over, so the default action won't function." }

@@ -256,10 +256,21 @@ local function BuildPrefixGroup(g)
 
     local function Refresh()
         local isGlobal = SDB.PrefixIsGlobal and SDB.PrefixIsGlobal() or false
-        global:SetSelected(isGlobal)
-        perPage:SetSelected(not isGlobal)
-        click:SetEnabled(isGlobal)
-        cap:SetAlpha(isGlobal and 1 or 0.45)
+        -- the numpad sets every card key itself: no mode and no prefix can be chosen while it is on
+        local numpad = SDB.IsNumpad and SDB.IsNumpad() or false
+        global:SetSelected(isGlobal and not numpad)
+        perPage:SetSelected(not isGlobal and not numpad)
+        for _, chip in ipairs({ global, perPage }) do
+            chip:SetEnabled(not numpad)
+            chip:SetAlpha(numpad and 0.45 or 1)
+        end
+        click:SetEnabled(isGlobal and not numpad)
+        cap:SetAlpha((isGlobal and not numpad) and 1 or 0.45)
+        if numpad then
+            cap:SetText("|cFF888888Numpad|r")
+            note:SetText("The numpad sets every card key, so prefixes are off. Pick a pad size on the SpellPad tab to use prefix keys again.")
+            return
+        end
         local text
         if not isGlobal then
             text = "|cFF888888Per page|r"
@@ -320,14 +331,23 @@ local function BuildPrefixGroup(g)
     Refresh()
 end
 
--- Pad size group (SpellPad tab): tiles for the common keypad sizes, the direction, and the two dropdowns that make any
--- other size from 4 to 36. Every choice goes through SDB.SetPadSize, which applies it to every page.
+-- Pad group (SpellPad tab): tiles for the common keypad sizes and the keyboard numpad, the direction, and the two
+-- dropdowns that make any other size from 4 to 36. Every size goes through SDB.SetPadSize, which applies it to every
+-- page (and leaves the numpad); the Numpad tile asks first (Numpad.lua). The numpad has one fixed shape, so the
+-- direction and the custom size are greyed while it is on.
 local function BuildPadSizeGroup(g, win)
     local function Click() PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856) end
 
-    local tiles = SDB.UI.PadTiles(g, { w = 82, h = 70, gap = 8, countFont = "GameFontNormalLarge", onPick = function(n)
+    local tiles = SDB.UI.PadTiles(g, { w = 70, h = 70, gap = 7, countFont = "GameFontNormalLarge", onPick = function(n)
         Click()
         SDB.SetPadSize(n, SDB.PadColsFor(n, SDB.PadIsVertical()))
+    end, onNumpad = function()
+        Click()
+        if SDB.IsNumpad() then
+            SDB.Chat("This profile already uses the numpad. Pick a size to go back to prefix keys.", "warn")
+        elseif SDB.Numpad then
+            SDB.Numpad.Ask()
+        end
     end })
     tiles:SetPoint("TOPLEFT", g, "TOPLEFT", PAD, -g.cur)
     g.cur = g.cur + 70 + 10
@@ -343,6 +363,7 @@ local function BuildPadSizeGroup(g, win)
     label:SetPoint("TOPLEFT", g, "TOPLEFT", PAD, -(g.cur + 4))
     label:SetText("Custom size")
     local cards, shape = ButtonFont(win.deckSizeBtn), ButtonFont(win.orientBtn)
+    local customParts = { label }
     if cards and shape then
         Take(g, cards)
         cards:SetWidth(70)
@@ -356,6 +377,7 @@ local function BuildPadSizeGroup(g, win)
         local shapeFs = g:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         shapeFs:SetPoint("LEFT", shape, "RIGHT", 8, 0)
         shapeFs:SetText("rows x columns")
+        customParts = { label, cards, cardsFs, shape, shapeFs }
     end
     g.cur = g.cur + 30
 
@@ -364,14 +386,24 @@ local function BuildPadSizeGroup(g, win)
     local function Refresh()
         local pad = SDB.PadSize()
         local vertical = SDB.PadIsVertical()
-        tiles:SetValue(pad, pad and SDB.PadCols() or nil, vertical)
+        local numpad = SDB.IsNumpad()
+        tiles:SetValue(pad, pad and SDB.PadCols() or nil, vertical, numpad)
         horiz:SetSelected(not vertical)
         vert:SetSelected(vertical)
-        -- a square pad looks the same both ways: the choice is greyed out
-        local square = pad and SDB.PadColsFor(pad, false) == SDB.PadColsFor(pad, true)
+        -- a square pad looks the same both ways, and the numpad has one shape: the choice is greyed out
+        local fixed = numpad or (pad and SDB.PadColsFor(pad, false) == SDB.PadColsFor(pad, true))
         for _, chip in ipairs({ horiz, vert }) do
-            chip:SetAlpha(square and 0.45 or 1)
-            chip:SetEnabled(not square)
+            chip:SetAlpha(fixed and 0.45 or 1)
+            chip:SetEnabled(not fixed)
+        end
+        for _, part in ipairs(customParts) do
+            part:SetAlpha(numpad and 0.45 or 1)
+            if part.SetEnabled then part:SetEnabled(not numpad) end
+        end
+        if numpad then
+            note:SetText("Every page uses the 17 numpad keys, with no prefix. The game's own numpad keys run your "
+                .. "cards while this is on.\nPick a size above to go back to prefix keys.")
+            return
         end
         if not pad then
             note:SetText("This profile still gives each page its own size and shape. Pick a size to use one for every page.")
@@ -394,7 +426,7 @@ local function BuildPadSizeGroup(g, win)
         Click()
         SDB.padVerticalPref = v
         local n = SDB.PadSize()
-        if n then
+        if n and not SDB.IsNumpad() then
             local cols = SDB.PadColsFor(n, v)
             if cols ~= SDB.PadCols() then SDB.SetPadSize(n, cols) end
         end
@@ -466,7 +498,7 @@ local function OptionsBody(win)
 
     -- SpellPad: the on-screen button window (its size, look and effects are on the Look tab)
     spec[2] = Tab("SpellPad", function(content)
-        local top = Group(content, 16, 0, OPT_W - 32, "Pad Size")
+        local top = Group(content, 16, 0, OPT_W - 32, "Pad")
         BuildPadSizeGroup(top, win)
         local topH = Finish(top)
         local y0 = topH + GAP

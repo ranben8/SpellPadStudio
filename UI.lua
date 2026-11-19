@@ -1539,11 +1539,44 @@ local function DrawPictogram(tile, n, cols, chosen)
     for i = n + 1, #tile.cells do tile.cells[i]:Hide() end
 end
 
+-- the numpad tile's picture: 4 columns by 5 rows, + and Enter two rows tall, 0 two columns wide
+-- (row, column, rows spanned, columns spanned, from the top left)
+local NUMPAD_CELLS = {
+    { 0, 0, 1, 1 }, { 0, 1, 1, 1 }, { 0, 2, 1, 1 }, { 0, 3, 1, 1 },
+    { 1, 0, 1, 1 }, { 1, 1, 1, 1 }, { 1, 2, 1, 1 }, { 1, 3, 2, 1 },
+    { 2, 0, 1, 1 }, { 2, 1, 1, 1 }, { 2, 2, 1, 1 },
+    { 3, 0, 1, 1 }, { 3, 1, 1, 1 }, { 3, 2, 1, 1 }, { 3, 3, 2, 1 },
+    { 4, 0, 1, 2 }, { 4, 2, 1, 1 },
+}
+
+local function DrawNumpadPictogram(tile, chosen)
+    local cols, rows, gap = 4, 5, 1
+    local s = math.max(1, math.min((tile.picW - (cols - 1) * gap) / cols, (tile.picH - (rows - 1) * gap) / rows))
+    local gridW, gridH = cols * s + (cols - 1) * gap, rows * s + (rows - 1) * gap
+    local x0, y0 = (tile.picW - gridW) / 2, (tile.picH - gridH) / 2
+    local c = chosen and CELL_GOLD or CELL_GREY
+    for i, cell in ipairs(NUMPAD_CELLS) do
+        local t = tile.cells[i]
+        if not t then
+            t = tile.pic:CreateTexture(nil, "ARTWORK")
+            tile.cells[i] = t
+        end
+        local r, k, rs, cs = cell[1], cell[2], cell[3], cell[4]
+        t:SetSize(cs * s + (cs - 1) * gap, rs * s + (rs - 1) * gap)
+        t:ClearAllPoints()
+        t:SetPoint("TOPLEFT", tile.pic, "TOPLEFT", x0 + k * (s + gap), -(y0 + r * (s + gap)))
+        t:SetColorTexture(c[1], c[2], c[3], 1)
+        t:Show()
+    end
+end
+
+-- opts.onNumpad (optional) adds a last tile, Numpad, that calls it; f:SetValue's 4th argument marks it as chosen.
 function U.PadTiles(parent, opts)
     local list = SDB.PAD_PRESETS
     local w, h, gap = opts.w, opts.h, opts.gap or 6
+    local count = #list + (opts.onNumpad and 1 or 0)
     local f = CreateFrame("Frame", nil, parent)
-    f:SetSize(#list * w + (#list - 1) * gap, h)
+    f:SetSize(count * w + (count - 1) * gap, h)
     f.tiles = {}
     local shapeH, countH = 11, (opts.countFont == "GameFontNormalLarge") and 16 or 13
     for i, n in ipairs(list) do
@@ -1578,7 +1611,48 @@ function U.PadTiles(parent, opts)
         b:HookScript("OnLeave", function() GameTooltip:Hide() end)
         f.tiles[i] = b
     end
-    function f:SetValue(n, cols, vertical)
+    if opts.onNumpad then
+        local b = NewChip(f, w, h)
+        b:SetPoint("TOPLEFT", f, "TOPLEFT", #list * (w + gap), 0)
+        b.cells = {}
+        b.picW, b.picH = w - 12, h - 5 - 4 - shapeH - countH - 3
+        b.pic = CreateFrame("Frame", nil, b)
+        b.pic:SetSize(b.picW, b.picH)
+        b.pic:SetPoint("TOPLEFT", b, "TOPLEFT", 6, -5)
+        b.shapeFs = b:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        b.shapeFs:SetPoint("BOTTOM", b, "BOTTOM", 0, 4)
+        b.shapeFs:SetText(#SDB.NUMPAD_KEYS .. " keys")
+        b.countFs = b:CreateFontString(nil, "OVERLAY", opts.countFont or "GameFontNormal")
+        b.countFs:SetPoint("BOTTOM", b.shapeFs, "TOP", 0, 1)
+        b.countFs:SetText("Numpad")
+        b.check = b:CreateTexture(nil, "OVERLAY")
+        b.check:SetSize(12, 12)
+        b.check:SetPoint("TOPRIGHT", b, "TOPRIGHT", -3, -3)
+        b.hasCheck = SetAtl(b.check, "common-icon-checkmark", false)
+        b.check:Hide()
+        function b:SetSelected(on)
+            self.sdbSelected = on and true or false
+            self:Apply(self.sdbSelected and CHIP_LOOK.on or CHIP_LOOK.any)
+        end
+        b:SetScript("OnClick", function() opts.onNumpad() end)
+        b:HookScript("OnEnter", function(self)
+            SDB.Tip.Begin(self, "ANCHOR_TOP", "Numpad", "control")
+            SDB.Tip.Line("Every page uses the " .. #SDB.NUMPAD_KEYS .. " keys of a keyboard numpad, with no prefix.")
+            SDB.Tip.Hint("The game's own numpad keys run your cards while this is on.")
+            SDB.Tip.Done()
+        end)
+        b:HookScript("OnLeave", function() GameTooltip:Hide() end)
+        f.numpadTile = b
+    end
+    function f:SetValue(n, cols, vertical, numpad)
+        local np = self.numpadTile
+        if np then
+            np.countFs:SetTextColor(unpack(numpad and CELL_GOLD or { 1, 1, 1 }))
+            np:SetSelected(numpad)
+            np.check:SetShown(numpad and np.hasCheck)
+            DrawNumpadPictogram(np, numpad)
+        end
+        if numpad then n = nil end
         for _, b in ipairs(self.tiles) do
             local chosen = (b.n == n)
             local c = (chosen and cols) or SDB.PadColsFor(b.n, vertical and true or false)
