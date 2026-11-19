@@ -1539,23 +1539,14 @@ local function DrawPictogram(tile, n, cols, chosen)
     for i = n + 1, #tile.cells do tile.cells[i]:Hide() end
 end
 
--- the numpad tile's picture: 4 columns by 5 rows, + and Enter two rows tall, 0 two columns wide
--- (row, column, rows spanned, columns spanned, from the top left)
-local NUMPAD_CELLS = {
-    { 0, 0, 1, 1 }, { 0, 1, 1, 1 }, { 0, 2, 1, 1 }, { 0, 3, 1, 1 },
-    { 1, 0, 1, 1 }, { 1, 1, 1, 1 }, { 1, 2, 1, 1 }, { 1, 3, 2, 1 },
-    { 2, 0, 1, 1 }, { 2, 1, 1, 1 }, { 2, 2, 1, 1 },
-    { 3, 0, 1, 1 }, { 3, 1, 1, 1 }, { 3, 2, 1, 1 }, { 3, 3, 2, 1 },
-    { 4, 0, 1, 2 }, { 4, 2, 1, 1 },
-}
-
+-- the numpad tile's picture: 4 columns by 5 rows, + and Enter two rows tall, 0 two columns wide (SDB.NUMPAD_CELLS)
 local function DrawNumpadPictogram(tile, chosen)
     local cols, rows, gap = 4, 5, 1
     local s = math.max(1, math.min((tile.picW - (cols - 1) * gap) / cols, (tile.picH - (rows - 1) * gap) / rows))
     local gridW, gridH = cols * s + (cols - 1) * gap, rows * s + (rows - 1) * gap
     local x0, y0 = (tile.picW - gridW) / 2, (tile.picH - gridH) / 2
     local c = chosen and CELL_GOLD or CELL_GREY
-    for i, cell in ipairs(NUMPAD_CELLS) do
+    for i, cell in ipairs(SDB.NUMPAD_CELLS) do
         local t = tile.cells[i]
         if not t then
             t = tile.pic:CreateTexture(nil, "ARTWORK")

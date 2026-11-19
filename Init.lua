@@ -464,6 +464,24 @@ SDB.NUMPAD_KEYS = {
 }
 SDB.NUMPAD_COLS = 4
 
+-- where each numpad card sits on the drawn pad: { row, column, rows spanned, columns spanned }, counted from the top
+-- left at 0. + and Enter are two rows tall, 0 is two columns wide; the order is the order of SDB.NUMPAD_KEYS.
+SDB.NUMPAD_CELLS = {
+    { 0, 0, 1, 1 }, { 0, 1, 1, 1 }, { 0, 2, 1, 1 }, { 0, 3, 1, 1 },
+    { 1, 0, 1, 1 }, { 1, 1, 1, 1 }, { 1, 2, 1, 1 }, { 1, 3, 2, 1 },
+    { 2, 0, 1, 1 }, { 2, 1, 1, 1 }, { 2, 2, 1, 1 },
+    { 3, 0, 1, 1 }, { 3, 1, 1, 1 }, { 3, 2, 1, 1 }, { 3, 3, 2, 1 },
+    { 4, 0, 1, 2 }, { 4, 2, 1, 1 },
+}
+
+-- the place of card i on a pad drawn `cols` wide: row, column, rows spanned, columns spanned (from 0 at the top left).
+-- A numpad profile (`db`, nil = the active one) uses the numpad's own shape; anything else fills the rows in order.
+function SDB.PadCell(i, cols, db)
+    local cell = SDB.IsNumpad(db) and SDB.NUMPAD_CELLS[i]
+    if cell then return cell[1], cell[2], cell[3], cell[4] end
+    return math.floor((i - 1) / cols), (i - 1) % cols, 1, 1
+end
+
 function SDB.IsNumpad(db)
     db = db or SDB.db
     return type(db) == "table" and db.padLayout == "numpad" and db.padSize == #SDB.NUMPAD_KEYS

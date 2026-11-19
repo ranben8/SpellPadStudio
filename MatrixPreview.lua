@@ -673,9 +673,11 @@ function SDB.RefreshMatrixGrid()
                 insets = { left = 2, right = 2, top = 2, bottom = 2 },
             })
 
+            -- The icon, the cooldown and the glow are centred squares of a normal button's size, so on a numpad's
+            -- stretched key (+, Enter, 0) only the background grows and the icon stays as it is.
             local iconTex = btn:CreateTexture(nil, "BORDER")
-            iconTex:SetPoint("TOPLEFT", 3, -3)
-            iconTex:SetPoint("BOTTOMRIGHT", -3, 3)
+            iconTex:SetPoint("CENTER", 0, 0)
+            iconTex:SetSize(btnSize - 6, btnSize - 6)
             btn.icon = iconTex
             btn.texture = iconTex -- Alias for the shared Update function
 
@@ -685,7 +687,8 @@ function SDB.RefreshMatrixGrid()
 
             -- Live cooldown frame, anchored to the button
             local cd = CreateFrame("Cooldown", nil, btn, "CooldownFrameTemplate")
-            cd:SetAllPoints()
+            cd:SetPoint("CENTER", 0, 0)
+            cd:SetSize(btnSize, btnSize)
             cd:SetFrameLevel(btn:GetFrameLevel() + 2) -- Force it above the button icon
             cd:SetDrawEdge(false)
             btn.cooldown = cd
@@ -736,8 +739,8 @@ function SDB.RefreshMatrixGrid()
 
             -- Authentic action-bar golden inner border glow
             local hoverGlow = btn:CreateTexture(nil, "OVERLAY")
-            hoverGlow:SetPoint("TOPLEFT", -12, 12)
-            hoverGlow:SetPoint("BOTTOMRIGHT", 12, -12)
+            hoverGlow:SetPoint("CENTER", 0, 0)
+            hoverGlow:SetSize(btnSize + 24, btnSize + 24)
             hoverGlow:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
             hoverGlow:SetBlendMode("ADD")
             hoverGlow:SetVertexColor(1.0, 0.82, 0.0, 0.95)
@@ -880,12 +883,13 @@ function SDB.RefreshMatrixGrid()
             local customIcon = data and data.icon or nil
 
             if not locked then
-                -- Grid position calculation
-                local col = (slotIdx - 1) % numCols
-                local row = math.floor((slotIdx - 1) / numCols)
+                -- Grid position; a numpad's +, Enter and 0 span two cells (SDB.PadCell), and every button gets its
+                -- size back each time because the same buttons serve a grid pad after the profile changes
+                local row, col, rowSpan, colSpan = SDB.PadCell(slotIdx, numCols)
                 local posX = startX + (col * (btnSize + spacing))
                 local posY = startY - (row * (btnSize + spacing))
 
+                btn:SetSize(colSpan * btnSize + (colSpan - 1) * spacing, rowSpan * btnSize + (rowSpan - 1) * spacing)
                 btn:SetPoint("TOPLEFT", posX, posY)
 
                 -- Hide empty buttons: the shared empty-card rule (an icon-only card shows, a macro of only spaces hides)
@@ -921,7 +925,7 @@ function SDB.RefreshMatrixGrid()
             if customMatrixText ~= "" then
                 -- Cut long names to the button width and end with "..." (the tooltip keeps the full name)
                 local warn = conflictAction and "|cFFFF9900!|r" or ""
-                local maxW = btnSize - 4
+                local maxW = btn:GetWidth() - 4 -- the numpad's wide 0 has room for more
                 local cut = customMatrixText
                 btn.nameText:SetText(warn .. cut)
                 while btn.nameText:GetStringWidth() > maxW and #cut > 1 do

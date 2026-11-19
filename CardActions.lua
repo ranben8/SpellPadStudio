@@ -442,10 +442,10 @@ local function SlotButton(f, i)
     b:SetSize(BTN, BTN)
     -- flat 1 pixel cells: an icon = in use, a blue outline = the source, a dashed dim cell = empty
     SDB.UI.FlatBackdrop(b, CELL.empty.fill, CELL.empty.line, SDB.UI.OnePixel(b))
-    b.dash = SDB.UI.Dashed(b, BTN, BTN, 0.5, 0.5, 0.52, 0.55)
+    b.dashSets = {} -- one dashed outline per cell size (a numpad's +, Enter and 0 are bigger), made when first needed
     b.texture = b:CreateTexture(nil, "ARTWORK")
-    b.texture:SetPoint("TOPLEFT", 3, -3)
-    b.texture:SetPoint("BOTTOMRIGHT", -3, 3)
+    b.texture:SetPoint("CENTER", 0, 0)
+    b.texture:SetSize(BTN - 6, BTN - 6)
     b.num = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmallOutline")
     b.num:SetPoint("BOTTOMRIGHT", -3, 3)
     b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square")
@@ -481,6 +481,18 @@ local function SlotButton(f, i)
     return b
 end
 
+-- gives a cell its size and the dashed outline that fits it (the outline of the old size is hidden)
+local function SizeCell(b, w, h)
+    b:SetSize(w, h)
+    local key = w .. "x" .. h
+    if b.dashKey == key then return end
+    if b.dash then
+        for _, seg in ipairs(b.dash) do seg:Hide() end
+    end
+    b.dashSets[key] = b.dashSets[key] or SDB.UI.Dashed(b, w, h, 0.5, 0.5, 0.52, 0.55)
+    b.dash, b.dashKey = b.dashSets[key], key
+end
+
 local function RefreshGrid(f)
     local db = BrowseDb(f)
     local slots = db and db.pages[f.selPage]
@@ -492,7 +504,7 @@ local function RefreshGrid(f)
     local shown = SDB.PageVisible(slots, db) -- the cards that profile's pad shows
     local rows, cols = SDB.GetMatrixDimensions(shown, slots, db)
     if (rows or MAXROWS) > MAXROWS or (cols or MAXCOLS) > MAXCOLS then
-        _, cols = SDB.GetMatrixDimensions(shown)
+        cols = select(2, SDB.GetMatrixDimensions(shown))
     end
     cols = math.max(1, math.min(cols or MAXCOLS, MAXCOLS))
 
@@ -500,8 +512,9 @@ local function RefreshGrid(f)
         local b = SlotButton(f, i)
         b.slotIndex = i
         b.isSource = (f.mode ~= "pull" and f.selPage == f.srcPage and i == f.srcSlot)
-        local col = (i - 1) % cols
-        local row = math.floor((i - 1) / cols)
+        -- a numpad page keeps its own shape here too
+        local row, col, rowSpan, colSpan = SDB.PadCell(i, cols, db)
+        SizeCell(b, colSpan * BTN + (colSpan - 1) * GAP, rowSpan * BTN + (rowSpan - 1) * GAP)
         b:ClearAllPoints()
         b:SetPoint("TOPLEFT", f.grid, "TOPLEFT", col * (BTN + GAP), -row * (BTN + GAP))
         b.num:SetText(i)
