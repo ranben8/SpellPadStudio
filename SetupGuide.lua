@@ -18,6 +18,8 @@ local addonName, SDB = ...
 -- It opens by itself once, on the first login of a new install (GalleonBridgeDB.setupSeen, set in Init.lua); /sps setup,
 -- Options > General, the game's Settings page and the main window's footer (on an empty page) open it any time.
 -- Page 1 is only rebuilt while it is blank; otherwise the guide asks first and takes a snapshot.
+-- A keyboard numpad (the Numpad tile in step 1) needs no keypad app: step 2 is skipped, the test only lights spots,
+-- and the spell goes on the Numpad 1 card. Switching asks the numpad question first unless every page is blank.
 -- The demo pad is made of plain buttons of our own, never the SpellPad, whose buttons are protected.
 
 local CreateFrame = CreateFrame
@@ -59,6 +61,7 @@ local st = {
     step = 1, count = 15, vertical = false, other = false, app = "elgato",
     lit = {}, note = "", fixPrefix = nil, capturing = false,
     pg = 1, pgSlots = {},
+    numpad = false, gameKeys = true,
 }
 
 -- ---------------------------------------------------------------
@@ -67,7 +70,7 @@ local st = {
 local MOD_WORD = { ALT = "Alt", CTRL = "Ctrl", SHIFT = "Shift" }
 local KEY_WORD = {
     NUMPADDECIMAL = "Numpad .", NUMPADENTER = "Numpad Enter", NUMPADMULTIPLY = "Numpad *",
-    NUMPADDIVIDE = "Numpad /", NUMPADMINUS = "Numpad -", NUMPADPLUS = "Numpad +",
+    NUMPADDIVIDE = "Numpad /", NUMPADMINUS = "Numpad -", NUMPADPLUS = "Numpad +", NUMLOCK = "Num Lock",
 }
 
 -- "ALT-SHIFT-" -> { "ALT", "SHIFT" }
@@ -170,8 +173,40 @@ local function WillRebuild(n)
     return p1 and IsBlank(p1) and not AllBound(p1, n) or false
 end
 
+-- whether the guide is drawn for the numpad: in step 1 the choice made there, later the profile itself
+local function ShowsNumpad()
+    if st.step == 1 then return st.numpad and true or false end
+    return SDB.IsNumpad()
+end
+
+-- the numpad's first card for a spell: Numpad 1 (card 1 is Num Lock, which also flips the keyboard's Num Lock)
+local function NumpadFirstCard()
+    for i, key in ipairs(SDB.NUMPAD_KEYS) do
+        if key == "NUMPAD1" then return i end
+    end
+    return 1
+end
+
+-- true when no page of the profile holds anything a key change could matter to
+local function AllPagesBlank()
+    for _, page in ipairs(SDB.db and SDB.db.pages or {}) do
+        if not IsBlank(page) then return false end
+    end
+    return true
+end
+
+-- the number of the page the numpad switch added for the game's own numpad keys, or nil
+local function GameKeysPage()
+    local names = SDB.db and SDB.db.pageNames or {}
+    for i in ipairs(SDB.db and SDB.db.pages or {}) do
+        if SDB.Numpad and names[i] == SDB.Numpad.GAME_KEYS_PAGE then return i end
+    end
+    return nil
+end
+
 -- the keys the demo pad shows: in step 1 the first n keys page 1 will have for the chosen size (its own, the ones
--- filling it up adds, or a fresh set), later the keys of the cards the pad shows
+-- filling it up adds, or a fresh set; the numpad's keys; or, leaving the numpad, the keys SDB.LeaveNumpadKeys gives),
+-- later the keys of the cards the pad shows
 local function PreviewKeys()
     local p1 = Page1()
     local keys = {}
@@ -180,7 +215,20 @@ local function PreviewKeys()
         for i = 1, SDB.PageVisible(p1) do keys[i] = p1[i].key or "" end
         return keys
     end
+    if st.numpad then
+        for i, key in ipairs(SDB.NUMPAD_KEYS) do keys[i] = key end
+        return keys
+    end
     local n = st.count
+    if SDB.IsNumpad() then
+        local prefix, cards = SDB.NumpadReturnPrefix(), {}
+        for i = 1, SDB.MAX_CARDS do
+            cards[i] = { key = SDB.SUFFIX_MAP[i] and (prefix .. SDB.SUFFIX_MAP[i]) or "" }
+        end
+        SDB.FixGameKillKeys(cards)
+        for i = 1, n do keys[i] = cards[i].key end
+        return keys
+    end
     local cards = WillRebuild(n) and SDB.CreateBlankDeck(1, PrefixFor(p1), SDB.MAX_CARDS) or FilledKeys(p1)
     for i = 1, n do keys[i] = cards[i] and cards[i].key or "" end
     return keys
@@ -197,13 +245,14 @@ end
 
 -- takes the guide's choices from the profile as it is now: its pad size, or page 1's own size and shape
 local function ReadPage1()
+    st.numpad = SDB.IsNumpad()
     local p1 = Page1()
     local n = SDB.PageVisible(p1)
     if n == 0 then return end
     local rows, cols = SDB.GetMatrixDimensions(n, p1)
     st.count = n
     st.vertical = SDB.PadSize() and SDB.PadIsVertical() or rows > cols
-    st.other = true
+    st.other = not st.numpad
     for _, t in ipairs(SDB.PAD_PRESETS) do
         if t == n then st.other = false end
     end
@@ -332,12 +381,15 @@ local function StylePadButton(b, s, key, lit, focus)
     end
 end
 
--- draws the keys in a grid with `cols` columns, centred in the pad panel; lit = { [index] = true }, focus = an index
+-- draws the keys in a grid with `cols` columns, centred in the pad panel; lit = { [index] = true }, focus = an index.
+-- The numpad is drawn in its own shape (SDB.NUMPAD_CELLS): a stretched spot keeps the key text at normal size.
 local function DrawPad(f, keys, cols, lit, focus)
     local n = #keys
     f.padBtns = f.padBtns or {}
     for i = n + 1, #f.padBtns do f.padBtns[i]:Hide() end
     if n == 0 then return end
+    local numpad = ShowsNumpad() and n == #SDB.NUMPAD_KEYS
+    if numpad then cols = SDB.NUMPAD_COLS end
     cols = math.max(1, math.min(cols or n, n))
     local rows = math.ceil(n / cols)
     local innerW, innerH = CW - 24, PAD_H - 24
@@ -356,8 +408,9 @@ local function DrawPad(f, keys, cols, lit, focus)
             b = NewPadButton(f)
             f.padBtns[i] = b
         end
-        local r, c = math.floor((i - 1) / cols), (i - 1) % cols
-        b:SetSize(s, s)
+        local r, c, rs, cs = math.floor((i - 1) / cols), (i - 1) % cols, 1, 1
+        if numpad then r, c, rs, cs = unpack(SDB.NUMPAD_CELLS[i]) end
+        b:SetSize(cs * s + (cs - 1) * gap, rs * s + (rs - 1) * gap)
         b:ClearAllPoints()
         b:SetPoint("TOPLEFT", f.pad, "TOPLEFT", x0 + c * (s + gap), y0 - r * (s + gap))
         b.index, b.key = i, keys[i] or ""
@@ -423,7 +476,7 @@ local function EnterCardStep()
     st.baseline = {}
     for i, d in ipairs(p1) do st.baseline[i] = d.macro or "" end
     st.candidate, st.stable = nil, 0
-    local slot = (st.target and p1[st.target]) and st.target or 1
+    local slot = (st.target and p1[st.target]) and st.target or (SDB.IsNumpad() and NumpadFirstCard() or 1)
     if p1[slot] and SDB.MatrixMenu and SDB.MatrixMenu.Select then SDB.MatrixMenu.Select(slot) end
     st.target = SDB.activeSlotIndex
     OpenBrowser()
@@ -648,6 +701,7 @@ function G.ApplyShape()
         Chat("Can't change your pages in combat.", "bad")
         return false
     end
+    if st.numpad then return G.ApplyNumpad() end
     local p1 = Page1()
     if not p1 then return false end
     local n, cols = st.count, ColsFor(st.count, st.vertical)
@@ -694,6 +748,37 @@ function G.ApplyShape()
 
     local res = SDB.SetPadSize(n, cols, { quiet = true, done = Done, cancel = G.KeepPage })
     return res == true
+end
+
+-- Step 1's Next with the Numpad tile: a profile with nothing on its pages switches at once (Numpad.Enter takes a
+-- snapshot); otherwise the numpad question asks first, with the guide's checkbox choice already set.
+function G.ApplyNumpad()
+    if not SDB.Numpad or not Page1() then return false end
+    if not SDB.IsNumpad() then
+        local _, bound = SDB.Numpad.GameKeyNames()
+        local addGameKeys = st.gameKeys and bound > 0
+        if not AllPagesBlank() then
+            SDB.Numpad.Ask({ addGameKeys = addGameKeys, done = G.NumpadDone, cancel = G.KeepPage })
+            return false
+        end
+        if not SDB.Numpad.Enter(addGameKeys) then return false end
+    end
+    G.NumpadDone()
+    return true
+end
+
+-- the profile is on the numpad: page 1 is shown (its keys win while the test runs), then the key test
+function G.NumpadDone()
+    if not SDB.IsNumpad() or not Page1() then return end
+    st.target = nil -- the card step starts on Numpad 1
+    if SDB.db.activePage ~= 1 then
+        SDB.manualPage = 1
+        SDB.db.activePage = 1
+        SDB.activeSlotIndex = nil
+        SDB.ApplyBindings({ keepPending = true })
+    end
+    RefreshMainWindow()
+    GoTo(3)
 end
 
 -- the pad size question was canceled: nothing changed, and the guide's choices follow the profile again
@@ -762,7 +847,7 @@ function G.OnKey(page, slot)
     st.lastLight = GetTime()
     st.fixPrefix = nil
     local p1 = Page1()
-    if first and slot ~= 1 then
+    if first and slot ~= 1 and not SDB.IsNumpad() then
         local want = p1 and p1[1] and p1[1].key or ""
         st.note = "Card " .. slot .. " lit up (" .. G.Human(key) .. "). If you pressed the top-left button, your app sends card "
             .. slot .. "'s key. Change it to " .. G.Human(want) .. " in the app."
@@ -948,11 +1033,16 @@ local function Build()
     f.pad:SetPoint("TOPLEFT", f, "TOPLEFT", 20, PAD_TOP)
     f.pad:SetSize(CW, PAD_H)
 
-    -- step 1: size tiles (the same ones as Options > SpellPad), the Other stepper, orientation
+    -- step 1: size tiles and the Numpad tile (the same ones as Options > SpellPad), the Other stepper, orientation;
+    -- with the numpad, the game-keys page checkbox takes the orientation row
     local s1 = StepFrame(f)
     f.s1 = s1
-    s1.tiles = SDB.UI.PadTiles(s1, { w = 58, h = 56, gap = 6, onPick = function(n)
-        st.count, st.other = n, false
+    s1.tiles = SDB.UI.PadTiles(s1, { w = 50, h = 56, gap = 5, onPick = function(n)
+        st.count, st.other, st.numpad = n, false, false
+        st.note = ""
+        G.Refresh()
+    end, onNumpad = function()
+        st.numpad, st.other = true, false
         st.note = ""
         G.Refresh()
     end })
@@ -960,7 +1050,7 @@ local function Build()
     s1.otherChip = SDB.UI.ChoiceChip(s1, "Other", 64, 24)
     s1.otherChip:SetPoint("TOPLEFT", s1, "TOPLEFT", 20, -164)
     s1.otherChip:SetScript("OnClick", function()
-        st.other = true
+        st.other, st.numpad = true, false
         if st.count < SDB.MIN_CARDS or st.count > SDB.MAX_CARDS then st.count = 20 end
         st.note = ""
         G.Refresh()
@@ -991,6 +1081,17 @@ local function Build()
     s1.vert:SetPoint("LEFT", s1.horiz, "RIGHT", 10, 0)
     s1.horiz:SetScript("OnClick", function() st.vertical = false; G.Refresh() end)
     s1.vert:SetScript("OnClick", function() st.vertical = true; G.Refresh() end)
+    s1.gameKeys = SDB.UI.CheckButton(s1, nil, "Add a page with the game's numpad keys")
+    s1.gameKeys:SetPoint("TOPLEFT", s1, "TOPLEFT", 20, -197)
+    s1.gameKeys:SetScript("OnClick", function(self) st.gameKeys = self:GetChecked() and true or false end)
+    s1.gameKeys:HookScript("OnEnter", function(self)
+        SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Game Keys Page", "control")
+        SDB.Tip.Line("A new page with a card for each numpad key the game uses now (Jump, autorun and so on). "
+            .. "Show that page to use the keys as the game does.")
+        SDB.Tip.Hint("Its cards run from their key only, not from a SpellPad click.")
+        SDB.Tip.Done()
+    end)
+    s1.gameKeys:HookScript("OnLeave", function() GameTooltip:Hide() end)
     s1.shape = Text(s1, "GameFontHighlightSmall", PAD_TOP - PAD_H - 10)
     s1.shape:SetTextColor(0.75, 0.75, 0.75)
     s1.note = Text(s1, "GameFontHighlightSmall", PAD_TOP - PAD_H - 44)
@@ -1094,7 +1195,15 @@ local function Build()
     f.leftBtn = SDB.UI.Button(f, "secondary", "Not Now", 100, 26)
     f.leftBtn:SetPoint("BOTTOMLEFT", 20, 14)
     f.leftBtn:SetScript("OnClick", function()
-        if st.step == 1 then f:Hide() elseif st.step == PG then GoTo(FINISH) else GoTo(st.step - 1) end
+        if st.step == 1 then
+            f:Hide()
+        elseif st.step == PG then
+            GoTo(FINISH)
+        elseif st.step == 3 and SDB.IsNumpad() then
+            GoTo(1) -- the numpad has no keypad app step
+        else
+            GoTo(st.step - 1)
+        end
     end)
     f.midBtn = SDB.UI.Button(f, "secondary", "Show SpellPad", 120, 26)
     f.midBtn:SetPoint("BOTTOM", 0, 14)
@@ -1170,6 +1279,7 @@ local function Build()
         st.note = ""
         st.capturing = false
         st.target = nil
+        st.gameKeys = true
         f.pause:SetShown(InCombat())
         if SDB.KeyTest then SDB.KeyTest.onKey = G.OnKey end
         G.Refresh()
@@ -1208,7 +1318,14 @@ function G.Refresh()
     if not f or not SDB.db then return end
     local step = st.step
     for i = 1, PG do f["s" .. i]:SetShown(i == step) end
-    f.stepText:SetText(step <= G.STEPS and ("Step " .. step .. " of " .. G.STEPS) or "")
+    -- the numpad skips step 2, so the steps after it are counted one lower
+    local numpad = ShowsNumpad()
+    local shown, total = step, G.STEPS
+    if numpad then
+        total = G.STEPS - 1
+        if step > 2 then shown = step - 1 end
+    end
+    f.stepText:SetText(step <= G.STEPS and ("Step " .. shown .. " of " .. total) or "")
     f.midBtn:Hide()
     f.nextBtn:SetText("Next")
     f.nextBtn:SetWidth(120)
@@ -1225,33 +1342,61 @@ function G.Refresh()
         local s1 = f.s1
         f.head:SetText("How many buttons does your keypad have?")
         f.body:SetText("Count every button, also the ones you don't plan to use yet.")
-        s1.tiles:SetValue(not st.other and st.count or nil, ColsFor(st.count, st.vertical), st.vertical)
+        local count = numpad and #SDB.NUMPAD_KEYS or st.count
+        s1.tiles:SetValue(not st.other and not numpad and st.count or nil, ColsFor(st.count, st.vertical), st.vertical, numpad)
         s1.otherChip:SetSelected(st.other)
         s1.stepper:SetShown(st.other)
         s1.value:SetText(tostring(st.count))
         local square = IsSquare(st.count)
-        s1.horiz:SetShown(not square)
-        s1.vert:SetShown(not square)
+        s1.horiz:SetShown(not square and not numpad)
+        s1.vert:SetShown(not square and not numpad)
         s1.horiz:SetSelected(not st.vertical)
         s1.vert:SetSelected(st.vertical)
-        local cols = ColsFor(st.count, st.vertical)
-        local rows = st.count / cols
-        local shape = rows .. (rows == 1 and " row x " or " rows x ") .. cols .. (cols == 1 and " column" or " columns")
-        if keys[1] and keys[#keys] then
-            shape = shape .. ". Keys " .. G.Human(keys[1]) .. " to " .. G.Human(keys[#keys]) .. "."
+        -- the game-keys checkbox only matters while the switch is still to come
+        local names, bound = {}, 0
+        if numpad and SDB.Numpad then names, bound = SDB.Numpad.GameKeyNames() end
+        s1.gameKeys:SetShown(numpad and not SDB.IsNumpad())
+        s1.gameKeys:SetChecked(st.gameKeys and bound > 0)
+        if bound > 0 then
+            s1.gameKeys:Enable()
+            s1.gameKeys.label:SetText("Add a page with the game's numpad keys")
+        else
+            s1.gameKeys:Disable()
+            s1.gameKeys.label:SetText("Add a page with the game's numpad keys (the game binds none)")
         end
-        if IsPrime(st.count) then
-            shape = shape .. " " .. st.count .. " is a prime number, so the buttons sit in one row or one column."
+        local cols = numpad and SDB.NUMPAD_COLS or ColsFor(st.count, st.vertical)
+        local shape
+        if numpad then
+            shape = "The " .. count .. " numpad keys, from Num Lock to the decimal key, laid out like the numpad. No prefix."
+        else
+            local rows = st.count / cols
+            shape = rows .. (rows == 1 and " row x " or " rows x ") .. cols .. (cols == 1 and " column" or " columns")
+            if keys[1] and keys[#keys] then
+                shape = shape .. ". Keys " .. G.Human(keys[1]) .. " to " .. G.Human(keys[#keys]) .. "."
+            end
+            if IsPrime(st.count) then
+                shape = shape .. " " .. st.count .. " is a prime number, so the buttons sit in one row or one column."
+            end
         end
         s1.shape:SetText(shape)
         local note = st.note
         if note == "" then
-            local hidden, pages = SDB.HiddenContent(st.count)
+            local hidden, pages = SDB.HiddenContent(count)
             if hidden > 0 then
-                note = ORANGE .. SDB.Plural(hidden, "card") .. " past card " .. st.count .. " on " .. SDB.Plural(pages, "page")
+                note = ORANGE .. SDB.Plural(hidden, "card") .. " past card " .. count .. " on " .. SDB.Plural(pages, "page")
                     .. (hidden == 1 and " holds" or " hold") .. " a macro or icon. "
                     .. (hidden == 1 and "It" or "They") .. " would be hidden, not deleted.|r"
             end
+        end
+        if numpad and not SDB.IsNumpad() then
+            local lines = { GREY .. "Needs a keyboard with a numpad. Your keypad app isn't used.|r" }
+            if bound > 0 then
+                local list = {}
+                for i = 1, math.min(#names, 3) do list[i] = SDB.EscapePipes(names[i]) end
+                lines[2] = GREY .. "The game's own numpad keys (" .. table.concat(list, ", ") .. ((#names > 3) and " and more" or "")
+                    .. ") run your cards instead.|r"
+            end
+            note = (note ~= "" and (note .. "\n") or "") .. table.concat(lines, "\n")
         end
         s1.note:SetText(note)
         f.nextBtn:SetEnabled(not InCombat())
@@ -1271,7 +1416,22 @@ function G.Refresh()
     elseif step == 3 then
         local s3 = f.s3
         local total, litN = BoundCount(p1), LitCount()
-        if litN == 0 then
+        if numpad then
+            -- a keyboard numpad needs no app: a few keys show it works, and Next is there all along
+            if litN < total then
+                f.head:SetText("Press a few numpad keys")
+                f.body:SetText(litN == 0 and "Each spot lights up when its key reaches the game. Your keyboard keeps working as usual."
+                    or ("You don't need to press all " .. total .. ". Click Next when you have seen enough."))
+            else
+                f.head:SetText("All " .. total .. " keys work")
+                f.body:SetText("Every key reaches the game. Click Next.")
+            end
+            s3.count:SetText(GOLD .. litN .. " of " .. total .. " keys work|r")
+            s3.note:SetText(st.note ~= "" and st.note
+                or (GREY .. "Num Lock also turns the keyboard's Num Lock on or off. The game reads the numpad the same either way.|r"))
+            s3.find:Hide()
+            s3.fix:Hide()
+        elseif litN == 0 then
             f.head:SetText("Press the top-left button now")
             f.body:SetText("When the game receives its key (" .. G.Human(first) .. "), that spot lights up below. Your keyboard keeps working as usual.")
         elseif litN < total then
@@ -1281,12 +1441,15 @@ function G.Refresh()
             f.head:SetText("All " .. total .. " buttons work")
             f.body:SetText("Every key reaches the game. Click Next.")
         end
-        s3.count:SetText(GOLD .. litN .. " of " .. total .. " buttons work|r")
-        s3.note:SetText(st.note or "")
-        s3.find:SetText(st.capturing and "Listening..." or FIND_TEXT)
-        s3.fix:SetShown(st.fixPrefix ~= nil and not st.capturing)
-        if st.fixPrefix then
-            s3.fix:SetText("Use " .. table.concat(ModsWords(st.fixPrefix), " + ") .. (SDB.PrefixIsGlobal() and " for All Pages" or " for Page 1"))
+        if not numpad then
+            s3.count:SetText(GOLD .. litN .. " of " .. total .. " buttons work|r")
+            s3.note:SetText(st.note or "")
+            s3.find:Show()
+            s3.find:SetText(st.capturing and "Listening..." or FIND_TEXT)
+            s3.fix:SetShown(st.fixPrefix ~= nil and not st.capturing)
+            if st.fixPrefix then
+                s3.fix:SetText("Use " .. table.concat(ModsWords(st.fixPrefix), " + ") .. (SDB.PrefixIsGlobal() and " for All Pages" or " for Page 1"))
+            end
         end
         DrawPad(f, keys, PreviewCols(), st.lit)
 
@@ -1321,6 +1484,8 @@ function G.Refresh()
             f.head:SetText("Press the button for card " .. slot)
             if key == "" then
                 f.body:SetText("Card " .. slot .. " has no key yet. Right-click its key cap in SpellPad Studio and press the keypad button.")
+            elseif numpad then
+                f.body:SetText("Press " .. G.Human(key) .. ", the gold spot below. The game then runs the macro on card " .. slot .. ".")
             else
                 f.body:SetText("It is the gold spot below, and it sends " .. G.Human(key) .. ". The game then runs the macro on card "
                     .. slot .. ".")
@@ -1373,8 +1538,18 @@ function G.Refresh()
     else
         local slot = st.target or 1
         local key = p1[slot] and p1[slot].key or ""
-        f.head:SetText("Your keypad is set up")
-        f.body:SetText((key ~= "" and ("Card " .. slot .. " runs when your keypad sends " .. G.Human(key) .. ". ") or "")
+        local runs = ""
+        if key ~= "" then
+            runs = "Card " .. slot .. (numpad and (" runs when you press " .. G.Human(key) .. ". ")
+                or (" runs when your keypad sends " .. G.Human(key) .. ". "))
+        end
+        local gamePage = numpad and GameKeysPage()
+        if gamePage then
+            runs = runs .. "Page " .. gamePage .. " '" .. SDB.EscapePipes(SDB.Numpad.GAME_KEYS_PAGE) .. "' holds the game's own numpad keys:"
+                .. " show it to use them as the game does.\n\n"
+        end
+        f.head:SetText(numpad and "Your numpad is set up" or "Your keypad is set up")
+        f.body:SetText(runs
             .. "To fill more cards, click a card and pick a spell in the Arsenal, or drag one onto it.\n\n"
             .. "When you type or change a macro yourself, press Save & Apply (or Ctrl+S) to make it live.\n\n"
             .. "Open this guide again any time with /sps setup, from Options > General, or from the game's Settings > AddOns > SpellPad Studio.")

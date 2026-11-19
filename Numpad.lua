@@ -4,7 +4,7 @@ local addonName, SDB = ...
 -- Numpad layout: a profile on the keyboard numpad, and back
 -- -------------------------------------------------------------
 -- The numpad keys and the layout checks are in Init.lua (SDB.NUMPAD_KEYS, SDB.IsNumpad, SDB.SetNumpadKeys). Here:
---   SDB.Numpad.Ask()                 the question (with the game-keys page checkbox); Continue switches
+--   SDB.Numpad.Ask(opts)             the question (with the game-keys page checkbox); Continue switches
 --   SDB.Numpad.Enter(addGameKeys)    switches the active profile to the numpad (refused in combat)
 --   SDB.NumpadRefuse()               true, with a chat line, while the numpad sets every card key
 --   SDB.NumpadReturnPrefix(db)       the prefix the keys get when a grid size is picked again
@@ -27,6 +27,7 @@ SDB.Numpad = SDB.Numpad or {}
 local N = SDB.Numpad
 
 local GAME_KEYS_PAGE = "Numpad Game Keys"
+N.GAME_KEYS_PAGE = GAME_KEYS_PAGE
 local GREY, ORANGE = "|cFF888888", "|cFFFF9900"
 
 local function InCombat()
@@ -124,6 +125,7 @@ local function GameKeyNames()
     end
     return names, count
 end
+N.GameKeyNames = GameKeyNames
 
 -- a full page (36 cards): a !BIND card for every numpad key the game binds, blank cards for the rest
 function N.GameKeysPage()
@@ -255,12 +257,25 @@ local function Build()
     local ok = SDB.UI.Button(f, "primary", "Continue", 120, 26)
     ok:SetPoint("BOTTOMRIGHT", -24, 16)
     ok:SetScript("OnClick", function()
+        local opts = f.opts or {}
+        f.opts = nil -- answered: the hide below is not a Cancel
         f:Hide()
         if SDB.db ~= f.db then
             SDB.Chat("The profile changed while the question was open, so nothing was changed.", "warn")
+            if opts.cancel then opts.cancel() end
             return
         end
-        N.Enter(f.check:GetChecked() and f.canAdd)
+        if N.Enter(f.check:GetChecked() and f.canAdd) then
+            if opts.done then opts.done() end
+        elseif opts.cancel then
+            opts.cancel()
+        end
+    end)
+    -- Cancel, Esc, the close of a fight: whoever asked hears that nothing changed
+    f:SetScript("OnHide", function(self)
+        local opts = self.opts
+        self.opts = nil
+        if opts and opts.cancel then opts.cancel() end
     end)
 
     -- a fight that starts while it is open: the switch can't happen, so the question goes
@@ -272,7 +287,10 @@ local function Build()
     return f
 end
 
-function N.Ask()
+-- opts (all optional): addGameKeys = false starts the checkbox unticked; done() runs after the switch, cancel() when
+-- nothing changed (the setup guide uses both)
+function N.Ask(opts)
+    opts = opts or {}
     local db = SDB.db
     if not db then return false end
     if SDB.IsNumpad(db) then
@@ -315,7 +333,7 @@ function N.Ask()
     f.body:SetText(table.concat(lines, "\n"))
 
     f.canAdd = bound > 0
-    f.check:SetChecked(f.canAdd)
+    f.check:SetChecked(f.canAdd and opts.addGameKeys ~= false)
     if f.canAdd then
         f.check:Enable()
         f.check.label:SetText("Add a page with the game's numpad keys")
@@ -326,6 +344,9 @@ function N.Ask()
 
     local h = 46 + (f.body:GetStringHeight() or 120) + 12 + 22 + 10 + 14 + 18 + 26 + 16
     f:SetHeight(math.max(200, math.floor(h + 0.5)))
+    f.opts = nil -- a question that was still open is replaced, not canceled
+    f:Hide()
+    f.opts = (opts.done or opts.cancel) and opts or nil
     f:Show()
     f:Raise()
     return true
