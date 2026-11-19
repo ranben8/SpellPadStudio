@@ -1,11 +1,24 @@
-# SpellPad Studio 1.6.3 (beta)
+# SpellPad Studio 1.6.3
 
-Plumber's Outfit Collection macro is supported, and addon key bindings get their own place in the Arsenal.
+Your keyboard's numpad can be the keypad, transmog outfits go on cards, and addon key bindings get their own place in the Arsenal. Tested on Retail and WoW Forever.
 
 ## New
 
+- **Your numpad as the keypad.** No keypad software needed: pick the new `Numpad` tile in Options > SpellPad > Pad, or in the first step of the setup guide. Every page then uses the 17 numpad keys (Num Lock, `/`, `*`, `-`, `+`, Enter, the digits and the decimal key) with no prefix, and the SpellPad and the card picker take the numpad's shape, with `+` and Enter two rows tall and `0` two columns wide. The confirm says how many pages change and takes a snapshot first. With `Add a page with the game's numpad keys` ticked (the default), a page 'Numpad Game Keys' keeps the game's own numpad bindings, such as Jump and Toggle Autorun, as cards. While the numpad is on, prefix keys are off; pick a grid size in Options > SpellPad to go back, and your old prefix returns.
+- **Transmog outfits on cards.** Drag an outfit, for example from Plumber's outfit list, onto a card or a SpellPad button. The card gets `/outfit !N` with the outfit's icon and name, and the SpellPad shows the outfit change cooldown. Plumber's `Show Currently Equipped Gear` entry becomes `/outfit`, which puts your equipped gear back on. Easy Macros > Advanced in the Arsenal has a new Outfits group with every outfit.
 - **Plumber's Outfit Collection on the SpellPad.** A card holding Plumber's outfit macro (`/click PLMR_OUTFIT`) now shows Plumber's clothing icon on the card and the SpellPad instead of a question mark, and is named Outfit Collection. The macro is also in the Arsenal under Plumber, so you can put it on a card without making it in the Macros window first.
 - **Addons in the Arsenal.** The Easy Macros tab has a new `Addons` category with the key bindings of your other addons, each under its addon's name. `Game Keys` now lists only the game's own bindings.
+
+## Fixes
+
+- **Clear Current Transmogrifications.** `/cast Clear Current Transmogrifications` is no longer marked as an unknown spell, shows its icon instead of a question mark, and runs from its key and the SpellPad.
+
+## Known issues
+
+- An outfit card points at the outfit's place in your outfit list, so deleting or reordering outfits makes the card put on a different one. The game's own `/outfit` command works the same way.
+- With Num Lock on, Windows lets go of Shift before it sends a numpad digit or the decimal key, so `[mod:shift]` is never true on those keys. Such a card shows an orange note in its key tooltip. Turn Num Lock off, or use Ctrl or Alt, which work either way. The Num Lock card also switches Windows' Num Lock.
+- Importing a string into a numpad profile still warns about the string's own key conflicts, although the import gives every card a numpad key.
+- Forever has no mounts or dual specialization yet, so the Mounted context and the two Class Specializations entries are untested there.
 
 # SpellPad Studio 1.6.2
 
