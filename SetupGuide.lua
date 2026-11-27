@@ -179,7 +179,7 @@ local function ShowsNumpad()
     return SDB.IsNumpad()
 end
 
--- the numpad's first card for a spell: Numpad 1 (card 1 is Num Lock, which also flips the keyboard's Num Lock)
+-- the numpad's first card for a spell: the card on Numpad 1 (never Num Lock, which also flips the keyboard's Num Lock)
 local function NumpadFirstCard()
     for i, key in ipairs(SDB.NUMPAD_KEYS) do
         if key == "NUMPAD1" then return i end
@@ -1367,7 +1367,7 @@ function G.Refresh()
         local cols = numpad and SDB.NUMPAD_COLS or ColsFor(st.count, st.vertical)
         local shape
         if numpad then
-            shape = "The " .. count .. " numpad keys, from Num Lock to the decimal key, laid out like the numpad. No prefix."
+            shape = "The " .. count .. " numpad keys, 1 to 9 and 0 first, laid out like the numpad. No prefix."
         else
             local rows = st.count / cols
             shape = rows .. (rows == 1 and " row x " or " rows x ") .. cols .. (cols == 1 and " column" or " columns")

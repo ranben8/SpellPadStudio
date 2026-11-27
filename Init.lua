@@ -453,25 +453,23 @@ end
 -- Numpad layout: a plain keyboard numpad is the keypad
 -- -------------------------------------------------------------
 -- SDB.db.padLayout == "numpad" (with padSize 17): every page uses the 17 numpad keys below, in this order, with no prefix.
--- Card n always has the n-th key; cards past 17 are hidden and keep no key. The game reads the numpad the same with
--- Num Lock on or off, so NUMLOCK is a card of its own. The grid is 4 columns by 5 rows (the last row holds one card).
+-- Card n always has the n-th key; cards past 17 are hidden and keep no key. The digits come first so card n is the
+-- numpad's n (card 10 is 0), then the other keys from the top row down; Num Lock is last because it also flips the
+-- keyboard's Num Lock (the game reads the numpad the same either way). The grid is 4 columns by 5 rows.
 SDB.NUMPAD_KEYS = {
-    "NUMLOCK", "NUMPADDIVIDE", "NUMPADMULTIPLY", "NUMPADMINUS",
-    "NUMPAD7", "NUMPAD8", "NUMPAD9", "NUMPADPLUS",
-    "NUMPAD4", "NUMPAD5", "NUMPAD6",
-    "NUMPAD1", "NUMPAD2", "NUMPAD3", "NUMPADENTER",
-    "NUMPAD0", "NUMPADDECIMAL",
+    "NUMPAD1", "NUMPAD2", "NUMPAD3", "NUMPAD4", "NUMPAD5", "NUMPAD6", "NUMPAD7", "NUMPAD8", "NUMPAD9", "NUMPAD0",
+    "NUMPADDIVIDE", "NUMPADMULTIPLY", "NUMPADMINUS", "NUMPADPLUS", "NUMPADENTER", "NUMPADDECIMAL", "NUMLOCK",
 }
 SDB.NUMPAD_COLS = 4
 
 -- where each numpad card sits on the drawn pad: { row, column, rows spanned, columns spanned }, counted from the top
 -- left at 0. + and Enter are two rows tall, 0 is two columns wide; the order is the order of SDB.NUMPAD_KEYS.
 SDB.NUMPAD_CELLS = {
-    { 0, 0, 1, 1 }, { 0, 1, 1, 1 }, { 0, 2, 1, 1 }, { 0, 3, 1, 1 },
-    { 1, 0, 1, 1 }, { 1, 1, 1, 1 }, { 1, 2, 1, 1 }, { 1, 3, 2, 1 },
+    { 3, 0, 1, 1 }, { 3, 1, 1, 1 }, { 3, 2, 1, 1 },
     { 2, 0, 1, 1 }, { 2, 1, 1, 1 }, { 2, 2, 1, 1 },
-    { 3, 0, 1, 1 }, { 3, 1, 1, 1 }, { 3, 2, 1, 1 }, { 3, 3, 2, 1 },
-    { 4, 0, 1, 2 }, { 4, 2, 1, 1 },
+    { 1, 0, 1, 1 }, { 1, 1, 1, 1 }, { 1, 2, 1, 1 },
+    { 4, 0, 1, 2 },
+    { 0, 1, 1, 1 }, { 0, 2, 1, 1 }, { 0, 3, 1, 1 }, { 1, 3, 2, 1 }, { 3, 3, 2, 1 }, { 4, 2, 1, 1 }, { 0, 0, 1, 1 },
 }
 
 -- the place of card i on a pad drawn `cols` wide: row, column, rows spanned, columns spanned (from 0 at the top left).
@@ -498,9 +496,46 @@ function SDB.NumpadTakesOver(key)
     return false
 end
 
+-- A page whose first 17 cards hold every numpad key once, but in another order (pages, snapshots and import strings
+-- from before the digits came first), gets its cards moved so each macro, icon and name stays on its key. Cards past
+-- 17 stay put. Returns true when cards moved (with `check`, true when they would move, and nothing changes).
+local numpadIndex
+function SDB.NumpadReorder(page, check)
+    if type(page) ~= "table" then return false end
+    local n = #SDB.NUMPAD_KEYS
+    if not numpadIndex then
+        numpadIndex = {}
+        for i, k in ipairs(SDB.NUMPAD_KEYS) do numpadIndex[k] = i end
+    end
+    local target, seen, inPlace = {}, {}, true
+    for i = 1, n do
+        local d = page[i]
+        local j = type(d) == "table" and type(d.key) == "string" and numpadIndex[string.upper(d.key)]
+        if not j or seen[j] then return false end
+        seen[j] = true
+        target[i] = j
+        if j ~= i then inPlace = false end
+    end
+    if inPlace then return false end
+    if check then return true end
+    local moved = {}
+    for i = 1, n do
+        local d = page[i]
+        moved[target[i]] = { macro = d.macro, icon = d.icon, matrixText = d.matrixText }
+    end
+    for j = 1, n do
+        local d = page[j]
+        d.macro, d.icon, d.matrixText = moved[j].macro, moved[j].icon, moved[j].matrixText
+        d.key = SDB.NUMPAD_KEYS[j]
+    end
+    return true
+end
+
 -- gives every card of a page its numpad key (none past the 17th); returns how many keys changed
 function SDB.SetNumpadKeys(page)
     if type(page) ~= "table" then return 0 end
+    -- cards in the old order move first, or the keys below would land on the wrong macros
+    if SDB.NumpadReorder(page) and SDB.Undo and SDB.Undo.ClearAll then SDB.Undo.ClearAll() end
     local changed = 0
     for i, d in ipairs(page) do
         if type(d) == "table" then
@@ -1339,6 +1374,7 @@ SDB.bridgeFrame:SetScript("OnEvent", function(self, event, arg1)
 
         -- Load the correct profile for this character/spec upon loading into the world
         SDB.LoadActiveProfile()
+        if SDB.Numpad and SDB.Numpad.MigrateOrder then SDB.Numpad.MigrateOrder() end
         SDB.SeedMainPage() -- a main page is where a session starts
 
         -- Restore minimap status from profile setting

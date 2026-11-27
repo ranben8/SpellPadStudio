@@ -158,6 +158,38 @@ local function AddGameKeysPage(db)
     return idx
 end
 
+-- every numpad profile whose pages still hold the cards in the old key order (Num Lock first) is put in today's order
+-- at login, after a profile snapshot; each macro keeps its key, so nothing runs differently. Runs on every load, does
+-- nothing once all pages are in order.
+function N.MigrateOrder()
+    local profiles = GalleonBridgeDB and GalleonBridgeDB.profiles
+    if type(profiles) ~= "table" or not SDB.NumpadReorder then return end
+    local names, pages = {}, 0
+    for name, prof in pairs(profiles) do
+        if SDB.IsNumpad(prof) and type(prof.pages) == "table" then
+            local here = 0
+            for _, page in ipairs(prof.pages) do
+                if SDB.NumpadReorder(page, true) then here = here + 1 end
+            end
+            if here > 0 then
+                if SDB.Snapshots then
+                    SDB.Snapshots.Take("Before Numpad Card Order", "profile", { profileName = name, force = true })
+                end
+                for _, page in ipairs(prof.pages) do SDB.NumpadReorder(page) end
+                pages = pages + here
+                names[#names + 1] = name
+            end
+        end
+    end
+    if pages == 0 then return end
+    if SDB.Undo and SDB.Undo.ClearAll then SDB.Undo.ClearAll() end
+    table.sort(names)
+    local list = {}
+    for i, name in ipairs(names) do list[i] = "'" .. SDB.EscapePipes(name) .. "'" end
+    SDB.Chat("Numpad cards now run from 1 to 9 and 0, then / * - + Enter, the decimal key and Num Lock. "
+        .. SDB.Plural(pages, "page") .. " in " .. table.concat(list, ", ") .. " moved to that order; every macro kept its key.")
+end
+
 -- -------------------------------------------------------------
 -- Switching on
 -- -------------------------------------------------------------
@@ -309,8 +341,8 @@ function N.Ask(opts)
     local lines = {
         "Use the numpad keys on every page of the profile '" .. name .. "'?",
         "",
-        GREY .. "Every card key on " .. SDB.Plural(pages, "page") .. " changes to a numpad key: Num Lock, / * -, 7 8 9 +, "
-            .. "4 5 6, 1 2 3 Enter, 0 and the decimal key. Prefixes are off while the numpad is on.|r",
+        GREY .. "Every card key on " .. SDB.Plural(pages, "page") .. " changes to a numpad key: 1 to 9 and 0 first, "
+            .. "then / * - + Enter, the decimal key and Num Lock. Prefixes are off while the numpad is on.|r",
     }
     local names, bound = GameKeyNames()
     if bound > 0 then
