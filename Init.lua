@@ -150,6 +150,15 @@ function SDB.NumpadShort(key)
     return key
 end
 
+-- An MMO mouse prints 10, 11 and 12 on the buttons that send 0, - and =, so on an MMO mouse profile (`db`, nil = the
+-- active one) the SpellPad and the card key caps show those numbers for those key endings. Only the label changes:
+-- the key, and the key cap's tooltip, stay as they are.
+local MMO_NUMBERS = { ["0"] = "10", ["-"] = "11", ["="] = "12" }
+function SDB.MMOKeyShort(suffix, db)
+    if type(suffix) == "string" and MMO_NUMBERS[suffix] and SDB.IsMMO(db) then return MMO_NUMBERS[suffix] end
+    return suffix
+end
+
 -- -------------------------------------------------------------
 -- Constants and key lists
 -- -------------------------------------------------------------
@@ -472,11 +481,26 @@ SDB.NUMPAD_CELLS = {
     { 0, 1, 1, 1 }, { 0, 2, 1, 1 }, { 0, 3, 1, 1 }, { 1, 3, 2, 1 }, { 3, 3, 2, 1 }, { 4, 2, 1, 1 }, { 0, 0, 1, 1 },
 }
 
+-- MMO mouse layout: db.padLayout == "mmo" with padSize 12 and padCols 4. The cards and their keys are a plain 12-card
+-- pad; only the drawn pad differs: 3 rows by 4 columns numbered down each column (1 2 3 on the left), the way the
+-- side buttons of an MMO mouse are.
+SDB.MMO_SIZE, SDB.MMO_COLS = 12, 4
+
+function SDB.IsMMO(db)
+    db = db or SDB.db
+    return type(db) == "table" and db.padLayout == "mmo" and db.padSize == SDB.MMO_SIZE and db.padCols == SDB.MMO_COLS
+end
+
 -- the place of card i on a pad drawn `cols` wide: row, column, rows spanned, columns spanned (from 0 at the top left).
--- A numpad profile (`db`, nil = the active one) uses the numpad's own shape; anything else fills the rows in order.
+-- A numpad profile (`db`, nil = the active one) uses the numpad's own shape, an MMO mouse profile fills the columns in
+-- order; anything else fills the rows in order.
 function SDB.PadCell(i, cols, db)
     local cell = SDB.IsNumpad(db) and SDB.NUMPAD_CELLS[i]
     if cell then return cell[1], cell[2], cell[3], cell[4] end
+    if cols == SDB.MMO_COLS and i <= SDB.MMO_SIZE and SDB.IsMMO(db) then
+        local rows = SDB.MMO_SIZE / SDB.MMO_COLS
+        return (i - 1) % rows, math.floor((i - 1) / rows), 1, 1
+    end
     return math.floor((i - 1) / cols), (i - 1) % cols, 1, 1
 end
 
@@ -857,8 +881,10 @@ function SDB.ValidateDB()
                 if SDB.IsAutoPageName(name) then prof.pageNames[p] = nil end
             end
         end
-        -- the numpad layout only holds with its own pad size
-        if type(prof) == "table" and prof.padLayout ~= nil and not SDB.IsNumpad(prof) then prof.padLayout = nil end
+        -- the numpad and MMO mouse layouts only hold with their own pad size
+        if type(prof) == "table" and prof.padLayout ~= nil and not SDB.IsNumpad(prof) and not SDB.IsMMO(prof) then
+            prof.padLayout = nil
+        end
         -- folders whose new-page switch is off: name -> true, nothing else
         if type(prof) == "table" and prof.cycleNavOff ~= nil then
             if type(prof.cycleNavOff) ~= "table" then

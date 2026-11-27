@@ -565,12 +565,13 @@ function SDB.MatrixRightClick(slotIndex)
 end
 
 -- The key shown on a button when "Show keys" is on: only the end of the key ("ALT-SHIFT-NUMPAD1" -> "NP1"), upper
--- case, numpad words abbreviated like on the card plates, cut to fit the left half of the button ("..." marks the cut).
+-- case, numpad words abbreviated like on the card plates, 10 11 12 for 0 - = on an MMO mouse profile, cut to fit the
+-- left half of the button ("..." marks the cut).
 local PAD_KEY_MAXW = 26
 function SDB.PadKeyLabel(key)
     if not key or key == "" then return "" end
     local _, suffix = SDB.SplitKey(key)
-    return SDB.NumpadShort(string.upper(suffix ~= "" and suffix or key))
+    return SDB.MMOKeyShort(SDB.NumpadShort(string.upper(suffix ~= "" and suffix or key)))
 end
 
 -- What a click on a button runs: the macro last applied to its card, the same one its key runs, so an edit stays

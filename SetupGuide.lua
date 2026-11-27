@@ -47,6 +47,8 @@ local PG = FINISH + 1           -- the optional page-buttons screen, reached fro
 local W, H = 420, 612
 local CW = 380                  -- content width (20 units margin each side)
 local PAD_TOP, PAD_H = -228, 186
+local S1_TILE_H, S1_TILE_GAP = 56, 5
+local S1_DOWN = S1_TILE_H + S1_TILE_GAP -- step 1's second row of size tiles moves its controls and the pad down
 local MAX_BTN = 30              -- demo pad button size: about 2/3 of a SpellPad button
 
 local GREY, GOLD, ORANGE, RED = "|cFF888888", "|cFFFFD100", "|cFFFF9900", "|cFFFF4444"
@@ -61,7 +63,7 @@ local st = {
     step = 1, count = 15, vertical = false, other = false, app = "elgato",
     lit = {}, note = "", fixPrefix = nil, capturing = false,
     pg = 1, pgSlots = {},
-    numpad = false, gameKeys = true,
+    numpad = false, gameKeys = true, mmo = false,
 }
 
 -- ---------------------------------------------------------------
@@ -179,6 +181,12 @@ local function ShowsNumpad()
     return SDB.IsNumpad()
 end
 
+-- the same for the MMO mouse layout (12 cards numbered down each column)
+local function ShowsMMO()
+    if st.step == 1 then return st.mmo and not st.numpad end
+    return SDB.IsMMO()
+end
+
 -- the numpad's first card for a spell: the card on Numpad 1 (never Num Lock, which also flips the keyboard's Num Lock)
 local function NumpadFirstCard()
     for i, key in ipairs(SDB.NUMPAD_KEYS) do
@@ -235,7 +243,7 @@ local function PreviewKeys()
 end
 
 local function PreviewCols()
-    if st.step == 1 then return ColsFor(st.count, st.vertical) end
+    if st.step == 1 then return ShowsMMO() and SDB.MMO_COLS or ColsFor(st.count, st.vertical) end
     local p1 = Page1()
     local n = SDB.PageVisible(p1)
     if n == 0 then return 1 end
@@ -246,6 +254,7 @@ end
 -- takes the guide's choices from the profile as it is now: its pad size, or page 1's own size and shape
 local function ReadPage1()
     st.numpad = SDB.IsNumpad()
+    st.mmo = SDB.IsMMO()
     local p1 = Page1()
     local n = SDB.PageVisible(p1)
     if n == 0 then return end
@@ -390,6 +399,8 @@ local function DrawPad(f, keys, cols, lit, focus)
     if n == 0 then return end
     local numpad = ShowsNumpad() and n == #SDB.NUMPAD_KEYS
     if numpad then cols = SDB.NUMPAD_COLS end
+    local mmo = not numpad and ShowsMMO() and n == SDB.MMO_SIZE and cols == SDB.MMO_COLS
+    local mmoRows = SDB.MMO_SIZE / SDB.MMO_COLS
     cols = math.max(1, math.min(cols or n, n))
     local rows = math.ceil(n / cols)
     local innerW, innerH = CW - 24, PAD_H - 24
@@ -409,7 +420,11 @@ local function DrawPad(f, keys, cols, lit, focus)
             f.padBtns[i] = b
         end
         local r, c, rs, cs = math.floor((i - 1) / cols), (i - 1) % cols, 1, 1
-        if numpad then r, c, rs, cs = unpack(SDB.NUMPAD_CELLS[i]) end
+        if numpad then
+            r, c, rs, cs = unpack(SDB.NUMPAD_CELLS[i])
+        elseif mmo then
+            r, c = (i - 1) % mmoRows, math.floor((i - 1) / mmoRows) -- numbered down each column
+        end
         b:SetSize(cs * s + (cs - 1) * gap, rs * s + (rs - 1) * gap)
         b:ClearAllPoints()
         b:SetPoint("TOPLEFT", f.pad, "TOPLEFT", x0 + c * (s + gap), y0 - r * (s + gap))
@@ -704,8 +719,10 @@ function G.ApplyShape()
     if st.numpad then return G.ApplyNumpad() end
     local p1 = Page1()
     if not p1 then return false end
+    local mmo = st.mmo and true or false
     local n, cols = st.count, ColsFor(st.count, st.vertical)
-    local oldN, oldCols = SDB.PadSize(), SDB.PadCols()
+    if mmo then n, cols = SDB.MMO_SIZE, SDB.MMO_COLS end
+    local oldN, oldCols, oldMMO = SDB.PadSize(), SDB.PadCols(), SDB.IsMMO()
     SDB.padVerticalPref = st.vertical -- a square pad has no direction of its own: Options > SpellPad follows this choice
 
     local function Done()
@@ -737,7 +754,9 @@ function G.ApplyShape()
         local page = SDB.db.pages[1]
         local rows = n / cols
         local shape = rows .. (rows == 1 and " row by " or " rows by ") .. cols .. (cols == 1 and " column" or " columns")
-        if oldN ~= n or oldCols ~= cols then
+        if mmo and not oldMMO then
+            Chat("Every page now shows 12 cards laid out like an MMO mouse: " .. shape .. ", numbered down each column.")
+        elseif oldN ~= n or oldCols ~= cols or oldMMO ~= mmo then
             Chat("Every page now shows " .. n .. " cards, " .. shape .. ".")
         end
         if rebuild then
@@ -746,7 +765,7 @@ function G.ApplyShape()
         GoTo(2)
     end
 
-    local res = SDB.SetPadSize(n, cols, { quiet = true, done = Done, cancel = G.KeepPage })
+    local res = SDB.SetPadSize(n, cols, { quiet = true, done = Done, cancel = G.KeepPage, layout = mmo and "mmo" or nil })
     return res == true
 end
 
@@ -1037,27 +1056,33 @@ local function Build()
     -- with the numpad, the game-keys page checkbox takes the orientation row
     local s1 = StepFrame(f)
     f.s1 = s1
-    s1.tiles = SDB.UI.PadTiles(s1, { w = 50, h = 56, gap = 5, onPick = function(n)
-        st.count, st.other, st.numpad = n, false, false
-        st.note = ""
-        G.Refresh()
-    end, onNumpad = function()
-        st.numpad, st.other = true, false
-        st.note = ""
-        G.Refresh()
-    end })
+    s1.tiles = SDB.UI.PadTiles(s1, { w = math.floor((CW - 3 * S1_TILE_GAP) / 4), h = S1_TILE_H, gap = S1_TILE_GAP,
+        perRow = 4, onPick = function(n)
+            st.count, st.other, st.numpad, st.mmo = n, false, false, false
+            st.note = ""
+            G.Refresh()
+        end, onNumpad = function()
+            st.numpad, st.other, st.mmo = true, false, false
+            st.note = ""
+            G.Refresh()
+        end, onMMO = function()
+            st.mmo, st.numpad, st.other = true, false, false
+            st.count, st.vertical = SDB.MMO_SIZE, false
+            st.note = ""
+            G.Refresh()
+        end })
     s1.tiles:SetPoint("TOPLEFT", s1, "TOPLEFT", 20, -100)
     s1.otherChip = SDB.UI.ChoiceChip(s1, "Other", 64, 24)
-    s1.otherChip:SetPoint("TOPLEFT", s1, "TOPLEFT", 20, -164)
+    s1.otherChip:SetPoint("TOPLEFT", s1, "TOPLEFT", 20, -164 - S1_DOWN)
     s1.otherChip:SetScript("OnClick", function()
-        st.other, st.numpad = true, false
+        st.other, st.numpad, st.mmo = true, false, false
         if st.count < SDB.MIN_CARDS or st.count > SDB.MAX_CARDS then st.count = 20 end
         st.note = ""
         G.Refresh()
     end)
     s1.stepper = CreateFrame("Frame", nil, s1)
     s1.stepper:SetSize(CW - 72, 24)
-    s1.stepper:SetPoint("TOPLEFT", s1, "TOPLEFT", 92, -164)
+    s1.stepper:SetPoint("TOPLEFT", s1, "TOPLEFT", 92, -164 - S1_DOWN)
     local minus = SDB.UI.GlyphButton(s1.stepper, "minus", 22)
     minus:SetPoint("LEFT", s1.stepper, "LEFT", 0, 0)
     s1.value = s1.stepper:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -1075,14 +1100,14 @@ local function Build()
     end
     minus:SetScript("OnClick", function() Step(-1) end)
     plus:SetScript("OnClick", function() Step(1) end)
-    s1.horiz = SDB.UI.ChoiceChip(s1, "Horizontal (wider than tall)", 185, 24)
-    s1.horiz:SetPoint("TOPLEFT", s1, "TOPLEFT", 20, -196)
-    s1.vert = SDB.UI.ChoiceChip(s1, "Vertical (taller than wide)", 185, 24)
+    s1.horiz = SDB.UI.ChoiceChip(s1, "Horizontal", 100, 24)
+    s1.horiz:SetPoint("TOPLEFT", s1, "TOPLEFT", 20, -196 - S1_DOWN)
+    s1.vert = SDB.UI.ChoiceChip(s1, "Vertical", 100, 24)
     s1.vert:SetPoint("LEFT", s1.horiz, "RIGHT", 10, 0)
     s1.horiz:SetScript("OnClick", function() st.vertical = false; G.Refresh() end)
     s1.vert:SetScript("OnClick", function() st.vertical = true; G.Refresh() end)
     s1.gameKeys = SDB.UI.CheckButton(s1, nil, "Add a page with the game's numpad keys")
-    s1.gameKeys:SetPoint("TOPLEFT", s1, "TOPLEFT", 20, -197)
+    s1.gameKeys:SetPoint("TOPLEFT", s1, "TOPLEFT", 20, -197 - S1_DOWN)
     s1.gameKeys:SetScript("OnClick", function(self) st.gameKeys = self:GetChecked() and true or false end)
     s1.gameKeys:HookScript("OnEnter", function(self)
         SDB.Tip.Begin(self, "ANCHOR_RIGHT", "Game Keys Page", "control")
@@ -1092,11 +1117,11 @@ local function Build()
         SDB.Tip.Done()
     end)
     s1.gameKeys:HookScript("OnLeave", function() GameTooltip:Hide() end)
-    s1.shape = Text(s1, "GameFontHighlightSmall", PAD_TOP - PAD_H - 10)
+    s1.shape = Text(s1, "GameFontHighlightSmall", PAD_TOP - S1_DOWN - PAD_H - 10)
     s1.shape:SetTextColor(0.75, 0.75, 0.75)
-    s1.note = Text(s1, "GameFontHighlightSmall", PAD_TOP - PAD_H - 44)
+    s1.note = Text(s1, "GameFontHighlightSmall", PAD_TOP - S1_DOWN - PAD_H - 44)
     s1.hint = s1:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    s1.hint:SetPoint("BOTTOMLEFT", s1, "BOTTOMLEFT", 20, 52)
+    s1.hint:SetPoint("BOTTOMLEFT", s1, "BOTTOMLEFT", 20, 42)
     s1.hint:SetText("You can open this guide again any time with /sps setup.")
 
     -- step 2: the app picker; its click path goes under the pad
@@ -1333,6 +1358,8 @@ function G.Refresh()
     f.leftBtn:SetShown(step ~= FINISH)
     f.nextBtn:SetEnabled(true)
     f.pad:SetShown(step ~= FINISH)
+    f.pad:ClearAllPoints()
+    f.pad:SetPoint("TOPLEFT", f, "TOPLEFT", 20, PAD_TOP - (step == 1 and S1_DOWN or 0))
 
     local p1 = Page1() or {}
     local keys = PreviewKeys()
@@ -1343,13 +1370,15 @@ function G.Refresh()
         f.head:SetText("How many buttons does your keypad have?")
         f.body:SetText("Count every button, also the ones you don't plan to use yet.")
         local count = numpad and #SDB.NUMPAD_KEYS or st.count
-        s1.tiles:SetValue(not st.other and not numpad and st.count or nil, ColsFor(st.count, st.vertical), st.vertical, numpad)
+        local mmo = st.mmo and not numpad
+        s1.tiles:SetValue(not st.other and not numpad and not mmo and st.count or nil, ColsFor(st.count, st.vertical),
+            st.vertical, numpad, mmo)
         s1.otherChip:SetSelected(st.other)
         s1.stepper:SetShown(st.other)
         s1.value:SetText(tostring(st.count))
         local square = IsSquare(st.count)
-        s1.horiz:SetShown(not square and not numpad)
-        s1.vert:SetShown(not square and not numpad)
+        s1.horiz:SetShown(not square and not numpad and not mmo)
+        s1.vert:SetShown(not square and not numpad and not mmo)
         s1.horiz:SetSelected(not st.vertical)
         s1.vert:SetSelected(st.vertical)
         -- the game-keys checkbox only matters while the switch is still to come
@@ -1364,10 +1393,15 @@ function G.Refresh()
             s1.gameKeys:Disable()
             s1.gameKeys.label:SetText("Add a page with the game's numpad keys (the game binds none)")
         end
-        local cols = numpad and SDB.NUMPAD_COLS or ColsFor(st.count, st.vertical)
+        local cols = (numpad and SDB.NUMPAD_COLS) or (mmo and SDB.MMO_COLS) or ColsFor(st.count, st.vertical)
         local shape
         if numpad then
             shape = "The " .. count .. " numpad keys, 1 to 9 and 0 first, laid out like the numpad. No prefix."
+        elseif mmo then
+            shape = "3 rows x 4 columns, numbered down each column like the side buttons of an MMO mouse."
+            if keys[1] and keys[#keys] then
+                shape = shape .. " Keys " .. G.Human(keys[1]) .. " to " .. G.Human(keys[#keys]) .. "."
+            end
         else
             local rows = st.count / cols
             shape = rows .. (rows == 1 and " row x " or " rows x ") .. cols .. (cols == 1 and " column" or " columns")

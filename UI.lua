@@ -16,7 +16,7 @@ local addonName, SDB = ...
 --   SDB.UI.Check / Slider / Dropdown            Settings-style looks (the dropdown is only the look; the menu is the caller's)
 --   SDB.UI.Divider / KeyCap / Glyph / Dashed
 --   SDB.UI.StateChip(parent, label, w, h)       Any / Yes / No chip (:SetState(0|1|2)); SDB.UI.ChoiceChip(...) :SetSelected(bool)
---   SDB.UI.PadTiles(parent, opts)               the pad size tiles; :SetValue(n, cols, vertical)
+--   SDB.UI.PadTiles(parent, opts)               the pad size tiles; :SetValue(n, cols, vertical, numpad, mmo)
 --   SDB.UI.FauxBar(scrollFrame)                 the thin bar for an offset-scrolled (Faux) list; call sf.sdbBar.Update() after each refresh
 --
 -- Whole atlases only: no SetTexCoord / SetHeight on a texture made with SetAtlas(atlas, true) (it corrupted the
@@ -1561,18 +1561,25 @@ local function DrawNumpadPictogram(tile, chosen)
     end
 end
 
--- opts.onNumpad (optional) adds a last tile, Numpad, that calls it; f:SetValue's 4th argument marks it as chosen.
+-- opts.onNumpad (optional) adds a tile, Numpad, that calls it; f:SetValue's 4th argument marks it as chosen.
+-- opts.onMMO (optional) adds a last tile, MMO Mouse, that calls it; f:SetValue's 5th argument marks it as chosen.
+-- opts.perRow (optional) wraps the tiles into rows of that many.
 function U.PadTiles(parent, opts)
     local list = SDB.PAD_PRESETS
     local w, h, gap = opts.w, opts.h, opts.gap or 6
-    local count = #list + (opts.onNumpad and 1 or 0)
+    local count = #list + (opts.onNumpad and 1 or 0) + (opts.onMMO and 1 or 0)
+    local perRow = math.min(opts.perRow or count, count)
+    local rows = math.ceil(count / perRow)
     local f = CreateFrame("Frame", nil, parent)
-    f:SetSize(count * w + (count - 1) * gap, h)
+    f:SetSize(perRow * w + (perRow - 1) * gap, rows * h + (rows - 1) * gap)
     f.tiles = {}
+    local function Place(b, k) -- k counts the tiles from 0
+        b:SetPoint("TOPLEFT", f, "TOPLEFT", (k % perRow) * (w + gap), -math.floor(k / perRow) * (h + gap))
+    end
     local shapeH, countH = 11, (opts.countFont == "GameFontNormalLarge") and 16 or 13
     for i, n in ipairs(list) do
         local b = NewChip(f, w, h)
-        b:SetPoint("TOPLEFT", f, "TOPLEFT", (i - 1) * (w + gap), 0)
+        Place(b, i - 1)
         b.n = n
         b.cells = {}
         b.picW, b.picH = w - 12, h - 5 - 4 - shapeH - countH - 3
@@ -1602,9 +1609,10 @@ function U.PadTiles(parent, opts)
         b:HookScript("OnLeave", function() GameTooltip:Hide() end)
         f.tiles[i] = b
     end
-    if opts.onNumpad then
+    -- a tile for a layout with its own name (Numpad, MMO Mouse): k = its place, label in the count line, shape below it
+    local function LayoutTile(k, label, shape, title, line, hint, onClick)
         local b = NewChip(f, w, h)
-        b:SetPoint("TOPLEFT", f, "TOPLEFT", #list * (w + gap), 0)
+        Place(b, k)
         b.cells = {}
         b.picW, b.picH = w - 12, h - 5 - 4 - shapeH - countH - 3
         b.pic = CreateFrame("Frame", nil, b)
@@ -1612,10 +1620,12 @@ function U.PadTiles(parent, opts)
         b.pic:SetPoint("TOPLEFT", b, "TOPLEFT", 6, -5)
         b.shapeFs = b:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         b.shapeFs:SetPoint("BOTTOM", b, "BOTTOM", 0, 4)
-        b.shapeFs:SetText(#SDB.NUMPAD_KEYS .. " keys")
+        b.shapeFs:SetText(shape)
         b.countFs = b:CreateFontString(nil, "OVERLAY", opts.countFont or "GameFontNormal")
         b.countFs:SetPoint("BOTTOM", b.shapeFs, "TOP", 0, 1)
-        b.countFs:SetText("Numpad")
+        b.countFs:SetText(label)
+        -- a long name drops to the normal font rather than run past the tile's edges
+        if b.countFs:GetStringWidth() > w - 6 then b.countFs:SetFontObject("GameFontNormal") end
         b.check = b:CreateTexture(nil, "OVERLAY")
         b.check:SetSize(12, 12)
         b.check:SetPoint("TOPRIGHT", b, "TOPRIGHT", -3, -3)
@@ -1625,17 +1635,30 @@ function U.PadTiles(parent, opts)
             self.sdbSelected = on and true or false
             self:Apply(self.sdbSelected and CHIP_LOOK.on or CHIP_LOOK.any)
         end
-        b:SetScript("OnClick", function() opts.onNumpad() end)
+        b:SetScript("OnClick", function() onClick() end)
         b:HookScript("OnEnter", function(self)
-            SDB.Tip.Begin(self, "ANCHOR_TOP", "Numpad", "control")
-            SDB.Tip.Line("Every page uses the " .. #SDB.NUMPAD_KEYS .. " keys of a keyboard numpad, with no prefix.")
-            SDB.Tip.Hint("The game's own numpad keys run your cards while this is on.")
+            SDB.Tip.Begin(self, "ANCHOR_TOP", title, "control")
+            SDB.Tip.Line(line)
+            if hint then SDB.Tip.Hint(hint) end
             SDB.Tip.Done()
         end)
         b:HookScript("OnLeave", function() GameTooltip:Hide() end)
-        f.numpadTile = b
+        return b
     end
-    function f:SetValue(n, cols, vertical, numpad)
+    local k = #list
+    if opts.onNumpad then
+        f.numpadTile = LayoutTile(k, "Numpad", #SDB.NUMPAD_KEYS .. " keys", "Numpad",
+            "Every page uses the " .. #SDB.NUMPAD_KEYS .. " keys of a keyboard numpad, with no prefix.",
+            "The game's own numpad keys run your cards while this is on.", opts.onNumpad)
+        k = k + 1
+    end
+    if opts.onMMO then
+        f.mmoTile = LayoutTile(k, "MMO Mouse", SDB.MMO_SIZE .. " buttons", "MMO Mouse",
+            "Every page shows " .. SDB.MMO_SIZE .. " cards laid out like the side buttons of an MMO mouse: 3 rows by 4 "
+                .. "columns, with 1 2 3 down the left column.",
+            "The cards keep their keys; set your mouse's buttons to send them.", opts.onMMO)
+    end
+    function f:SetValue(n, cols, vertical, numpad, mmo)
         local np = self.numpadTile
         if np then
             np.countFs:SetTextColor(unpack(numpad and CELL_GOLD or { 1, 1, 1 }))
@@ -1643,7 +1666,14 @@ function U.PadTiles(parent, opts)
             np.check:SetShown(numpad and np.hasCheck)
             DrawNumpadPictogram(np, numpad)
         end
-        if numpad then n = nil end
+        local mt = self.mmoTile
+        if mt then
+            mt.countFs:SetTextColor(unpack(mmo and CELL_GOLD or { 1, 1, 1 }))
+            mt:SetSelected(mmo)
+            mt.check:SetShown(mmo and mt.hasCheck)
+            DrawPictogram(mt, SDB.MMO_SIZE, SDB.MMO_COLS, mmo)
+        end
+        if numpad or mmo then n = nil end
         for _, b in ipairs(self.tiles) do
             local chosen = (b.n == n)
             local c = (chosen and cols) or SDB.PadColsFor(b.n, vertical and true or false)

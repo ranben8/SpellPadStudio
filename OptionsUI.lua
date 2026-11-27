@@ -331,30 +331,43 @@ local function BuildPrefixGroup(g)
     Refresh()
 end
 
--- Pad group (SpellPad tab): tiles for the common keypad sizes and the keyboard numpad, the direction, and the two
--- dropdowns that make any other size from 4 to 36. Every size goes through SDB.SetPadSize, which applies it to every
--- page (and leaves the numpad); the Numpad tile asks first (Numpad.lua). The numpad has one fixed shape, so the
--- direction and the custom size are greyed while it is on.
+-- Pad group (SpellPad tab): tiles for the common keypad sizes, the keyboard numpad and an MMO mouse (in rows of 4), the
+-- direction, and the two dropdowns that make any other size from 4 to 36. Every size goes through SDB.SetPadSize, which
+-- applies it to every page (and leaves the numpad or the MMO mouse layout); the Numpad tile asks first (Numpad.lua).
+-- The numpad and the MMO mouse have one fixed shape, so the direction (and for the numpad the custom size) is greyed
+-- while one is on.
 local function BuildPadSizeGroup(g, win)
     local function Click() PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856) end
 
-    local tiles = SDB.UI.PadTiles(g, { w = 70, h = 70, gap = 7, countFont = "GameFontNormalLarge", onPick = function(n)
-        Click()
-        SDB.SetPadSize(n, SDB.PadColsFor(n, SDB.PadIsVertical()))
-    end, onNumpad = function()
-        Click()
-        if SDB.IsNumpad() then
-            SDB.Chat("This profile already uses the numpad. Pick a size to go back to prefix keys.", "warn")
-        elseif SDB.Numpad then
-            SDB.Numpad.Ask()
-        end
-    end })
+    -- four tiles fill the group's inner width
+    local tileGap = 7
+    local tileW = math.floor((g:GetWidth() - 2 * PAD - 3 * tileGap) / 4)
+    local tiles = SDB.UI.PadTiles(g, { w = tileW, h = 70, gap = tileGap, perRow = 4, countFont = "GameFontNormalLarge",
+        onPick = function(n)
+            Click()
+            SDB.SetPadSize(n, SDB.PadColsFor(n, SDB.PadIsVertical()))
+        end, onNumpad = function()
+            Click()
+            if SDB.IsNumpad() then
+                SDB.Chat("This profile already uses the numpad. Pick a size to go back to prefix keys.", "warn")
+            elseif SDB.Numpad then
+                SDB.Numpad.Ask()
+            end
+        end, onMMO = function()
+            Click()
+            if SDB.IsMMO() then
+                SDB.Chat("This profile already uses the MMO mouse layout.", "warn")
+            else
+                SDB.SetPadSize(SDB.MMO_SIZE, SDB.MMO_COLS, { layout = "mmo" })
+            end
+        end })
     tiles:SetPoint("TOPLEFT", g, "TOPLEFT", PAD, -g.cur)
-    g.cur = g.cur + 70 + 10
+    g.cur = g.cur + tiles:GetHeight() + 10
 
-    local horiz = SDB.UI.ChoiceChip(g, "Horizontal (wider than tall)", 185, 24)
-    local vert = SDB.UI.ChoiceChip(g, "Vertical (taller than wide)", 185, 24)
-    horiz:SetPoint("TOPLEFT", g, "TOPLEFT", PAD, -g.cur)
+    local horiz = SDB.UI.ChoiceChip(g, "Horizontal", 100, 24)
+    local vert = SDB.UI.ChoiceChip(g, "Vertical", 100, 24)
+    -- the pair sits centred under the tiles
+    horiz:SetPoint("TOPRIGHT", g, "TOP", -5, -g.cur)
     vert:SetPoint("LEFT", horiz, "RIGHT", 10, 0)
     g.cur = g.cur + 24 + 10
 
@@ -387,11 +400,12 @@ local function BuildPadSizeGroup(g, win)
         local pad = SDB.PadSize()
         local vertical = SDB.PadIsVertical()
         local numpad = SDB.IsNumpad()
-        tiles:SetValue(pad, pad and SDB.PadCols() or nil, vertical, numpad)
+        local mmo = SDB.IsMMO()
+        tiles:SetValue(pad, pad and SDB.PadCols() or nil, vertical, numpad, mmo)
         horiz:SetSelected(not vertical)
         vert:SetSelected(vertical)
-        -- a square pad looks the same both ways, and the numpad has one shape: the choice is greyed out
-        local fixed = numpad or (pad and SDB.PadColsFor(pad, false) == SDB.PadColsFor(pad, true))
+        -- a square pad looks the same both ways, and the numpad and the MMO mouse have one shape: the choice is greyed out
+        local fixed = numpad or mmo or (pad and SDB.PadColsFor(pad, false) == SDB.PadColsFor(pad, true))
         for _, chip in ipairs({ horiz, vert }) do
             chip:SetAlpha(fixed and 0.45 or 1)
             chip:SetEnabled(not fixed)
@@ -412,6 +426,10 @@ local function BuildPadSizeGroup(g, win)
         local rows, cols = pad / SDB.PadCols(), SDB.PadCols()
         local text = "Every page shows " .. pad .. " cards, " .. rows .. (rows == 1 and " row by " or " rows by ") .. cols
             .. (cols == 1 and " column." or " columns.")
+        if mmo then
+            text = "Every page shows 12 cards laid out like an MMO mouse: 3 rows by 4 columns, with 1 2 3 down the left "
+                .. "column. The cards keep their keys."
+        end
         local hidden, pages = SDB.HiddenContent(pad)
         if hidden > 0 then
             text = text .. "\n|cFFFF9900" .. SDB.Plural(hidden, "card") .. " on " .. SDB.Plural(pages, "page")

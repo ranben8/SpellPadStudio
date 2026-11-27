@@ -577,7 +577,7 @@ function SDB.ExportAllPagesString()
         deckSize = SDB.db.deckSize or 12,
         padSize = SDB.PadSize(), -- one size and shape for every page (nil = each page its own)
         padCols = SDB.PadCols(),
-        padLayout = SDB.IsNumpad() and "numpad" or nil,
+        padLayout = (SDB.IsNumpad() and "numpad") or (SDB.IsMMO() and "mmo") or nil,
         pageNames = SDB.db.pageNames or {},
         pageCols = pageCols,
         pageCycles = pageCycles,
@@ -6232,8 +6232,9 @@ function SDB.BuildUI()
             local color = row.sdbCompact and "|cFF888888" or COLORS[state] -- a compact empty card has a dim ghost key cap
             fs:SetFontObject("GameFontNormal")
             local shown = Suffix(data.key) or tostring(row.slotIndex)
-            -- numpad keys are abbreviated on the card (the tooltip keeps the full name)
-            shown = SDB.NumpadShort(shown)
+            -- numpad keys are abbreviated on the card, and an MMO mouse profile shows 10 11 12 for 0 - = (the
+            -- tooltip keeps the full key)
+            shown = SDB.MMOKeyShort(SDB.NumpadShort(shown))
             row.bindBtn:SetText(color .. shown .. "|r")
         end
 

@@ -315,7 +315,11 @@ function IP.Validate(data)
         if pad then
             clean.padSize = pad
             clean.padCols = SDB.PadCols(data)
-            if SDB.IsNumpad(data) then clean.padLayout = "numpad" end
+            if SDB.IsNumpad(data) then
+                clean.padLayout = "numpad"
+            elseif SDB.IsMMO(data) then
+                clean.padLayout = "mmo"
+            end
         end
 
         local okSize = type(data.deckSize) == "number" and data.deckSize == math.floor(data.deckSize)
@@ -957,7 +961,7 @@ function IP.CreateProfile(data, name)
     -- the string's pad size; a string without one keeps every page's own size, as the profile it came from had them
     p.padSize, p.padCols = data.padSize, data.padCols
     -- the string's layout only (the loop above copied the active profile's, and its remembered prefix)
-    p.padLayout = (data.padLayout == "numpad" and SDB.IsNumpad(data)) and "numpad" or nil
+    p.padLayout = ((data.padLayout == "numpad" and SDB.IsNumpad(data)) and "numpad") or (SDB.IsMMO(data) and "mmo") or nil
     p.numpadReturn = nil
     if p.padSize then
         p.deckSize = p.padSize

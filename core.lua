@@ -2034,7 +2034,8 @@ StaticPopupDialogs["GALLEONBRIDGE_PAD_SIZE_CONFIRM"] = {
 
 -- Sets the pad size of the active profile: n cards (4 to 36) drawn in `cols` columns (nil, or a number that doesn't
 -- divide n, = the horizontal shape). opts.quiet leaves out the chat line, opts.done runs once the size is in place (also
--- when nothing had to change), opts.cancel when the question is answered with Cancel. Returns true when it applied,
+-- when nothing had to change), opts.cancel when the question is answered with Cancel. opts.layout = "mmo" (12 cards in
+-- 4 columns only) draws the pad like an MMO mouse; every other call leaves that layout. Returns true when it applied,
 -- "asked" while a question is open, false when refused.
 function SDB.SetPadSize(n, cols, opts)
     opts = opts or {}
@@ -2045,10 +2046,12 @@ function SDB.SetPadSize(n, cols, opts)
         return false
     end
     if type(cols) ~= "number" or cols ~= math.floor(cols) or cols < 1 or n % cols ~= 0 then cols = SDB.PadColsFor(n, false) end
+    local layout = (opts.layout == "mmo" and n == SDB.MMO_SIZE and cols == SDB.MMO_COLS) and "mmo" or nil
     local db = SDB.db
     local first = not SDB.PadSize(db)
     local leaving = SDB.IsNumpad(db) -- a grid size leaves the numpad: every card gets a prefix key again
-    if not first and not leaving and SDB.PadSize(db) == n and SDB.PadCols(db) == cols then
+    local sameLayout = (layout == "mmo") == SDB.IsMMO(db)
+    if not first and not leaving and sameLayout and SDB.PadSize(db) == n and SDB.PadCols(db) == cols then
         if opts.done then opts.done() end
         return true
     end
@@ -2063,6 +2066,7 @@ function SDB.SetPadSize(n, cols, opts)
             SDB.LeaveNumpadKeys(db, backPrefix)
         end
         db.padSize, db.padCols = n, cols
+        db.padLayout = layout
         db.deckSize = n -- read by the imports that build pages from the game
         SDB.FillPages(db)
         if SDB.activeSlotIndex and SDB.activeSlotIndex > n then SDB.activeSlotIndex = nil end
@@ -2077,8 +2081,13 @@ function SDB.SetPadSize(n, cols, opts)
         end
         if not opts.quiet then
             local rows = n / cols
-            print("|cFF00FF00[SpellPad Studio]|r Every page now shows " .. n .. " cards, " .. rows
-                .. (rows == 1 and " row by " or " rows by ") .. cols .. (cols == 1 and " column." or " columns."))
+            if layout == "mmo" then
+                print("|cFF00FF00[SpellPad Studio]|r Every page now shows 12 cards laid out like an MMO mouse: "
+                    .. "3 rows by 4 columns, numbered down each column.")
+            else
+                print("|cFF00FF00[SpellPad Studio]|r Every page now shows " .. n .. " cards, " .. rows
+                    .. (rows == 1 and " row by " or " rows by ") .. cols .. (cols == 1 and " column." or " columns."))
+            end
             if leaving then
                 print("|cFF00FF00[SpellPad Studio]|r The numpad is off: every card has a '" .. backPrefix .. "' key again.")
             end
@@ -2122,6 +2131,8 @@ function SDB.PadSizeSlash(arg)
     if arg == "" then
         if SDB.IsNumpad() then
             print(Y .. "Every page uses the 17 numpad keys.")
+        elseif SDB.IsMMO() then
+            print(Y .. "Every page shows 12 cards laid out like an MMO mouse: 3 rows by 4 columns, numbered down each column.")
         elseif pad then
             print(Y .. "Every page shows " .. pad .. " cards, " .. SDB.PadRows() .. " rows by " .. SDB.PadCols() .. " columns.")
         else
