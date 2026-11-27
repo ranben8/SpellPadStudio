@@ -1,3 +1,23 @@
+# SpellPad Studio 1.6.4
+
+A pad layout for MMO mice, and numpad cards in the order you would expect. Tested on WoW Forever.
+
+## New
+
+- **MMO Mouse layout.** Options > SpellPad > Pad and the first step of the setup guide have a new `MMO Mouse` tile. Every page then shows 12 cards drawn 3 rows by 4 columns and numbered down each column (1 2 3 on the left, then 4 5 6, 7 8 9 and 10 11 12), the way the side buttons of an MMO mouse are. The cards stay 1 to 12 in the main window and keep their keys. On this layout the keys 0, `-` and `=` show as 10, 11 and 12 on the SpellPad and the card key caps, like the numbers printed on the mouse; the key cap tooltip still names the real key. Pick any size tile to draw the pad in rows again. Exported profiles keep the layout.
+
+## Changes
+
+- **Numpad cards follow the numpad.** Cards 1 to 9 are Numpad 1 to 9 and card 10 is Numpad 0, then `/`, `*`, `-`, `+`, Enter, the decimal key and Num Lock (cards 11 to 17). Numpad pages you already have are put in this order the first time you log in, after a snapshot: every macro stays on its key, so nothing runs differently. Snapshots and import strings from 1.6.3 are sorted the same way when they are used.
+- **The pad size tiles sit in rows of four** in Options and the setup guide, and the direction buttons read just `Horizontal` and `Vertical`.
+
+## Known issues
+
+- An outfit card points at the outfit's place in your outfit list, so deleting or reordering outfits makes the card put on a different one. The game's own `/outfit` command works the same way.
+- With Num Lock on, Windows lets go of Shift before it sends a numpad digit or the decimal key, so `[mod:shift]` is never true on those keys. Such a card shows an orange note in its key tooltip. Turn Num Lock off, or use Ctrl or Alt, which work either way. The Num Lock card also switches Windows' Num Lock.
+- Importing a string into a numpad profile still warns about the string's own key conflicts, although the import gives every card a numpad key.
+- Forever has no mounts or dual specialization yet, so the Mounted context and the two Class Specializations entries are untested there.
+
 # SpellPad Studio 1.6.3
 
 Your keyboard's numpad can be the keypad, transmog outfits go on cards, and addon key bindings get their own place in the Arsenal. Tested on Retail and WoW Forever.
